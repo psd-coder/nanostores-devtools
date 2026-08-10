@@ -1,0 +1,65 @@
+{
+  "name": "nanostores-devtools",
+  "version": "0.1.0",
+  "description": "Devtools for nanostores",
+  "keywords": [
+    "nanostores",
+    "devtools",
+    "debug",
+    "store",
+    "state"
+  ],
+  "license": "MIT",
+  "author": "Pavel Grinchenko <psd-coder@evilmartians.com>",
+  "repository": "psd-coder/nanostores-devtools",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist/*",
+    "package.json",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "pnpm run --parallel /^lint:/",
+    "lint:oxlint": "oxlint",
+    "lint:oxfmt": "oxfmt --check . '!**/package.json'",
+    "format": "oxfmt --write . '!**/package.json'",
+    "bump": "./scripts/bump.sh",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "./node_modules/.bin/nano-staged",
+    "pre-push": "pnpm typecheck"
+  },
+  "nano-staged": {
+    "*.{js,cjs,mjs,jsx,ts,mts,cts,tsx}": [
+      "oxlint --fix --fix-suggestions",
+      "oxfmt"
+    ]
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@size-limit/preset-small-lib": "^13.0.3",
+    "nano-staged": "^1.0.2",
+    "oxfmt": "^0.62.0",
+    "oxlint": "^1.77.0",
+    "publint": "^0.3.23",
+    "simple-git-hooks": "^2.13.1",
+    "size-limit": "^13.0.3",
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "packageManager": "pnpm@11.21.0+sha512.521705bce689924eac72f5a3587122f362689ef6571e55ba80076fd637c11132ecffada26fad4ea79c485bfddbfd3d5a2a5b05805a77e893de71ec8a6cca3bb1"
+}

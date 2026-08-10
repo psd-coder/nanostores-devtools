@@ -1,0 +1,5 @@
+# 3 days blocks ~94% of malicious releases (median takedown is 14 hours)
+minimumReleaseAge: 4320
+allowBuilds:
+  esbuild: false
+  simple-git-hooks: false
