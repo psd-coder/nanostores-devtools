@@ -5,14 +5,30 @@ import type { RegistryChange, StoreEntry, StoreType } from "./registry.ts";
 
 export type ChangeListener = (change: RegistryChange) => void;
 
-/** How many stores one creation site has made, and the live ones it still holds, oldest first. */
-export type SiteState = { made: number; stores: Store[] };
+/** One store a creation site made, with the number that names it: `$items #3`. */
+export type SiteStore = { store: Store; number: number };
+
+/** One place in the source where a store is made, plus the live ones it holds, oldest first. */
+export type SiteState = {
+  name: string;
+  fn: string | null;
+  line: number;
+  /** What the entries are named. It grows a place suffix once a second site claims `name`. */
+  display: string;
+  made: number;
+  stores: SiteStore[];
+};
 
 /**
  * One instrumented module's own bookkeeping. It outlives the module body, because a hot reload
  * runs that body again and the new run has to drop what the old one left behind.
  */
-export type ModuleScope = { owned: Set<Store>; sites: Map<string, SiteState> };
+export type ModuleScope = {
+  owned: Set<Store>;
+  sites: Map<string, SiteState>;
+  /** Which site took a plain name first, so the second one can rename both. */
+  claims: Map<string, SiteState>;
+};
 
 export type DevtoolsGlobal = {
   entries: Map<Store, StoreEntry>;

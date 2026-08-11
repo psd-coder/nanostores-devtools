@@ -5,14 +5,17 @@ import {
   type ModuleScope,
   peekDevtoolsGlobal,
   type SiteState,
+  type SiteStore,
 } from "../global.ts";
 import {
   evictStore,
   getEntry,
+  makeLabel,
   registerStore,
   type StoreType,
   unregisterStore,
 } from "../registry.ts";
+import { warnOnce } from "../warn.ts";
 
 export type { StoreType };
 
@@ -33,18 +36,19 @@ export type FileScope = {
 export function fileScope(moduleId: string, home: string, maxStoresPerSite: number): FileScope {
   function take(site: CreationSite, store: Store, name: string, type: StoreType): void {
     const scope = scopeOf(moduleId);
-    const state = siteState(scope, site);
+    const state = siteState(scope, site, name);
 
     /** One store handed back twice is one store: a second number would rename the first entry. */
-    if (state.stores.includes(store)) {
+    if (state.stores.some((held) => held.store === store)) {
       return;
     }
 
     state.made += 1;
+    claimName(scope, state, home);
 
     const entry = registerStore({
       store,
-      name: state.made === 1 ? name : `${name} #${state.made}`,
+      name: numbered(state.display, state.made),
       home,
       type,
       origin: "plugin",
@@ -55,7 +59,7 @@ export function fileScope(moduleId: string, home: string, maxStoresPerSite: numb
       return;
     }
 
-    state.stores.push(store);
+    state.stores.push({ store, number: state.made });
     scope.owned.add(store);
     enforceCap(scope, state, maxStoresPerSite);
   }
@@ -110,6 +114,65 @@ export function fileScope(moduleId: string, home: string, maxStoresPerSite: numb
   };
 }
 
+/**
+ * Two source lines wanting one name is a real clash, so both sides take the place suffix: one
+ * bare `$counter` next to `$counter (line 20)` does not say which of the two lines it came from.
+ */
+function claimName(scope: ModuleScope, state: SiteState, home: string): void {
+  const owner = scope.claims.get(state.name);
+
+  if (owner === undefined) {
+    scope.claims.set(state.name, state);
+
+    return;
+  }
+
+  if (owner === state) {
+    return;
+  }
+
+  const both = `${placeOf(owner)} and ${placeOf(state)}`;
+
+  suffixSite(owner, home);
+  suffixSite(state, home);
+  warnOnce(
+    "name-clash",
+    makeLabel(home, state.name),
+    `"${state.name}" is made in two places in "${home}": ${both}. Both entries show their place.`,
+  );
+}
+
+function suffixSite(state: SiteState, home: string): void {
+  if (state.display !== state.name) {
+    return;
+  }
+
+  state.display = `${state.name} (${placeOf(state)})`;
+
+  for (const held of state.stores) {
+    const entry = getEntry(held.store);
+
+    /** A store an explicit group took carries a hand-written name, which this must not touch. */
+    if (entry?.home === home) {
+      registerStore({
+        store: held.store,
+        name: numbered(state.display, held.number),
+        home,
+        type: entry.type,
+        origin: "plugin",
+      });
+    }
+  }
+}
+
+function placeOf(state: SiteState): string {
+  return state.fn === null ? `line ${state.line}` : `${state.fn}, line ${state.line}`;
+}
+
+function numbered(display: string, made: number): string {
+  return made === 1 ? display : `${display} #${made}`;
+}
+
 /** A type the store already carries beats the one an adopt site can give, which is none. */
 function adoptedType(store: Store, site: CreationSite): StoreType {
   const registered = getEntry(store)?.type;
@@ -132,20 +195,20 @@ function enforceCap(scope: ModuleScope, state: SiteState, cap: number): void {
   }
 
   /** A store the registry lost to somebody else's label holds no slot here either. */
-  state.stores = state.stores.filter((store) => getEntry(store) !== undefined);
+  state.stores = state.stores.filter((held) => getEntry(held.store) !== undefined);
 
   while (state.stores.length > cap) {
     const [doomed] = state.stores.splice(doomedIndex(state.stores), 1);
 
     if (doomed) {
-      scope.owned.delete(doomed);
-      evictStore(doomed);
+      scope.owned.delete(doomed.store);
+      evictStore(doomed.store);
     }
   }
 }
 
-function doomedIndex(stores: Store[]): number {
-  const unmounted = stores.slice(0, -1).findIndex((store) => store.lc === 0);
+function doomedIndex(stores: SiteStore[]): number {
+  const unmounted = stores.slice(0, -1).findIndex((held) => held.store.lc === 0);
 
   return unmounted === -1 ? 0 : unmounted;
 }
@@ -158,14 +221,14 @@ function scopeOf(moduleId: string): ModuleScope {
     return known;
   }
 
-  const created: ModuleScope = { owned: new Set(), sites: new Map() };
+  const created: ModuleScope = { owned: new Set(), sites: new Map(), claims: new Map() };
 
   scopes.set(moduleId, created);
 
   return created;
 }
 
-function siteState(scope: ModuleScope, site: CreationSite): SiteState {
+function siteState(scope: ModuleScope, site: CreationSite, name: string): SiteState {
   const key = [site.name, site.fn, site.line].join("\u0000");
   const known = scope.sites.get(key);
 
@@ -173,7 +236,14 @@ function siteState(scope: ModuleScope, site: CreationSite): SiteState {
     return known;
   }
 
-  const created: SiteState = { made: 0, stores: [] };
+  const created: SiteState = {
+    name,
+    fn: site.fn,
+    line: site.line,
+    display: name,
+    made: 0,
+    stores: [],
+  };
 
   scope.sites.set(key, created);
 

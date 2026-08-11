@@ -102,6 +102,60 @@ describe("store", () => {
   });
 });
 
+describe("a name two source lines claim", () => {
+  it("suffixes both entries with the enclosing function and the line", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+
+    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    expect(names()).toEqual(["$counter (makeCart, line 12)", "$counter (line 20)"]);
+  });
+
+  it("warns once and names both places", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+
+    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+    scope.store(atom(0), site({ name: "$counter", line: 31 }));
+
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain("makeCart, line 12");
+    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain("line 20");
+  });
+
+  it("keeps the numbering of the site it renames", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    expect(names()).toEqual(["$counter (line 12)", "$counter (line 12) #2", "$counter (line 20)"]);
+  });
+
+  it("leaves a store an explicit group took where it is", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $counter = atom(0);
+
+    scope.store($counter, site({ name: "$counter", line: 12 }));
+    trackStores("cart", { $counter });
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    expect(getEntry($counter)).toMatchObject({ home: "cart", name: "$counter" });
+  });
+
+  it("starts the claims again after a clear, so a reload does not clash with itself", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
+    scope.clear();
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
+
+    expect(names()).toEqual(["$counter"]);
+  });
+});
+
 describe("the per-site cap", () => {
   it("holds at the cap and drops the unmounted stores first", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP);
