@@ -6,6 +6,13 @@ import {
 } from "./extension.ts";
 import { getDevtoolsGlobal, peekDevtoolsGlobal } from "./global.ts";
 import { attachHooks } from "./hooks.ts";
+import {
+  createLifecycle,
+  dropPendingRows,
+  type LifecycleState,
+  noteInitSent,
+  noteRegistryChange,
+} from "./lifecycle.ts";
 import { detachHooks, onRegistryChange } from "./registry.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { createTimeline, currentStack, dropOpenRow, type TimelineState } from "./timeline.ts";
@@ -16,6 +23,7 @@ export type DevtoolsOptions = {
   maxAge?: number | undefined;
   trace?: boolean | undefined;
   traceLimit?: number | undefined;
+  lifecycleEvents?: boolean | undefined;
 };
 
 export type DevtoolsHandle = {
@@ -29,6 +37,7 @@ export type Bridge = {
   handle: DevtoolsHandle;
   listening: boolean;
   timeline: TimelineState;
+  lifecycle: LifecycleState;
   detach: () => void;
   unwatch: () => void;
 };
@@ -37,6 +46,7 @@ const DEFAULT_NAME = "nanostores";
 const DEFAULT_MAX_AGE = 500;
 const DEFAULT_TRACE = true;
 const DEFAULT_TRACE_LIMIT = 10;
+const DEFAULT_LIFECYCLE_EVENTS = true;
 
 /**
  * With no extension nothing is logged: the package is meant to be safe in a production
@@ -62,7 +72,14 @@ export function connectDevtools(options?: DevtoolsOptions): DevtoolsHandle {
   }
 
   devtools.bridge = bridge;
-  bridge.unwatch = onRegistryChange(attachHooks);
+  bridge.unwatch = onRegistryChange((change) => {
+    /** A store on its way out took its hooks with it, so only the other changes need a pass. */
+    if (change.kind !== "unregister") {
+      attachHooks();
+    }
+
+    noteRegistryChange(bridge, change);
+  });
   attachHooks();
 
   /**
@@ -71,6 +88,7 @@ export function connectDevtools(options?: DevtoolsOptions): DevtoolsHandle {
    */
   queueMicrotask(() => {
     if (peekDevtoolsGlobal()?.bridge === bridge) {
+      noteInitSent(bridge);
       bridge.connection.init(buildSnapshot());
     }
   });
@@ -97,6 +115,7 @@ function openBridge(options?: DevtoolsOptions): Bridge | undefined {
       connection,
       listening: false,
       timeline,
+      lifecycle: createLifecycle(options?.lifecycleEvents ?? DEFAULT_LIFECYCLE_EVENTS),
       detach: () => {
         connection.unsubscribe();
       },
@@ -178,6 +197,7 @@ function receive(bridge: Bridge, message: ExtensionMessage): void {
   if (message.type === "STOP") {
     bridge.listening = false;
     dropOpenRow(bridge);
+    dropPendingRows(bridge);
   }
 }
 
@@ -190,6 +210,7 @@ function disconnect(bridge: Bridge): void {
 
   bridge.listening = false;
   dropOpenRow(bridge);
+  dropPendingRows(bridge);
   bridge.unwatch();
   bridge.detach();
   detachHooks();

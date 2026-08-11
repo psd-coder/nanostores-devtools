@@ -1,6 +1,7 @@
-import { onNotify, onSet } from "nanostores";
+import { onNotify, onSet, onStart, onStop } from "nanostores";
 
 import { catchAndWarn } from "./catch-and-warn.ts";
+import { noteMount, noteUnmount } from "./lifecycle.ts";
 import { listEntries, type StoreEntry, type StoreType } from "./registry.ts";
 import { appendFollower, flushOpenRow, openDirectRow } from "./timeline.ts";
 
@@ -24,11 +25,34 @@ function attach(entry: StoreEntry): void {
     return;
   }
 
+  attachLifecycle(entry);
+
   if (FOLLOWER.has(entry.type)) {
     attachFollower(entry);
   } else {
     attachDirectWrite(entry);
   }
+}
+
+/** Every type, and whatever `lifecycleEvents` says, because `everMounted` is not a row. */
+function attachLifecycle(entry: StoreEntry): void {
+  /** A store mounted before we got here fires no `onStart`, so its mount is read off `lc` once. */
+  if (entry.store.lc > 0) {
+    entry.everMounted = true;
+  }
+
+  entry.unhook.push(
+    onStart(entry.store, () => {
+      catchAndWarn(entry.label, () => {
+        noteMount(entry);
+      });
+    }),
+    onStop(entry.store, () => {
+      catchAndWarn(entry.label, () => {
+        noteUnmount(entry);
+      });
+    }),
+  );
 }
 
 /**

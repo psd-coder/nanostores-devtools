@@ -1,9 +1,9 @@
 import type { Store } from "nanostores";
 
 import type { Bridge } from "./connect.ts";
-import type { StoreEntry } from "./registry.ts";
+import type { RegistryChange, StoreEntry } from "./registry.ts";
 
-export type ChangeListener = () => void;
+export type ChangeListener = (change: RegistryChange) => void;
 
 export type DevtoolsGlobal = {
   entries: Map<Store, StoreEntry>;

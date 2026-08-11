@@ -9,7 +9,8 @@ import { captureStack, type StackBoundary } from "./stack.ts";
 export type Change =
   | { label: string; op: "set" }
   | { label: string; op: "setKey"; path: string }
-  | { label: string; op: "computed"; from?: string | undefined };
+  | { label: string; op: "computed"; from?: string | undefined }
+  | { label: string; op: "mount" | "unmount" | "register" | "unregister" };
 
 export type Row = {
   type: string;
@@ -60,7 +61,25 @@ export function openDirectRow(
   const { type, change } = describeWrite(entry, changed);
   const stack = timeline.trace ? captureStack(timeline.traceLimit, boundary) : undefined;
 
-  openRow(bridge, type, change, stack);
+  openRow(bridge, type, [change], stack);
+}
+
+/**
+ * A lifecycle row is about the registry or the mount state, not about a write, so it stands on
+ * its own: whatever row is open closes first, with the tree as it was before this happened.
+ *
+ * It opens rather than sends: at `onStart` the store is not mounted yet, so a tree built there
+ * would show the state before the mount the row announces.
+ */
+export function openLifecycleRow(bridge: Bridge, type: string, changes: Change[]): void {
+  guardedFlush(bridge);
+  openRow(bridge, type, changes);
+}
+
+/** The same row, closed at once: a row drawn at the end of a turn has nothing left to wait for. */
+export function sendLifecycleRow(bridge: Bridge, type: string, changes: Change[]): void {
+  openLifecycleRow(bridge, type, changes);
+  guardedFlush(bridge);
 }
 
 /**
@@ -81,13 +100,20 @@ export function appendFollower(entry: StoreEntry): void {
   const open = bridge.timeline.row;
 
   if (open) {
-    open.changes.push({ label: entry.label, op: "computed", from: open.changes.at(-1)?.label });
+    /** A mount row is a store's own, so the recompute it causes has nothing to name but itself. */
+    const previous = open.changes.at(-1)?.label;
+
+    open.changes.push({
+      label: entry.label,
+      op: "computed",
+      from: previous === entry.label ? undefined : previous,
+    });
 
     return;
   }
 
   /** A follower that finds no open row is a row of its own, named after the store. */
-  openRow(bridge, `${entry.name}/computed`, { label: entry.label, op: "computed" });
+  openRow(bridge, `${entry.name}/computed`, [{ label: entry.label, op: "computed" }]);
 }
 
 export function flushOpenRow(): void {
@@ -140,14 +166,19 @@ function flush(bridge: Bridge): void {
 }
 
 /** One shape for every row, and the flush that closes it is booked in the same breath. */
-function openRow(bridge: Bridge, type: string, change: Change, stack?: string | undefined): void {
-  bridge.timeline.row = { type, changes: [change], timestamp: Date.now(), stack };
+function openRow(
+  bridge: Bridge,
+  type: string,
+  changes: Change[],
+  stack?: string | undefined,
+): void {
+  bridge.timeline.row = { type, changes, timestamp: Date.now(), stack };
 
   scheduleFlush(bridge);
 }
 
 /** Nothing is built while no panel is listening: the tree is the expensive part of a row. */
-function listeningBridge(): Bridge | undefined {
+export function listeningBridge(): Bridge | undefined {
   const bridge = peekDevtoolsGlobal()?.bridge;
 
   return bridge?.listening ? bridge : undefined;

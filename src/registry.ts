@@ -1,6 +1,11 @@
 import type { Store } from "nanostores";
 
-import { type DevtoolsGlobal, getDevtoolsGlobal, peekDevtoolsGlobal } from "./global.ts";
+import {
+  type ChangeListener,
+  type DevtoolsGlobal,
+  getDevtoolsGlobal,
+  peekDevtoolsGlobal,
+} from "./global.ts";
 import { warnOnce } from "./warn.ts";
 
 export type StoreType = "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
@@ -25,6 +30,15 @@ export type Registration = {
   type: StoreType;
   origin: StoreOrigin;
 };
+
+/**
+ * What moved, for a listener that draws a row for it. `update` covers a store that was already
+ * here and only changed its name, home or type, which is nobody's timeline row.
+ */
+export type RegistryChange =
+  | { kind: "register"; entry: StoreEntry }
+  | { kind: "unregister"; entry: StoreEntry }
+  | { kind: "update" };
 
 const TOTAL_WARNING_AT = 2000;
 
@@ -56,7 +70,7 @@ export function registerStore(registration: Registration): StoreEntry {
 
   devtools.entries.set(registration.store, entry);
   warnOnSize(devtools);
-  notifyChange(devtools);
+  notifyChange(devtools, { kind: "register", entry });
 
   return entry;
 }
@@ -99,10 +113,6 @@ export function untrack(group: string): void {
   for (const store of doomed) {
     dropEntry(devtools, store);
   }
-
-  if (doomed.length > 0) {
-    notifyChange(devtools);
-  }
 }
 
 export function listEntries(): StoreEntry[] {
@@ -131,7 +141,7 @@ export function detachHooks(): void {
   }
 }
 
-export function onRegistryChange(listener: () => void): () => void {
+export function onRegistryChange(listener: ChangeListener): () => void {
   const { changeListeners } = getDevtoolsGlobal();
 
   changeListeners.add(listener);
@@ -156,7 +166,7 @@ function relabelEntry(
   if (registration.type !== "unknown" && registration.type !== entry.type) {
     entry.type = registration.type;
     clearHooks(entry);
-    notifyChange(devtools);
+    notifyChange(devtools, { kind: "update" });
   }
 
   if (registration.origin === "plugin" && entry.origin === "explicit") {
@@ -189,7 +199,7 @@ function relabelEntry(
   entry.label = label;
   entry.origin = registration.origin;
 
-  notifyChange(devtools);
+  notifyChange(devtools, { kind: "update" });
 
   return entry;
 }
@@ -222,6 +232,8 @@ function dropEntry(devtools: DevtoolsGlobal, store: Store): boolean {
     devtools.byLabel.delete(entry.label);
   }
 
+  notifyChange(devtools, { kind: "unregister", entry });
+
   return true;
 }
 
@@ -246,8 +258,8 @@ function warnOnSize(devtools: DevtoolsGlobal): void {
 }
 
 /** A snapshot, so a listener that subscribes or unsubscribes mid-run does not change this pass. */
-function notifyChange(devtools: DevtoolsGlobal): void {
+function notifyChange(devtools: DevtoolsGlobal, change: RegistryChange): void {
   for (const listener of Array.from(devtools.changeListeners)) {
-    listener();
+    listener(change);
   }
 }
