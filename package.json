@@ -15,7 +15,7 @@
   "type": "module",
   "sideEffects": false,
   "files": [
-    "dist/*",
+    "dist",
     "package.json",
     "README.md",
     "LICENSE.md"
@@ -23,7 +23,12 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "production": "./dist/noop.mjs",
       "default": "./dist/index.mjs"
+    },
+    "./vite": {
+      "types": "./dist/vite/plugin.d.mts",
+      "default": "./dist/vite/plugin.mjs"
     },
     "./vite/runtime": {
       "types": "./dist/vite/runtime.d.mts",
@@ -39,6 +44,9 @@
     "lint:oxlint": "oxlint",
     "lint:oxfmt": "oxfmt --check . '!**/package.json'",
     "format": "oxfmt --write . '!**/package.json'",
+    "publint": "publint --strict",
+    "attw": "pnpm pack --out node_modules/.attw.tgz --config.ignore-scripts=true && attw node_modules/.attw.tgz --profile esm-only",
+    "size": "size-limit",
     "bump": "./scripts/bump.sh",
     "prepare": "simple-git-hooks"
   },
@@ -70,6 +78,7 @@
     "@jridgewell/sourcemap-codec": "^1.5.5",
     "@nanostores/router": "1.1.0",
     "@size-limit/preset-small-lib": "^13.0.3",
+    "@types/node": "^24.13.3",
     "nano-staged": "^1.0.2",
     "nanostores": "1.4.2",
     "oxc-parser": "0.143.0",
@@ -86,5 +95,12 @@
   "packageManager": "pnpm@11.21.0+sha512.521705bce689924eac72f5a3587122f362689ef6571e55ba80076fd637c11132ecffada26fad4ea79c485bfddbfd3d5a2a5b05805a77e893de71ec8a6cca3bb1",
   "dependencies": {
     "magic-string": "^1.1.0"
-  }
+  },
+  "size-limit": [
+    {
+      "name": "browser entry",
+      "path": "dist/index.mjs",
+      "limit": "4 kB"
+    }
+  ]
 }

@@ -1,12 +1,10 @@
 export type StackBoundary = (...args: never[]) => unknown;
 
-declare global {
-  interface ErrorConstructor {
-    /** V8 features. Firefox has neither, so this is a Chrome cost control, not a guarantee. */
-    stackTraceLimit?: number | undefined;
-    captureStackTrace?: ((target: object, boundary?: StackBoundary) => void) | undefined;
-  }
-}
+/** The V8 half of `Error`. Firefox has neither, so this is a Chrome cost control, not a guarantee. */
+type V8ErrorConstructor = {
+  stackTraceLimit?: number | undefined;
+  captureStackTrace?: ((target: object, boundary?: StackBoundary) => void) | undefined;
+};
 
 /**
  * Captured at the direct write, because the extension's own capture happens inside its `send`,
@@ -16,21 +14,22 @@ declare global {
  * The limit belongs to the page, so it is ours only for the length of the capture.
  */
 export function captureStack(limit: number, boundary: StackBoundary): string | undefined {
-  const previous = Error.stackTraceLimit;
+  const v8: V8ErrorConstructor = Error;
+  const previous = v8.stackTraceLimit;
 
-  Error.stackTraceLimit = limit;
+  v8.stackTraceLimit = limit;
 
   try {
-    if (!Error.captureStackTrace) {
+    if (!v8.captureStackTrace) {
       return new Error().stack;
     }
 
     const holder: { stack?: string | undefined } = {};
 
-    Error.captureStackTrace(holder, boundary);
+    v8.captureStackTrace(holder, boundary);
 
     return holder.stack;
   } finally {
-    Error.stackTraceLimit = previous;
+    v8.stackTraceLimit = previous;
   }
 }
