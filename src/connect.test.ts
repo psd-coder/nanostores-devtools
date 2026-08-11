@@ -87,6 +87,7 @@ describe("connectDevtools", () => {
         type: "nanostores",
         maxAge: 500,
         serialize: { options: true },
+        trace: expect.any(Function),
         features: {
           pause: true,
           export: true,
@@ -109,9 +110,17 @@ describe("connectDevtools", () => {
     });
 
     it("reads an explicit undefined as an absent key", () => {
-      connectDevtools({ name: undefined, maxAge: undefined });
+      connectDevtools({ name: undefined, maxAge: undefined, trace: undefined });
 
       expect(fake.configs[0]).toMatchObject({ name: "nanostores", maxAge: 500 });
+      expect(fake.configs[0]?.trace).toBeTypeOf("function");
+    });
+
+    it("leaves trace out entirely with the option off, and never passes traceLimit", () => {
+      connectDevtools({ trace: false, traceLimit: 25 });
+
+      expect(fake.configs[0] && "trace" in fake.configs[0]).toBe(false);
+      expect(fake.configs[0] && "traceLimit" in fake.configs[0]).toBe(false);
     });
   });
 

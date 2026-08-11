@@ -152,8 +152,11 @@ function relabelEntry(
   registration: Registration,
   label: string,
 ): StoreEntry {
-  if (registration.type !== "unknown") {
+  /** The type decides which hooks an entry carries, so the ones attached under the old one go. */
+  if (registration.type !== "unknown" && registration.type !== entry.type) {
     entry.type = registration.type;
+    clearHooks(entry);
+    notifyChange(devtools);
   }
 
   if (registration.origin === "plugin" && entry.origin === "explicit") {

@@ -31,7 +31,7 @@ export type ExtensionConfig = {
   latency?: number | undefined;
   serialize?: boolean | ExtensionSerialize | undefined;
   features?: ExtensionFeatures | undefined;
-  trace?: boolean | (() => string) | undefined;
+  trace?: boolean | (() => string | undefined) | undefined;
   traceLimit?: number | undefined;
 };
 

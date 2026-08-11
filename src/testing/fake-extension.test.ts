@@ -54,6 +54,34 @@ describe("installFakeExtension", () => {
     expect(extension.errors).toEqual(["broke"]);
   });
 
+  it("reads the config's trace inside send, where the real extension reads it", () => {
+    const extension = install();
+    const stacks = ["first", "second"];
+    const connection = globalThis.__REDUX_DEVTOOLS_EXTENSION__!.connect({
+      trace: () => stacks.shift(),
+    });
+
+    connection.send({ type: "a" }, {});
+    connection.send({ type: "b" }, {});
+
+    expect(extension.sends.map((call) => call.trace)).toEqual(["first", "second"]);
+  });
+
+  it("throws out of send while a failure is set, as the extension's own stringify does", () => {
+    const extension = install();
+    const connection = globalThis.__REDUX_DEVTOOLS_EXTENSION__!.connect({});
+
+    extension.setSendFailure("cannot serialize");
+
+    expect(() => connection.send({ type: "a" }, {})).toThrow("cannot serialize");
+    expect(extension.sends).toHaveLength(0);
+
+    extension.setSendFailure(undefined);
+    connection.send({ type: "a" }, {});
+
+    expect(extension.sends).toHaveLength(1);
+  });
+
   it("delivers START and STOP to a subscribed listener", () => {
     const extension = install();
     const connection = globalThis.__REDUX_DEVTOOLS_EXTENSION__!.connect({});
