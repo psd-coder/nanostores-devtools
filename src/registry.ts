@@ -125,6 +125,12 @@ export function getEntryByLabel(label: string): StoreEntry | undefined {
   return store === undefined ? undefined : devtools.entries.get(store);
 }
 
+export function detachHooks(): void {
+  for (const entry of peekDevtoolsGlobal()?.entries.values() ?? []) {
+    clearHooks(entry);
+  }
+}
+
 export function onRegistryChange(listener: () => void): () => void {
   const { changeListeners } = getDevtoolsGlobal();
 
@@ -206,11 +212,7 @@ function dropEntry(devtools: DevtoolsGlobal, store: Store): boolean {
     return false;
   }
 
-  for (const unhook of entry.unhook) {
-    unhook();
-  }
-
-  entry.unhook.length = 0;
+  clearHooks(entry);
   devtools.entries.delete(store);
 
   if (devtools.byLabel.get(entry.label) === store) {
@@ -218,6 +220,14 @@ function dropEntry(devtools: DevtoolsGlobal, store: Store): boolean {
   }
 
   return true;
+}
+
+function clearHooks(entry: StoreEntry): void {
+  for (const unhook of entry.unhook) {
+    unhook();
+  }
+
+  entry.unhook.length = 0;
 }
 
 function warnOnSize(devtools: DevtoolsGlobal): void {

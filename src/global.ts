@@ -1,5 +1,6 @@
 import type { Store } from "nanostores";
 
+import type { Bridge } from "./connect.ts";
 import type { StoreEntry } from "./registry.ts";
 
 export type ChangeListener = () => void;
@@ -9,6 +10,7 @@ export type DevtoolsGlobal = {
   byLabel: Map<string, Store>;
   changeListeners: Set<ChangeListener>;
   warned: Set<string>;
+  bridge?: Bridge | undefined;
 };
 
 /**
