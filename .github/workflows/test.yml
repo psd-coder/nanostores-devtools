@@ -9,12 +9,21 @@ concurrency:
 
 jobs:
   test:
+    name: test (vite ${{ matrix.vite }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        vite: ["6", "7", "8"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/prepare-runner
+      - name: Install the Vite major under test
+        env:
+          VITE_MAJOR: ${{ matrix.vite }}
+        run: pnpm add --save-dev --ignore-scripts "vite@$VITE_MAJOR"
       - run: pnpm test
