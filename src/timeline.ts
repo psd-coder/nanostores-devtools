@@ -6,7 +6,10 @@ import { buildSnapshot } from "./snapshot.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
 
 /** A change names what moved, never what it moved to: the extension diffs the trees itself. */
-export type Change = { label: string; op: "set" } | { label: string; op: "setKey"; path: string };
+export type Change =
+  | { label: string; op: "set" }
+  | { label: string; op: "setKey"; path: string }
+  | { label: string; op: "computed"; from?: string | undefined };
 
 export type Row = {
   type: string;
@@ -47,23 +50,44 @@ export function openDirectRow(
   changed: string | undefined,
   boundary: StackBoundary,
 ): void {
-  const bridge = peekDevtoolsGlobal()?.bridge;
+  const bridge = listeningBridge();
 
-  if (!bridge?.listening) {
+  if (!bridge) {
     return;
   }
 
   const { timeline } = bridge;
   const { type, change } = describeWrite(entry, changed);
+  const stack = timeline.trace ? captureStack(timeline.traceLimit, boundary) : undefined;
 
-  timeline.row = {
-    type,
-    changes: [change],
-    timestamp: Date.now(),
-    stack: timeline.trace ? captureStack(timeline.traceLimit, boundary) : undefined,
-  };
+  openRow(bridge, type, change, stack);
+}
 
-  scheduleFlush(bridge);
+/**
+ * A recompute joins the open row instead of opening one, so a write and the whole cascade behind
+ * it read as a single row. The cascade runs inside the root notify drain, so a follower reaches
+ * the row that caused it.
+ *
+ * `from` is the change before this one. That is the store this one followed down a chain, and a
+ * sibling of it whenever changes arrive in an order the dependencies do not match.
+ */
+export function appendFollower(entry: StoreEntry): void {
+  const bridge = listeningBridge();
+
+  if (!bridge) {
+    return;
+  }
+
+  const open = bridge.timeline.row;
+
+  if (open) {
+    open.changes.push({ label: entry.label, op: "computed", from: open.changes.at(-1)?.label });
+
+    return;
+  }
+
+  /** A follower that finds no open row is a row of its own, named after the store. */
+  openRow(bridge, `${entry.name}/computed`, { label: entry.label, op: "computed" });
 }
 
 export function flushOpenRow(): void {
@@ -115,6 +139,20 @@ function flush(bridge: Bridge): void {
   }
 }
 
+/** One shape for every row, and the flush that closes it is booked in the same breath. */
+function openRow(bridge: Bridge, type: string, change: Change, stack?: string | undefined): void {
+  bridge.timeline.row = { type, changes: [change], timestamp: Date.now(), stack };
+
+  scheduleFlush(bridge);
+}
+
+/** Nothing is built while no panel is listening: the tree is the expensive part of a row. */
+function listeningBridge(): Bridge | undefined {
+  const bridge = peekDevtoolsGlobal()?.bridge;
+
+  return bridge?.listening ? bridge : undefined;
+}
+
 /** The open row closes lazily: the next direct write closes it, or this microtask does. */
 function scheduleFlush(bridge: Bridge): void {
   const { timeline } = bridge;
@@ -131,7 +169,7 @@ function scheduleFlush(bridge: Bridge): void {
   });
 }
 
-/** The store a row is about is the direct write that opened it, which is always its first change. */
+/** The store a row is about is whatever opened it, which is always its first change. */
 function subject(row: Row | undefined): string {
   return row?.changes[0]?.label ?? "";
 }

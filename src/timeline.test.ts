@@ -1,4 +1,14 @@
-import { atom, deepMap, map, onSet, type Store, type WritableAtom } from "nanostores";
+import {
+  atom,
+  batch,
+  batched,
+  computed,
+  deepMap,
+  map,
+  onSet,
+  type Store,
+  type WritableAtom,
+} from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./connect.ts";
@@ -24,6 +34,11 @@ async function listen(options?: Parameters<typeof connectDevtools>[0]): Promise<
   fake.start();
 }
 
+/** A computed only recomputes while it is mounted, so a follower test has to hold it open. */
+function mount(store: Store): void {
+  store.listen(() => {});
+}
+
 function frameCount(stack: string | undefined): number {
   return stack?.match(/\n\s+at /g)?.length ?? 0;
 }
@@ -39,19 +54,19 @@ function writeDeep($store: WritableAtom<number>, value: number, depth = 30): voi
   writeDeep($store, value, depth - 1);
 }
 
+beforeEach(() => {
+  resetDevtoolsGlobal();
+  fake = installFakeExtension();
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  fake.uninstall();
+  vi.restoreAllMocks();
+  resetDevtoolsGlobal();
+});
+
 describe("direct write rows", () => {
-  beforeEach(() => {
-    resetDevtoolsGlobal();
-    fake = installFakeExtension();
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    fake.uninstall();
-    vi.restoreAllMocks();
-    resetDevtoolsGlobal();
-  });
-
   describe("one row per write", () => {
     it("draws one row for one set", async () => {
       const $counter = atom(0);
@@ -112,14 +127,17 @@ describe("direct write rows", () => {
 
       await endOfTurn();
 
-      expect(fake.sends).toHaveLength(1);
+      expect(fake.sends.map((call) => call.action["type"])).toEqual(["$total/set"]);
 
       register("$total", $total, "computed");
       $total.set(2);
 
       await endOfTurn();
 
-      expect(fake.sends).toHaveLength(1);
+      expect(fake.sends.map((call) => call.action["type"])).toEqual([
+        "$total/set",
+        "$total/computed",
+      ]);
     });
 
     it("hooks a store that registers after connect", async () => {
@@ -449,5 +467,278 @@ describe("direct write rows", () => {
       expect(fake.sends.map((call) => call.action["type"])).toEqual(["$counter/set"]);
       expect(fake.sends[0]?.state).toEqual({ cart: { $counter: 2 } });
     });
+  });
+});
+
+describe("computed follower rows", () => {
+  it("appends the follower to the row of the write that caused it", async () => {
+    const $items = atom([1, 2]);
+    const $count = computed($items, (items) => items.length);
+
+    register("$items", $items);
+    register("$count", $count, "computed");
+    mount($count);
+    await listen();
+
+    $items.set([1, 2, 3]);
+
+    await endOfTurn();
+
+    expect(fake.sends).toHaveLength(1);
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: "$items/set",
+      changes: [
+        { label: "cart/$items", op: "set" },
+        { label: "cart/$count", op: "computed", from: "cart/$items" },
+      ],
+    });
+  });
+
+  it("never closes the open row from a computed's own set", async () => {
+    const $items = atom([1, 2]);
+    const $count = computed($items, (items) => items.length);
+
+    register("$items", $items);
+    register("$count", $count, "computed");
+    mount($count);
+    await listen();
+
+    $items.set([1, 2, 3]);
+
+    expect(fake.sends).toHaveLength(0);
+
+    await endOfTurn();
+
+    expect(fake.sends).toHaveLength(1);
+    expect(fake.sends[0]?.state).toEqual({ cart: { $count: 3, $items: [1, 2, 3] } });
+  });
+
+  it("keeps a three level chain in one row, each follower naming the one before it", async () => {
+    const $a = atom(1);
+    const $b = computed($a, (a) => a + 1);
+    const $c = computed($b, (b) => b + 1);
+    const $d = computed($c, (c) => c + 1);
+
+    register("$a", $a);
+    register("$b", $b, "computed");
+    register("$c", $c, "computed");
+    register("$d", $d, "computed");
+    mount($d);
+    await listen();
+
+    $a.set(2);
+
+    await endOfTurn();
+
+    expect(fake.sends).toHaveLength(1);
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: "$a/set",
+      changes: [
+        { label: "cart/$a", op: "set" },
+        { label: "cart/$b", op: "computed", from: "cart/$a" },
+        { label: "cart/$c", op: "computed", from: "cart/$b" },
+        { label: "cart/$d", op: "computed", from: "cart/$c" },
+      ],
+    });
+  });
+
+  it("draws no follower for an unmounted computed, which never recomputes", async () => {
+    const $items = atom([1, 2]);
+    const $count = computed($items, (items) => items.length);
+
+    register("$items", $items);
+    register("$count", $count, "computed");
+    await listen();
+
+    $items.set([1, 2, 3]);
+
+    await endOfTurn();
+
+    expect(fake.sends).toHaveLength(1);
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: "$items/set",
+      changes: [{ label: "cart/$items", op: "set" }],
+    });
+  });
+
+  it("draws its own row for a follower that finds no open row", async () => {
+    const $source = atom(1);
+    const $total = computed($source, (source) => source * 2);
+
+    register("$total", $total, "computed");
+    mount($total);
+    await listen();
+
+    $source.set(2);
+
+    await endOfTurn();
+
+    expect(fake.sends[0]?.action["type"]).toBe("$total/computed");
+    /** Strict, so a `from: undefined` key on its way to the panel fails here. */
+    expect(fake.sends[0]?.action["action"]).toStrictEqual({
+      type: "$total/computed",
+      changes: [{ label: "cart/$total", op: "computed" }],
+    });
+  });
+
+  it("hands the panel no stack for a row a follower opened on its own", async () => {
+    const $source = atom(1);
+    const $total = computed($source, (source) => source * 2);
+
+    register("$total", $total, "computed");
+    mount($total);
+    await listen();
+
+    $source.set(2);
+
+    await endOfTurn();
+
+    expect(fake.sends[0]?.action["type"]).toBe("$total/computed");
+    expect(fake.sends[0]?.trace).toBeUndefined();
+  });
+
+  it("closes a row with a follower in it when the next direct write opens its own", async () => {
+    const $items = atom([1, 2]);
+    const $count = computed($items, (items) => items.length);
+    const $other = atom(0);
+
+    register("$items", $items);
+    register("$count", $count, "computed");
+    register("$other", $other);
+    mount($count);
+    await listen();
+
+    $items.set([1, 2, 3]);
+    $other.set(1);
+
+    expect(fake.sends).toHaveLength(1);
+
+    await endOfTurn();
+
+    expect(fake.sends.map((call) => call.action["action"])).toEqual([
+      {
+        type: "$items/set",
+        changes: [
+          { label: "cart/$items", op: "set" },
+          { label: "cart/$count", op: "computed", from: "cart/$items" },
+        ],
+      },
+      { type: "$other/set", changes: [{ label: "cart/$other", op: "set" }] },
+    ]);
+  });
+
+  it("known limit: of two followers of one source the second names the first", async () => {
+    const $items = atom([1, 2]);
+    const $count = computed($items, (items) => items.length);
+    const $total = computed($items, (items) => items.length * 10);
+
+    register("$items", $items);
+    register("$count", $count, "computed");
+    register("$total", $total, "computed");
+    mount($count);
+    mount($total);
+    await listen();
+
+    $items.set([1, 2, 3]);
+
+    await endOfTurn();
+
+    expect(fake.sends).toHaveLength(1);
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: "$items/set",
+      changes: [
+        { label: "cart/$items", op: "set" },
+        { label: "cart/$count", op: "computed", from: "cart/$items" },
+        { label: "cart/$total", op: "computed", from: "cart/$count" },
+      ],
+    });
+  });
+
+  it("known limit: inside batch() a follower attaches to the last write of the batch", async () => {
+    const $items = atom([1, 2]);
+    const $count = computed($items, (items) => items.length);
+    const $other = atom(0);
+
+    register("$items", $items);
+    register("$count", $count, "computed");
+    register("$other", $other);
+    mount($count);
+    await listen();
+
+    batch(() => {
+      $items.set([1, 2, 3]);
+      $other.set(1);
+    });
+
+    await endOfTurn();
+
+    expect(fake.sends.map((call) => call.action["action"])).toEqual([
+      { type: "$items/set", changes: [{ label: "cart/$items", op: "set" }] },
+      {
+        type: "$other/set",
+        changes: [
+          { label: "cart/$other", op: "set" },
+          { label: "cart/$count", op: "computed", from: "cart/$other" },
+        ],
+      },
+    ]);
+  });
+
+  it("known limit: a write mid-cascade takes the followers still queued behind it", async () => {
+    const $items = atom([1, 2]);
+    const $other = atom(0);
+    const $count = computed($items, (items) => items.length);
+
+    register("$items", $items);
+    register("$count", $count, "computed");
+    register("$other", $other);
+
+    /** Subscribed before the computed mounts, so it runs before the recompute in the same drain. */
+    $items.listen(() => {
+      $other.set($other.value + 1);
+    });
+    mount($count);
+    await listen();
+
+    $items.set([1, 2, 3]);
+
+    await endOfTurn();
+
+    expect(fake.sends.map((call) => call.action["action"])).toEqual([
+      { type: "$items/set", changes: [{ label: "cart/$items", op: "set" }] },
+      {
+        type: "$other/set",
+        changes: [
+          { label: "cart/$other", op: "set" },
+          { label: "cart/$count", op: "computed", from: "cart/$other" },
+        ],
+      },
+    ]);
+  });
+
+  it("known limit: a batched store recomputes in a timer and draws its own row", async () => {
+    const $items = atom([1, 2]);
+    const $count = batched($items, (items) => items.length);
+
+    register("$items", $items);
+    register("$count", $count, "batched");
+    mount($count);
+    await listen();
+
+    $items.set([1, 2, 3]);
+
+    await endOfTurn();
+
+    expect(fake.sends.map((call) => call.action["type"])).toEqual(["$items/set"]);
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    await endOfTurn();
+
+    expect(fake.sends.map((call) => call.action["type"])).toEqual([
+      "$items/set",
+      "$count/computed",
+    ]);
   });
 });
