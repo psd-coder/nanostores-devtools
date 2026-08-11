@@ -1,15 +1,28 @@
 import type { Store } from "nanostores";
 
 import type { Bridge } from "./connect.ts";
-import type { RegistryChange, StoreEntry } from "./registry.ts";
+import type { RegistryChange, StoreEntry, StoreType } from "./registry.ts";
 
 export type ChangeListener = (change: RegistryChange) => void;
+
+/** How many stores one creation site has made, and the live ones it still holds, oldest first. */
+export type SiteState = { made: number; stores: Store[] };
+
+/**
+ * One instrumented module's own bookkeeping. It outlives the module body, because a hot reload
+ * runs that body again and the new run has to drop what the old one left behind.
+ */
+export type ModuleScope = { owned: Set<Store>; sites: Map<string, SiteState> };
 
 export type DevtoolsGlobal = {
   entries: Map<Store, StoreEntry>;
   byLabel: Map<string, Store>;
   changeListeners: Set<ChangeListener>;
   warned: Set<string>;
+  /** Keyed by the module id, never the display home, so two files cannot wipe each other. */
+  scopes: Map<string, ModuleScope>;
+  /** The type of a store made at a creation site with no name, until an adopt call names it. */
+  creations: WeakMap<Store, StoreType>;
   bridge?: Bridge | undefined;
 };
 
@@ -38,6 +51,8 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     byLabel: new Map(),
     changeListeners: new Set(),
     warned: new Set(),
+    scopes: new Map(),
+    creations: new WeakMap(),
   };
 
   holder()[GLOBAL_KEY] = created;

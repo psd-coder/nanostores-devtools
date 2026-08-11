@@ -1,0 +1,342 @@
+import { atom } from "nanostores";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { connectDevtools } from "../connect.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
+import { getEntry, listEntries, trackStores } from "../registry.ts";
+import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
+import { type CreationSite, fileScope } from "./runtime.ts";
+
+const MODULE_ID = "/repo/src/stores/cart.ts";
+const HOME = "src/stores/cart.ts";
+const CAP = 50;
+
+let fake: FakeExtension;
+
+function site(overrides: Partial<CreationSite> = {}): CreationSite {
+  return { name: "$items", fn: null, line: 3, type: "atom", ...overrides };
+}
+
+function names(): string[] {
+  return listEntries().map((entry) => entry.name);
+}
+
+function endOfTurn(): Promise<void> {
+  return Promise.resolve();
+}
+
+/** Connect, reach the deferred `init`, then open the panel, which is when rows start flowing. */
+async function listen(): Promise<void> {
+  connectDevtools();
+
+  await endOfTurn();
+  fake.start();
+}
+
+function rowNames(): string[] {
+  return fake.sends.map((call) => call.action.type);
+}
+
+beforeEach(() => {
+  resetDevtoolsGlobal();
+  fake = installFakeExtension();
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  fake.uninstall();
+  vi.restoreAllMocks();
+  resetDevtoolsGlobal();
+});
+
+describe("store", () => {
+  it("returns exactly what it was given", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $items = atom<string[]>([]);
+
+    expect(scope.store($items, site())).toBe($items);
+  });
+
+  it("registers the store with its name, its type and the module's home", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $items = atom<string[]>([]);
+
+    scope.store($items, site({ type: "deepMap" }));
+
+    expect(getEntry($items)).toMatchObject({
+      name: "$items",
+      home: HOME,
+      label: `${HOME}/$items`,
+      type: "deepMap",
+      origin: "plugin",
+    });
+  });
+
+  it("numbers repeats of one site and never renames the first", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+
+    scope.store(atom(0), site());
+    scope.store(atom(0), site());
+    scope.store(atom(0), site());
+
+    expect(names()).toEqual(["$items", "$items #2", "$items #3"]);
+  });
+
+  it("keeps a store whose creation site had no name out of the tree", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $theme = atom("dark");
+
+    scope.store($theme, site({ name: null, type: "map" }));
+
+    expect(listEntries()).toEqual([]);
+  });
+
+  it("counts each site on its own", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+
+    scope.store(atom(0), site({ line: 3 }));
+    scope.store(atom(0), site({ line: 7, name: "$cart" }));
+    scope.store(atom(0), site({ line: 7, name: "$cart" }));
+
+    expect(names()).toEqual(["$items", "$cart", "$cart #2"]);
+  });
+});
+
+describe("the per-site cap", () => {
+  it("holds at the cap and drops the unmounted stores first", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $real = atom(0);
+
+    scope.store($real, site());
+    $real.listen(() => {});
+
+    for (let call = 0; call < 1000; call += 1) {
+      scope.store(atom(0), site());
+    }
+
+    expect(listEntries()).toHaveLength(CAP);
+    expect(getEntry($real)).toMatchObject({ name: "$items" });
+    expect(names().at(-1)).toBe("$items #1001");
+  });
+
+  it("drops the oldest when every store of the site is mounted", () => {
+    const scope = fileScope(MODULE_ID, HOME, 2);
+    const $first = atom(0);
+    const $second = atom(0);
+    const $third = atom(0);
+
+    for (const $store of [$first, $second, $third]) {
+      $store.listen(() => {});
+      scope.store($store, site());
+    }
+
+    expect(getEntry($first)).toBeUndefined();
+    expect(names()).toEqual(["$items #2", "$items #3"]);
+  });
+
+  it("keeps the store it just took, because the cap keeps the last ones", () => {
+    const scope = fileScope(MODULE_ID, HOME, 2);
+    const $first = atom(0);
+    const $second = atom(0);
+    const $third = atom(0);
+
+    for (const $store of [$first, $second]) {
+      $store.listen(() => {});
+      scope.store($store, site());
+    }
+
+    scope.store($third, site());
+
+    expect(getEntry($third)).toMatchObject({ name: "$items #3" });
+    expect(names()).toEqual(["$items #2", "$items #3"]);
+  });
+
+  it("counts one store once, however often the site hands the same one back", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $memo = atom(0);
+
+    scope.adopt($memo, site({ name: "$memo" }));
+    scope.adopt($memo, site({ name: "$memo" }));
+
+    expect(names()).toEqual(["$memo"]);
+  });
+
+  it("runs the unhook of every store it evicts", () => {
+    const scope = fileScope(MODULE_ID, HOME, 1);
+    const $first = atom(0);
+    const unhook = vi.fn();
+
+    scope.store($first, site());
+    getEntry($first)?.unhook.push(unhook);
+    scope.store(atom(0), site());
+
+    expect(unhook).toHaveBeenCalledTimes(1);
+    expect(getEntry($first)).toBeUndefined();
+  });
+
+  it("caps each site on its own", () => {
+    const scope = fileScope(MODULE_ID, HOME, 1);
+
+    scope.store(atom(0), site({ line: 3 }));
+    scope.store(atom(0), site({ line: 7, name: "$cart" }));
+
+    expect(names()).toEqual(["$items", "$cart"]);
+  });
+});
+
+describe("adopt", () => {
+  it("passes a value that is no store through and registers nothing", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const router = { open: () => {} };
+
+    expect(scope.adopt(router, site({ name: "$router", type: "unknown" }))).toBe(router);
+    expect(scope.adopt(7, site({ name: "$seven", type: "unknown" }))).toBe(7);
+    expect(listEntries()).toEqual([]);
+  });
+
+  it("moves an already registered store here under this name and keeps its type", () => {
+    const factory = fileScope("/repo/src/stores/factory.ts", "src/stores/factory.ts", CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $theme = atom("dark");
+
+    factory.store($theme, site({ name: "$made", type: "map" }));
+    scope.adopt($theme, site({ name: "$theme", type: "unknown" }));
+
+    expect(listEntries()).toHaveLength(1);
+    expect(getEntry($theme)).toMatchObject({
+      name: "$theme",
+      home: HOME,
+      label: `${HOME}/$theme`,
+      type: "map",
+    });
+  });
+
+  it("supplies the name for a store whose creation site had none and keeps that type", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $theme = atom("dark");
+
+    scope.store($theme, site({ name: null, type: "map" }));
+    scope.adopt($theme, site({ name: "$theme", type: "unknown" }));
+
+    expect(getEntry($theme)).toMatchObject({ name: "$theme", home: HOME, type: "map" });
+  });
+
+  it("keeps the recorded type when the store already sits in the tree as unknown", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $theme = atom("dark");
+
+    scope.store($theme, site({ name: null, type: "map" }));
+    trackStores("cart", { $theme });
+    scope.adopt($theme, site({ name: "$theme", type: "unknown" }));
+
+    expect(getEntry($theme)).toMatchObject({ home: "cart", type: "map" });
+  });
+
+  it("registers a store nothing instrumented made as unknown", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $theme = atom("dark");
+
+    scope.adopt($theme, site({ name: "$theme", type: "unknown" }));
+
+    expect(getEntry($theme)).toMatchObject({ name: "$theme", home: HOME, type: "unknown" });
+  });
+
+  it("numbers repeats of one adopt site", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+
+    scope.adopt(atom(0), site({ name: "$row", type: "unknown" }));
+    scope.adopt(atom(0), site({ name: "$row", type: "unknown" }));
+
+    expect(names()).toEqual(["$row", "$row #2"]);
+  });
+});
+
+describe("clear", () => {
+  it("does nothing on a first run", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+
+    expect(() => {
+      scope.clear();
+    }).not.toThrow();
+    expect(listEntries()).toEqual([]);
+  });
+
+  it("removes this module's stores and numbers the next run from the start again", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const $reloaded = atom(0);
+
+    scope.store(atom(0), site());
+    scope.store(atom(0), site());
+    scope.clear();
+
+    expect(listEntries()).toEqual([]);
+
+    scope.store($reloaded, site());
+
+    expect(getEntry($reloaded)).toMatchObject({ name: "$items" });
+  });
+
+  it("leaves another module's stores alone", () => {
+    const cart = fileScope(MODULE_ID, HOME, CAP);
+    const checkout = fileScope("/repo/src/stores/checkout.ts", "src/stores/checkout.ts", CAP);
+    const $kept = atom(0);
+
+    cart.store(atom(0), site());
+    checkout.store($kept, site({ name: "$total" }));
+    cart.clear();
+
+    expect(names()).toEqual(["$total"]);
+    expect(getEntry($kept)).toBeDefined();
+  });
+
+  it("keys off the module id, so two files sharing a display home do not wipe each other", () => {
+    const first = fileScope("/repo/src/stores/cart.ts", "stores", CAP);
+    const second = fileScope("/repo/src/features/cart.ts", "stores", CAP);
+    const $kept = atom(0);
+
+    first.store(atom(0), site());
+    second.store($kept, site({ name: "$total" }));
+    first.clear();
+
+    expect(names()).toEqual(["$total"]);
+  });
+
+  it("leaves a store an explicit group took, whichever of the two ran first", () => {
+    const early = fileScope(MODULE_ID, HOME, CAP);
+    const late = fileScope("/repo/src/stores/checkout.ts", "src/stores/checkout.ts", CAP);
+    const $early = atom(0);
+    const $late = atom(0);
+
+    trackStores("cart", { $early });
+    early.store($early, site({ name: "$early" }));
+    late.store($late, site({ name: "$late" }));
+    trackStores("checkout", { $late });
+
+    early.clear();
+    late.clear();
+
+    expect(getEntry($early)).toMatchObject({ home: "cart", name: "$early" });
+    expect(getEntry($late)).toMatchObject({ home: "checkout", name: "$late" });
+  });
+});
+
+describe("the rows a change draws", () => {
+  it("draws an unregister row for a clear and none for an eviction", async () => {
+    const scope = fileScope(MODULE_ID, HOME, 1);
+
+    scope.store(atom(0), site());
+    await listen();
+
+    scope.store(atom(0), site());
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["$items #2/register"]);
+
+    scope.clear();
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["$items #2/register", "$items #2/unregister"]);
+  });
+});

@@ -117,8 +117,20 @@ export function untrack(group: string): void {
   }
 
   for (const store of doomed) {
-    dropEntry(devtools, store);
+    dropEntry(devtools, store, true);
   }
+}
+
+export function unregisterStore(store: Store): void {
+  drop(store, true);
+}
+
+/**
+ * The per-site cap's way out. It says nothing, because the registration that caused the eviction
+ * draws the only row the two of them get together (spec 6.5).
+ */
+export function evictStore(store: Store): void {
+  drop(store, false);
 }
 
 export function listEntries(): StoreEntry[] {
@@ -218,13 +230,21 @@ function takeLabel(devtools: DevtoolsGlobal, label: string, store: Store): void 
   const holder = devtools.byLabel.get(label);
 
   if (holder && holder !== store) {
-    dropEntry(devtools, holder);
+    dropEntry(devtools, holder, true);
   }
 
   devtools.byLabel.set(label, store);
 }
 
-function dropEntry(devtools: DevtoolsGlobal, store: Store): boolean {
+function drop(store: Store, notify: boolean): void {
+  const devtools = peekDevtoolsGlobal();
+
+  if (devtools) {
+    dropEntry(devtools, store, notify);
+  }
+}
+
+function dropEntry(devtools: DevtoolsGlobal, store: Store, notify: boolean): boolean {
   const entry = devtools.entries.get(store);
 
   if (!entry) {
@@ -238,7 +258,9 @@ function dropEntry(devtools: DevtoolsGlobal, store: Store): boolean {
     devtools.byLabel.delete(entry.label);
   }
 
-  notifyChange(devtools, { kind: "unregister", entry });
+  if (notify) {
+    notifyChange(devtools, { kind: "unregister", entry });
+  }
 
   return true;
 }
