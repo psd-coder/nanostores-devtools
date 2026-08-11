@@ -114,7 +114,12 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends[0]?.action["type"]).toBe("$counter/set");
-      expect(fake.sends[0]?.state).toEqual({ cart: { $counter: 1 } });
+      /** An unknown type is never trusted while unmounted, so the fresh write still arrives marked. */
+      expect(fake.sends[0]?.state).toEqual({
+        cart: {
+          $counter: { data: { $$value: 1 }, __serializedType__: "not mounted, may be stale" },
+        },
+      });
     });
 
     it("drops the hooks it attached when a later registration changes the type", async () => {

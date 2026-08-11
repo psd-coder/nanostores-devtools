@@ -1,9 +1,9 @@
-import { atom, type Store } from "nanostores";
+import { atom, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "./global.ts";
 import { registerStore, trackStores } from "./registry.ts";
-import { buildSnapshot } from "./snapshot.ts";
+import { buildSnapshot, type Snapshot } from "./snapshot.ts";
 
 /** A real store keeping its own `value` and `lc` fields, over a prototype that throws. */
 function hostileStore(value: unknown): Store {
@@ -25,6 +25,37 @@ function hostileStore(value: unknown): Store {
   return store;
 }
 
+/** The marked shape spelled out, so these tests pin the shape the panel receives. */
+function stale(value: unknown): unknown {
+  return { data: { $$value: value }, __serializedType__: "not mounted, may be stale" };
+}
+
+function slot(snapshot: Snapshot, home: string, name: string): unknown {
+  return snapshot[home]?.[name];
+}
+
+/**
+ * The two markers differ by one key holding `undefined`, which `toEqual` ignores, so the box is
+ * also read key by key and the check does not depend on the matcher.
+ */
+function boxedKeys(value: unknown): string[] {
+  if (!isMarked(value)) {
+    throw new Error("the slot carries no marker");
+  }
+
+  return Object.keys(value.data);
+}
+
+function isMarked(value: unknown): value is { data: object } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "data" in value &&
+    typeof value.data === "object" &&
+    value.data !== null
+  );
+}
+
 describe("buildSnapshot", () => {
   beforeEach(() => {
     resetDevtoolsGlobal();
@@ -41,7 +72,9 @@ describe("buildSnapshot", () => {
   it("is two levels deep, home then store name, with $ kept in the name", () => {
     trackStores("cart", { $items: atom(["milk"]), $count: atom(1) });
 
-    expect(buildSnapshot()).toEqual({ cart: { $items: ["milk"], $count: 1 } });
+    expect(buildSnapshot()).toEqual({
+      cart: { $items: stale(["milk"]), $count: stale(1) },
+    });
   });
 
   it("sorts groups before files, alphabetically inside each level", () => {
@@ -108,7 +141,9 @@ describe("buildSnapshot", () => {
     });
     trackStores("src/stores/cart.ts", { $hand });
 
-    expect(buildSnapshot()).toEqual({ "src/stores/cart.ts": { $plugin: 1, $hand: 2 } });
+    expect(buildSnapshot()).toEqual({
+      "src/stores/cart.ts": { $plugin: 1, $hand: stale(2) },
+    });
   });
 
   it("reads own fields only, so a throwing get() and throwing getters cost nothing", () => {
@@ -116,7 +151,246 @@ describe("buildSnapshot", () => {
 
     trackStores("cart", { $safe, $hostile: hostileStore(7) });
 
-    expect(buildSnapshot()).toEqual({ cart: { $safe: 1, $hostile: 7 } });
+    expect(buildSnapshot()).toEqual({
+      cart: { $safe: stale(1), $hostile: stale(7) },
+    });
     expect($safe.lc).toBe(0);
+  });
+
+  it("keeps every registered store as a key, mounted or not", () => {
+    const $mounted = atom(1);
+    const unbind = $mounted.listen(() => {});
+
+    registerStore({
+      store: $mounted,
+      name: "$mounted",
+      home: "cart",
+      type: "atom",
+      origin: "plugin",
+    });
+    registerStore({
+      store: computed(atom(1), (count) => count + 1),
+      name: "$never",
+      home: "cart",
+      type: "computed",
+      origin: "plugin",
+    });
+    trackStores("cart", { $unknown: atom(2) });
+
+    expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$mounted", "$never", "$unknown"]);
+
+    unbind();
+  });
+
+  describe("the marker table", () => {
+    it("leaves a mounted store bare, whatever its type", () => {
+      const $source = atom(1);
+      const $computed = computed($source, (count) => count + 1);
+      const $unknown = atom("hi");
+      const unbindComputed = $computed.listen(() => {});
+      const unbindUnknown = $unknown.listen(() => {});
+
+      registerStore({
+        store: $computed,
+        name: "$computed",
+        home: "cart",
+        type: "computed",
+        origin: "plugin",
+      });
+      trackStores("cart", { $unknown });
+
+      expect(buildSnapshot()).toEqual({ cart: { $computed: 2, $unknown: "hi" } });
+
+      unbindComputed();
+      unbindUnknown();
+    });
+
+    it("leaves an unmounted atom, map and deepMap bare", () => {
+      registerStore({
+        store: atom(1),
+        name: "$atom",
+        home: "cart",
+        type: "atom",
+        origin: "plugin",
+      });
+      registerStore({
+        store: map({ total: 2 }),
+        name: "$map",
+        home: "cart",
+        type: "map",
+        origin: "plugin",
+      });
+      registerStore({
+        store: deepMap({ deep: { total: 3 } }),
+        name: "$deepMap",
+        home: "cart",
+        type: "deepMap",
+        origin: "plugin",
+      });
+
+      expect(buildSnapshot()).toEqual({
+        cart: { $atom: 1, $map: { total: 2 }, $deepMap: { deep: { total: 3 } } },
+      });
+    });
+
+    it("keeps an atom's slot the same shape after it mounts and unmounts", () => {
+      const $atom = atom(1);
+
+      registerStore({ store: $atom, name: "$atom", home: "cart", type: "atom", origin: "plugin" });
+
+      const before = buildSnapshot();
+      const unbind = $atom.listen(() => {});
+
+      unbind();
+
+      expect(buildSnapshot()).toEqual(before);
+      expect($atom.lc).toBe(0);
+    });
+
+    it("marks a computed that never mounted and holds no value as never computed", () => {
+      registerStore({
+        store: computed(atom(1), (count) => count + 1),
+        name: "$total",
+        home: "cart",
+        type: "computed",
+        origin: "plugin",
+      });
+
+      const total = slot(buildSnapshot(), "cart", "$total");
+
+      expect(total).toStrictEqual({ data: {}, __serializedType__: "not mounted, never computed" });
+      expect(boxedKeys(total)).toEqual([]);
+    });
+
+    it("marks a batched store that never mounted and holds no value as never computed", () => {
+      registerStore({
+        store: computed(atom(1), (count) => count + 1),
+        name: "$batched",
+        home: "cart",
+        type: "batched",
+        origin: "plugin",
+      });
+
+      expect(slot(buildSnapshot(), "cart", "$batched")).toStrictEqual({
+        data: {},
+        __serializedType__: "not mounted, never computed",
+      });
+    });
+
+    it("marks a computed that mounted before and is unmounted now as may be stale", () => {
+      const $source = atom(1);
+      const $total = computed($source, (count) => count + 1);
+      const entry = registerStore({
+        store: $total,
+        name: "$total",
+        home: "cart",
+        type: "computed",
+        origin: "plugin",
+      });
+      const unbind = $total.listen(() => {});
+
+      unbind();
+      entry.everMounted = true;
+
+      expect(buildSnapshot()).toEqual({ cart: { $total: stale(2) } });
+    });
+
+    it("marks a batched store that mounted before and is unmounted now as may be stale", () => {
+      const $source = atom(1);
+      const $total = computed($source, (count) => count + 1);
+      const entry = registerStore({
+        store: $total,
+        name: "$batched",
+        home: "cart",
+        type: "batched",
+        origin: "plugin",
+      });
+      const unbind = $total.listen(() => {});
+
+      unbind();
+      entry.everMounted = true;
+
+      expect(buildSnapshot()).toEqual({ cart: { $batched: stale(2) } });
+    });
+
+    it("marks a computed known to have mounted but holding no value as may be stale", () => {
+      const entry = registerStore({
+        store: computed(atom(1), (count) => count + 1),
+        name: "$total",
+        home: "cart",
+        type: "computed",
+        origin: "plugin",
+      });
+
+      entry.everMounted = true;
+
+      expect(slot(buildSnapshot(), "cart", "$total")).toStrictEqual(stale(undefined));
+    });
+
+    it("marks an unmounted store of unknown type as may be stale", () => {
+      trackStores("cart", { $adopted: atom(5) });
+
+      expect(buildSnapshot()).toEqual({ cart: { $adopted: stale(5) } });
+    });
+
+    it("marks an unknown store holding no value as may be stale, with the value boxed", () => {
+      trackStores("cart", { $empty: atom(undefined) });
+
+      const empty = slot(buildSnapshot(), "cart", "$empty");
+
+      expect(empty).toStrictEqual(stale(undefined));
+      expect(boxedKeys(empty)).toEqual(["$$value"]);
+    });
+  });
+
+  describe("the marked shape", () => {
+    it("boxes a primitive and an object the same way", () => {
+      trackStores("cart", { $count: atom(12), $cart: atom({ total: 12 }) });
+
+      expect(buildSnapshot()).toEqual({
+        cart: {
+          $count: { data: { $$value: 12 }, __serializedType__: "not mounted, may be stale" },
+          $cart: {
+            data: { $$value: { total: 12 } },
+            __serializedType__: "not mounted, may be stale",
+          },
+        },
+      });
+    });
+
+    it("marks a store that mounted and unmounted before connect as may be stale", () => {
+      const $source = atom(1);
+      const $total = computed($source, (count) => count + 1);
+      const unbind = $total.listen(() => {});
+
+      unbind();
+      registerStore({
+        store: $total,
+        name: "$total",
+        home: "cart",
+        type: "computed",
+        origin: "plugin",
+      });
+
+      expect(buildSnapshot()).toEqual({ cart: { $total: stale(2) } });
+    });
+  });
+
+  it("never mounts a store while building", () => {
+    const $atom = atom(1);
+    const $total = computed($atom, (count) => count + 1);
+
+    registerStore({ store: $atom, name: "$atom", home: "cart", type: "atom", origin: "plugin" });
+    registerStore({
+      store: $total,
+      name: "$total",
+      home: "cart",
+      type: "computed",
+      origin: "plugin",
+    });
+    buildSnapshot();
+
+    expect($atom.lc).toBe(0);
+    expect($total.lc).toBe(0);
   });
 });

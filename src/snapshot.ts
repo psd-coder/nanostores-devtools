@@ -1,6 +1,10 @@
-import { listEntries, type StoreEntry } from "./registry.ts";
+import { box, mark } from "./marker.ts";
+import { DERIVED, listEntries, type StoreEntry, type StoreType } from "./registry.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
+
+/** `set` writes `value` with no check on `lc`, so an unmounted one still holds the true value. */
+const TRUSTED_UNMOUNTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "map", "deepMap"]);
 
 /**
  * `.value` is the whole read. `get()` mounts an unmounted store and a getter runs whatever the
@@ -25,13 +29,32 @@ export function buildSnapshot(): Snapshot {
     const node: Record<string, unknown> = {};
 
     for (const entry of entries.sort((left, right) => compare(left.name, right.name))) {
-      node[entry.name] = entry.store.value;
+      node[entry.name] = slotFor(entry);
     }
 
     snapshot[home] = node;
   }
 
   return snapshot;
+}
+
+/**
+ * Only a value that cannot be trusted is marked, so the marker states the consequence and not the
+ * mount state. An unknown type never gets `never computed`: it may be somebody's computed store,
+ * and we cannot prove it never ran.
+ */
+function slotFor(entry: StoreEntry): unknown {
+  const { value } = entry.store;
+
+  if (entry.store.lc > 0 || TRUSTED_UNMOUNTED.has(entry.type)) {
+    return value;
+  }
+
+  if (DERIVED.has(entry.type) && !entry.everMounted && value === undefined) {
+    return mark("not mounted, never computed", {});
+  }
+
+  return mark("not mounted, may be stale", box(value));
 }
 
 /**

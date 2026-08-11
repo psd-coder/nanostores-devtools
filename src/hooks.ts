@@ -2,10 +2,8 @@ import { onNotify, onSet, onStart, onStop } from "nanostores";
 
 import { catchAndWarn } from "./catch-and-warn.ts";
 import { noteMount, noteUnmount } from "./lifecycle.ts";
-import { listEntries, type StoreEntry, type StoreType } from "./registry.ts";
+import { DERIVED, listEntries, type StoreEntry } from "./registry.ts";
 import { appendFollower, flushOpenRow, openDirectRow } from "./timeline.ts";
-
-const FOLLOWER: ReadonlySet<StoreType> = new Set<StoreType>(["computed", "batched"]);
 
 /** Registration records, connect attaches: only connect knows whether the extension is there. */
 export function attachHooks(): void {
@@ -15,7 +13,7 @@ export function attachHooks(): void {
 }
 
 /**
- * Everything outside `FOLLOWER` is a direct write, and that puts `unknown` there. It is the type
+ * Everything outside `DERIVED` is a direct write, and that puts `unknown` there. It is the type
  * every `trackStores` call records, and a store that draws no row at all is worse than one whose
  * row is named wrongly: a store that turns out to be a `computed` still shows its change, in a row
  * of its own instead of the row that caused it.
@@ -27,7 +25,7 @@ function attach(entry: StoreEntry): void {
 
   attachLifecycle(entry);
 
-  if (FOLLOWER.has(entry.type)) {
+  if (DERIVED.has(entry.type)) {
     attachFollower(entry);
   } else {
     attachDirectWrite(entry);

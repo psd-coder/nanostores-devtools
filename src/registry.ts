@@ -10,6 +10,12 @@ import { warnOnce } from "./warn.ts";
 
 export type StoreType = "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
 
+/**
+ * The types that work their value out from other stores instead of taking a write. They follow
+ * the row that caused them, and an unmounted one holds a value nothing keeps up to date.
+ */
+export const DERIVED: ReadonlySet<StoreType> = new Set<StoreType>(["computed", "batched"]);
+
 export type StoreOrigin = "plugin" | "explicit";
 
 export type StoreEntry = {
