@@ -86,7 +86,7 @@ describe("connectDevtools", () => {
         name: "nanostores",
         type: "nanostores",
         maxAge: 500,
-        serialize: { options: true },
+        serialize: { replacer: expect.any(Function), options: true },
         trace: expect.any(Function),
         features: {
           pause: true,
@@ -114,6 +114,21 @@ describe("connectDevtools", () => {
 
       expect(fake.configs[0]).toMatchObject({ name: "nanostores", maxAge: 500 });
       expect(fake.configs[0]?.trace).toBeTypeOf("function");
+    });
+
+    it("hands the user serializers to the replacer it passes", () => {
+      connectDevtools({
+        serializers: [{ match: (value) => value === 7, convert: () => "seven" }],
+      });
+
+      const serialize = fake.configs[0]?.serialize;
+      const replacer = typeof serialize === "object" ? serialize.replacer : undefined;
+
+      expect(replacer?.("n", 7)).toBe("seven");
+      expect(replacer?.("n", 9007199254740993n)).toEqual({
+        data: { $$value: "9007199254740993" },
+        __serializedType__: "BigInt",
+      });
     });
 
     it("leaves trace out entirely with the option off, and never passes traceLimit", () => {
@@ -182,6 +197,19 @@ describe("connectDevtools", () => {
 
       expect(fake.inits).toHaveLength(1);
       expect(fake.inits[0]?.state).toEqual({ cart: { $count: 7 } });
+    });
+
+    /** jsan runs inside the extension's `init`, so one unserializable store throws at our call. */
+    it("survives an init the extension cannot serialize, and warns once", async () => {
+      fake.setInitFailure("Do not know how to serialize a BigInt");
+      trackStores("cart", { $count: atom(0) });
+      connectDevtools();
+
+      await endOfTurn();
+      fake.start();
+
+      expect(fake.inits).toHaveLength(0);
+      expect(console.warn).toHaveBeenCalledTimes(1);
     });
   });
 

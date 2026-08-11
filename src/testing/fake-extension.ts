@@ -20,6 +20,8 @@ export type FakeExtension = {
   readonly listenerCount: () => number;
   /** The extension's `stringify` runs inside its own `send`, so it throws at our call site. */
   setSendFailure: (message: string | undefined) => void;
+  /** `init` serializes the same way, so a value it cannot write throws there too. */
+  setInitFailure: (message: string | undefined) => void;
   start: () => void;
   stop: (failed?: boolean) => void;
   deliver: (message: ExtensionMessage) => void;
@@ -38,9 +40,14 @@ export function installFakeExtension(): FakeExtension {
   const listeners = new Set<ExtensionListener>();
   const replaced = globalThis.__REDUX_DEVTOOLS_EXTENSION__;
   let sendFailure: string | undefined;
+  let initFailure: string | undefined;
 
   const connection: ExtensionConnection = {
     init(state, liftedData) {
+      if (initFailure !== undefined) {
+        throw new Error(initFailure);
+      }
+
       inits.push({ state, liftedData });
     },
     /** The real extension reads the stack inside `send`, so the fake has to read it there too. */
@@ -92,6 +99,9 @@ export function installFakeExtension(): FakeExtension {
     listenerCount: () => listeners.size,
     setSendFailure: (message) => {
       sendFailure = message;
+    },
+    setInitFailure: (message) => {
+      initFailure = message;
     },
     deliver,
     start: () =>

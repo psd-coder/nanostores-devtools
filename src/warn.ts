@@ -18,3 +18,8 @@ export function warnOnce(kind: string, subject: string, message: string): void {
   warned.add(key);
   console.warn(`${PREFIX} ${message}`);
 }
+
+/** A `catch` binding is whatever was thrown, so a string or an object has to read as well. */
+export function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

@@ -14,12 +14,14 @@ import {
   noteRegistryChange,
 } from "./lifecycle.ts";
 import { detachHooks, onRegistryChange } from "./registry.ts";
+import { createReplacer, type Serializer } from "./replacer.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { createTimeline, currentStack, dropOpenRow, type TimelineState } from "./timeline.ts";
-import { warnOnce } from "./warn.ts";
+import { describeError, warnOnce } from "./warn.ts";
 
 export type DevtoolsOptions = {
   name?: string | undefined;
+  serializers?: Serializer[] | undefined;
   maxAge?: number | undefined;
   trace?: boolean | undefined;
   traceLimit?: number | undefined;
@@ -89,7 +91,7 @@ export function connectDevtools(options?: DevtoolsOptions): DevtoolsHandle {
   queueMicrotask(() => {
     if (peekDevtoolsGlobal()?.bridge === bridge) {
       noteInitSent(bridge);
-      bridge.connection.init(buildSnapshot());
+      sendInit(bridge);
     }
   });
 
@@ -146,7 +148,11 @@ function buildConfig(options: DevtoolsOptions | undefined, trace: boolean): Exte
     name: options?.name ?? DEFAULT_NAME,
     type: "nanostores",
     maxAge: options?.maxAge ?? DEFAULT_MAX_AGE,
-    serialize: { options: true },
+    /**
+     * Both halves: `options: true` lets jsan render a `Date`, a `Map` and a `Set` natively, and
+     * the replacer marks the ones jsan handles badly, such as an `Error` or a `BigInt`.
+     */
+    serialize: { replacer: createReplacer(options?.serializers ?? []), options: true },
     /**
      * In full, because the extension turns every feature on when the object is missing, which
      * gives a read-only bridge a jump, dispatch and import button that all do nothing.
@@ -188,7 +194,7 @@ function receive(bridge: Bridge, message: ExtensionMessage): void {
   if (message.type === "START") {
     if (!bridge.listening) {
       bridge.listening = true;
-      bridge.connection.init(buildSnapshot());
+      sendInit(bridge);
     }
 
     return;
@@ -198,6 +204,18 @@ function receive(bridge: Bridge, message: ExtensionMessage): void {
     bridge.listening = false;
     dropOpenRow(bridge);
     dropPendingRows(bridge);
+  }
+}
+
+/**
+ * jsan runs inside the extension's own `init`, so a value it cannot write throws at our call
+ * site. One store nobody can serialize must not take the page down with it.
+ */
+function sendInit(bridge: Bridge): void {
+  try {
+    bridge.connection.init(buildSnapshot());
+  } catch (error) {
+    warnOnce("init-failed", "", `The tree could not be sent to the panel. ${describeError(error)}`);
   }
 }
 
