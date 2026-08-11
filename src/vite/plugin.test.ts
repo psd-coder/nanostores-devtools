@@ -1,6 +1,9 @@
-import { build, type Plugin } from "vite";
-import { describe, expect, it } from "vitest";
+import { build, createServer, type Plugin, type ViteDevServer } from "vite";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { resetDevtoolsGlobal } from "../global.ts";
+import { listEntries, type StoreEntry } from "../registry.ts";
+import { buildSnapshot } from "../snapshot.ts";
 import { moduleKeys, nanostoresDevtools } from "./plugin.ts";
 
 const ROOT = "/repo";
@@ -87,5 +90,107 @@ describe("a production build", () => {
     expect(code).toContain(`from "nanostores"`);
     expect(code).not.toContain("__nsdt");
     expect(code).not.toContain("vite/runtime");
+  });
+});
+
+/** This file's own directory, which is where the package's absolute paths are read from. */
+const HERE = import.meta.url.slice("file://".length, import.meta.url.lastIndexOf("/"));
+const PROJECT_ROOT = HERE.slice(0, -"/src/vite".length);
+
+/**
+ * The fixture is served from memory under the project root, so the module keys read like a real
+ * app's and nothing is written to disk.
+ */
+const APP_HOME = "src/vite/fixture/app.ts";
+const FIXTURE_DIR = `${HERE}/fixture`;
+const APP = `${FIXTURE_DIR}/app.ts`;
+
+const FILES: Record<string, string> = {
+  [`${FIXTURE_DIR}/factory.ts`]:
+    `import { atom } from "nanostores";\n` +
+    `export function persistentAtom(key, initial) {\n` +
+    `  return atom(initial);\n` +
+    `}\n` +
+    `export function readConfig() {\n` +
+    `  return { dark: true };\n` +
+    `}\n`,
+  [APP]:
+    `import { createRouter } from "@nanostores/router";\n` +
+    `import { persistentAtom, readConfig } from "./factory.ts";\n` +
+    `export const $theme = persistentAtom("theme", "dark");\n` +
+    `export const $router = createRouter({ home: "/" });\n` +
+    `export const $config = readConfig();\n`,
+};
+
+const fixture: Plugin = {
+  name: "fixture",
+  enforce: "pre",
+  resolveId(id, importer) {
+    if (id in FILES) {
+      return id;
+    }
+
+    if (importer === undefined || !id.startsWith("./")) {
+      return null;
+    }
+
+    const sibling = `${importer.slice(0, importer.lastIndexOf("/"))}/${id.slice(2)}`;
+
+    return sibling in FILES ? sibling : null;
+  },
+  load: (id) => FILES[id] ?? null,
+};
+
+function entryNamed(name: string): StoreEntry | undefined {
+  return listEntries().find((entry) => entry.name === name);
+}
+
+describe("a file that imports no nanostores creator", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root: PROJECT_ROOT,
+      plugins: [nanostoresDevtools(), fixture],
+      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+    });
+
+    await server.ssrLoadModule(APP);
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("puts a factory's store under the calling file, its own name and the factory's type", () => {
+    expect(entryNamed("$theme")).toMatchObject({
+      home: APP_HOME,
+      label: `${APP_HOME}/$theme`,
+      type: "atom",
+      origin: "plugin",
+    });
+    expect(buildSnapshot()[APP_HOME]?.["$theme"]).toBe("dark");
+  });
+
+  it("puts a dependency's store in the tree with its type lost", () => {
+    expect(entryNamed("$router")).toMatchObject({ home: APP_HOME, type: "unknown" });
+  });
+
+  it("marks the dependency's store, because an unknown type is not trusted unmounted", () => {
+    expect(buildSnapshot()[APP_HOME]?.["$router"]).toMatchObject({
+      __serializedType__: "not mounted, may be stale",
+    });
+  });
+
+  it("changes nothing for a $ name holding a value that is no store", () => {
+    expect(
+      listEntries()
+        .map((entry) => entry.name)
+        .sort(),
+    ).toEqual(["$router", "$theme"]);
   });
 });

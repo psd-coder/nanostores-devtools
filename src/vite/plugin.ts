@@ -53,6 +53,7 @@ export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
         moduleKey: keys.moduleKey,
         home: keys.home,
         maxStoresPerSite: options.maxStoresPerSite ?? DEFAULT_MAX_STORES_PER_SITE,
+        adoptFactories: options.adoptFactories ?? true,
         parser: await parser,
       });
 

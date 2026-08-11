@@ -8,7 +8,12 @@ import { type StoreTransform, transformStores } from "./transform.ts";
 const MODULE_KEY = "src/stores/cart.ts";
 const parser = await loadParser();
 
-type Overrides = { home?: string; maxStoresPerSite?: number; moduleKey?: string };
+type Overrides = {
+  home?: string;
+  maxStoresPerSite?: number;
+  moduleKey?: string;
+  adoptFactories?: boolean;
+};
 
 function transform(code: string, overrides: Overrides = {}): StoreTransform {
   return transformStores({
@@ -16,6 +21,7 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     moduleKey: MODULE_KEY,
     home: MODULE_KEY,
     maxStoresPerSite: 50,
+    adoptFactories: true,
     parser,
     ...overrides,
   });
@@ -43,18 +49,34 @@ function output(result: StoreTransform): string {
 }
 
 describe("the pre-parse test", () => {
-  it("never parses a file that imports no store creator", () => {
+  it("never parses a file that imports no creator and binds no $ name", () => {
     const parseSync = vi.fn();
     const result = transformStores({
-      code: `import { useStore } from "@nanostores/react";\nuseStore($cart);\n`,
+      code: `import { useStore } from "@nanostores/react";\nconst theme = useStore($cart);\n`,
       moduleKey: MODULE_KEY,
       home: MODULE_KEY,
       maxStoresPerSite: 50,
+      adoptFactories: true,
       parser: { ...parser, parseSync },
     });
 
     expect(parseSync).not.toHaveBeenCalled();
     expect(result.changed).toBe(false);
+  });
+
+  it("never parses for a $ name that adoption cannot reach", () => {
+    const parseSync = vi.fn();
+
+    transformStores({
+      code: `const read = ($cart) => $cart.get();\nconst same = $a === $b;\n`,
+      moduleKey: MODULE_KEY,
+      home: MODULE_KEY,
+      maxStoresPerSite: 50,
+      adoptFactories: true,
+      parser: { ...parser, parseSync },
+    });
+
+    expect(parseSync).not.toHaveBeenCalled();
   });
 
   it("leaves a file that imports nanostores and makes no store alone", () => {
@@ -120,9 +142,10 @@ describe("callee matching", () => {
   });
 
   it("takes no name from a type-only import", () => {
-    const result = transform(`import type { atom } from "nanostores";\nconst $c = atom(0);\n`);
+    const source = `import type { atom } from "nanostores";\nconst $c = atom(0);\n`;
 
-    expect(result.changed).toBe(false);
+    expect(transform(source, { adoptFactories: false }).changed).toBe(false);
+    expect(metas(transform(source)).map((meta) => meta.type)).toEqual(["unknown"]);
   });
 
   it("names an object property, a class field and an array element", () => {
@@ -210,11 +233,127 @@ describe("callee matching", () => {
   });
 
   it("instruments nothing for a namespace import and warns once for the file", () => {
-    const result = transform(`import * as ns from "nanostores";\nconst $c = ns.atom(0);\n`);
+    const source = `import * as ns from "nanostores";\nconst $c = ns.atom(0);\n`;
+    const result = transform(source);
 
-    expect(result.changed).toBe(false);
+    expect(transform(source, { adoptFactories: false }).changed).toBe(false);
+    expect(metas(result).map((meta) => meta.type)).toEqual(["unknown"]);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain(MODULE_KEY);
+  });
+});
+
+describe("adoption", () => {
+  it("wraps a $-named binding assigned from a call it did not instrument", () => {
+    const result = transform(
+      `import { persistentAtom } from "@nanostores/persistent";\n` +
+        `export const $theme = persistentAtom("theme", "dark");\n`,
+    );
+
+    expect(output(result)).toContain(
+      `export const $theme = __nsdt.adopt(persistentAtom("theme", "dark"), ` +
+        `{"name":"$theme","fn":null,"line":2,"type":"unknown"});`,
+    );
+  });
+
+  it("leaves a binding without a $ alone", () => {
+    const result = transform(`const theme = persistentAtom("theme", "dark");\n`);
+
+    expect(result.changed).toBe(false);
+  });
+
+  it("leaves a call callee matching already wrapped alone", () => {
+    const result = transform(`import { atom } from "nanostores";\nconst $c = atom(0);\n`);
+
+    expect(output(result)).not.toContain("__nsdt.adopt(");
+    expect(metas(result)).toEqual([{ name: "$c", fn: null, line: 2, type: "atom" }]);
+  });
+
+  it("keeps the inner type when a $ binding holds an instrumented call", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nconst $c = withLogging(atom(0));\n`,
+    );
+
+    expect(output(result)).not.toContain("__nsdt.adopt(");
+    expect(metas(result)).toEqual([{ name: "$c", fn: null, line: 2, type: "atom" }]);
+  });
+
+  it("still takes the binding when the call is handed a store under another name", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nconst $store = createStore({ initial: atom(0) });\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: "initial", fn: null, line: 2, type: "atom" },
+      { name: "$store", fn: null, line: 2, type: "unknown" },
+    ]);
+  });
+
+  it("leaves a call standing in an argument alone", () => {
+    const result = transform(`const $theme = persistent(fallback("dark"));\n`);
+
+    expect(metas(result)).toEqual([{ name: "$theme", fn: null, line: 1, type: "unknown" }]);
+  });
+
+  it("names an object property, a class field and an array element", () => {
+    const result = transform(
+      `export const stores = { $count: persistentAtom("count") };\n` +
+        `export class Cart {\n` +
+        `  $items = persistentAtom("items");\n` +
+        `}\n` +
+        `export const $list = [persistentAtom("a"), persistentAtom("b")];\n`,
+    );
+
+    expect(metas(result).map((meta) => meta.name)).toEqual([
+      "$count",
+      "$items",
+      "$list[0]",
+      "$list[1]",
+    ]);
+  });
+
+  it("takes the enclosing function, so two lines making one name stay apart", () => {
+    const result = transform(
+      `export function makeCart() {\n  const $items = persistentAtom("items");\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "$items", fn: "makeCart", line: 2, type: "unknown" }]);
+  });
+
+  it("skips a $ binding nested inside an instrumented creation site", () => {
+    const result = transform(
+      `import { computed } from "nanostores";\n` +
+        `const $total = computed($items, () => {\n` +
+        `  const $tmp = persistentAtom("tmp");\n` +
+        `  return 1;\n` +
+        `});\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "$total", fn: null, line: 2, type: "computed" }]);
+  });
+
+  it("is turned off by adoptFactories, and callee matching keeps working", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `const $a = atom(0);\n` +
+        `const $b = persistentAtom("b");\n`,
+      { adoptFactories: false },
+    );
+
+    expect(output(result)).not.toContain("__nsdt.adopt(");
+    expect(metas(result)).toEqual([{ name: "$a", fn: null, line: 2, type: "atom" }]);
+  });
+
+  it("reads through a type annotation between the name and the call", () => {
+    const result = transform(`export const $router: Router = createRouter({ home: "/" });\n`);
+
+    expect(metas(result)).toEqual([{ name: "$router", fn: null, line: 1, type: "unknown" }]);
+  });
+
+  it("gives a file that only adopts the same header, so a reload clears it", () => {
+    const result = transform(`const $theme = persistentAtom("theme", "dark");\n`);
+
+    expect(output(result)).toContain("__nsdt.clear();");
   });
 });
 

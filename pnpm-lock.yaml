@@ -18,6 +18,9 @@ importers:
       '@jridgewell/sourcemap-codec':
         specifier: ^1.5.5
         version: 1.5.5
+      '@nanostores/router':
+        specifier: 1.1.0
+        version: 1.1.0(nanostores@1.4.2)
       '@size-limit/preset-small-lib':
         specifier: ^13.0.3
         version: 13.0.3(size-limit@13.0.3)
@@ -240,6 +243,12 @@ packages:
 
   '@loaderkit/resolve@1.0.6':
     resolution: {integrity: sha512-G8FdIoF5CypfwmD9rl8BXod5HDn8JqB0CCNBXDTaRZ+yRYhARrrSToX1zg1zy9jX3zLqigsELwhT4gNtkdQAUg==}
+
+  '@nanostores/router@1.1.0':
+    resolution: {integrity: sha512-C0PyfI/4R+d6w53SBFiYzGWowsMZgVeC/7lox59g3KzhcpgvgCheYA0DlBH46z5BdgBZ3qLIlNIttGs9Kl9Wzg==}
+    engines: {node: ^20.0.0 || >=22.0.0}
+    peerDependencies:
+      nanostores: ^0.9.0 || ^0.10.0 || ^0.11.0 || ^1.0.0
 
   '@oxc-parser/binding-android-arm-eabi@0.143.0':
     resolution: {integrity: sha512-n9uozULWflPqBtdmI8lAabLqGKNgLVNN0ZH8HfgCwpKGNtzRzauB76jTiW/3YLkcA7N1zskpi9GdVnZuu1SAvg==}
@@ -1801,6 +1810,10 @@ snapshots:
   '@loaderkit/resolve@1.0.6':
     dependencies:
       '@braidai/lang': 1.1.2
+
+  '@nanostores/router@1.1.0(nanostores@1.4.2)':
+    dependencies:
+      nanostores: 1.4.2
 
   '@oxc-parser/binding-android-arm-eabi@0.143.0':
     optional: true

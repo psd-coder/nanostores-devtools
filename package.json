@@ -68,6 +68,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@jridgewell/sourcemap-codec": "^1.5.5",
+    "@nanostores/router": "1.1.0",
     "@size-limit/preset-small-lib": "^13.0.3",
     "nano-staged": "^1.0.2",
     "nanostores": "1.4.2",

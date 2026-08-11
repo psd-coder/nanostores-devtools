@@ -18,6 +18,7 @@ export type TransformInput = {
   moduleKey: string;
   home: string;
   maxStoresPerSite: number;
+  adoptFactories: boolean;
   parser: Parser;
 };
 
@@ -44,18 +45,30 @@ const CREATORS: ReadonlyMap<string, StoreType> = new Map<string, StoreType>([
  */
 const IMPORTS_NANOSTORES = /from\s*["']nanostores["']/;
 
+/**
+ * A `$`-prefixed name bound to something, which is what adoption needs and the only reason to
+ * parse a file that imports no creator. `=>` and `==` are left out, so an arrow parameter and a
+ * comparison cost no parse. The colon is in, because a type annotation sits between the name
+ * and the `=`.
+ */
+const BINDS_DOLLAR_NAME = /\$[\w$]*\s*(?::|=(?![=>]))/;
+
 /** A name frame carries what a store born under it is called; a function frame ends that reach. */
 type Frame = { fn: boolean; name: string | null };
 
-type Wrap = { start: number; end: number; site: CreationSite };
+/** One call the transform wraps, and the runtime function it hands the call to. */
+type Injection = { start: number; end: number; call: "store" | "adopt"; site: CreationSite };
 
 /** An object property, a class field and a method all name what sits under them the same way. */
 type Keyed = { key: NodePropertyKey; computed: boolean };
 
+/** A key that also holds a value, so the value's own offset can carry the key's name. */
+type Valued = Keyed & { value: { start: number } | null };
+
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
 
-  if (!IMPORTS_NANOSTORES.test(input.code)) {
+  if (!IMPORTS_NANOSTORES.test(input.code) && !mayAdopt(input)) {
     return { changed: false, warnings: [] };
   }
 
@@ -66,10 +79,14 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   const creators = new Map<string, StoreType>();
-  const wraps: Wrap[] = [];
+  const wraps: Injection[] = [];
+  const adopts: Injection[] = [];
   const stack: Frame[] = [];
-  /** An array has no key, so each element's name is worked out where the array itself is named. */
-  const elementNames = new Map<number, string | null>();
+  /**
+   * Where a named binding's value starts, and the name it is bound to. An array element has no
+   * key of its own, so it is named where the array itself is named.
+   */
+  const namedValues = new Map<number, string | null>();
   const open: number[] = [];
   const lines = lineStarts(input.code);
 
@@ -96,7 +113,7 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   function nameAt(start: number): string | null {
-    return elementNames.has(start) ? (elementNames.get(start) ?? null) : currentName();
+    return namedValues.has(start) ? (namedValues.get(start) ?? null) : currentName();
   }
 
   function readImport(node: ImportDeclaration): void {
@@ -107,8 +124,8 @@ export function transformStores(input: TransformInput): StoreTransform {
     for (const specifier of node.specifiers) {
       if (specifier.type === "ImportNamespaceSpecifier") {
         warnings.add(
-          `"${input.moduleKey}" imports nanostores as a namespace, so its stores stay out of ` +
-            `the panel. Import atom, map, deepMap, computed or batched by name instead.`,
+          `"${input.moduleKey}" imports nanostores as a namespace, so the plugin cannot tell ` +
+            `what its stores are. Import atom, map, deepMap, computed or batched by name instead.`,
         );
         continue;
       }
@@ -130,28 +147,52 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     node.elements.forEach((element, index) => {
       if (element !== null && element.type !== "SpreadElement") {
-        elementNames.set(element.start, base === null ? null : `${base}[${index}]`);
+        namedValues.set(element.start, base === null ? null : `${base}[${index}]`);
       }
     });
   }
 
-  function readCall(node: CallExpression): void {
-    const type = node.callee.type === "Identifier" ? creators.get(node.callee.name) : undefined;
+  function siteAt(start: number, name: string | null, type: StoreType): CreationSite {
+    return { name, fn: currentFn(), line: lineOf(lines, start), type };
+  }
 
+  function readCall(node: CallExpression): void {
     /**
      * A store made inside an instrumented one is a temporary that the callback rebuilds on every
-     * run, so it is the one thing callee matching finds and refuses.
+     * run, so it is the one thing callee matching finds and refuses, and adoption follows it.
      */
-    if (type === undefined || open.length > 0) {
+    if (open.length > 0) {
       return;
     }
 
-    open.push(node.start);
-    wraps.push({
-      start: node.start,
-      end: node.end,
-      site: { name: nameAt(node.start), fn: currentFn(), line: lineOf(lines, node.start), type },
-    });
+    const type = node.callee.type === "Identifier" ? creators.get(node.callee.name) : undefined;
+
+    if (type !== undefined) {
+      open.push(node.start);
+      wraps.push({
+        start: node.start,
+        end: node.end,
+        call: "store",
+        site: siteAt(node.start, nameAt(node.start), type),
+      });
+
+      return;
+    }
+
+    const name = namedValues.get(node.start);
+
+    /**
+     * Only a call bound straight to a name, so a call standing in an argument is left alone: the
+     * name around it belongs to whatever the outer call returns.
+     */
+    if (input.adoptFactories && name !== undefined && name !== null && name.startsWith("$")) {
+      adopts.push({
+        start: node.start,
+        end: node.end,
+        call: "adopt",
+        site: siteAt(node.start, name, "unknown"),
+      });
+    }
   }
 
   /** Every import is a top-level statement, and reading them all first frees the walk of order. */
@@ -163,6 +204,16 @@ export function transformStores(input: TransformInput): StoreTransform {
 
   function pushKey(node: Keyed): void {
     pushName(keyName(node.key, node.computed));
+  }
+
+  function pushValued(node: Valued): void {
+    const name = keyName(node.key, node.computed);
+
+    pushName(name);
+
+    if (node.value !== null) {
+      namedValues.set(node.value.start, name);
+    }
   }
 
   function pushDeclared(node: { id: { name: string } | null }): void {
@@ -178,12 +229,18 @@ export function transformStores(input: TransformInput): StoreTransform {
       }
     },
     VariableDeclarator(node) {
-      pushName(node.id.type === "Identifier" ? node.id.name : null);
+      const name = node.id.type === "Identifier" ? node.id.name : null;
+
+      pushName(name);
+
+      if (node.init !== null) {
+        namedValues.set(node.init.start, name);
+      }
     },
     "VariableDeclarator:exit": pop,
-    Property: pushKey,
+    Property: pushValued,
     "Property:exit": pop,
-    PropertyDefinition: pushKey,
+    PropertyDefinition: pushValued,
     "PropertyDefinition:exit": pop,
     MethodDefinition: pushKey,
     "MethodDefinition:exit": pop,
@@ -198,18 +255,31 @@ export function transformStores(input: TransformInput): StoreTransform {
   } satisfies VisitorObject).visit(parsed.program);
 
   /**
+   * Callee matching runs first and keeps the type, so adoption drops a name it already took. A
+   * wrap under some other name inside the same call is a store handed to that call, not the store
+   * the call returns, and both belong in the tree.
+   */
+  const adopted = adopts.filter(
+    (adopt) =>
+      !wraps.some(
+        (wrap) =>
+          wrap.site.name === adopt.site.name && wrap.start >= adopt.start && wrap.end <= adopt.end,
+      ),
+  );
+
+  /**
    * A file that binds a creator is instrumented even when it makes no store today, because an
    * edit that took the last store out still has to clear what the run before it registered.
    */
-  if (creators.size === 0) {
+  if (creators.size === 0 && adopted.length === 0) {
     return { changed: false, warnings: [...warnings] };
   }
 
   const edited = new MagicString(input.code);
 
-  for (const wrap of wraps) {
-    edited.prependRight(wrap.start, `${SCOPE}.store(`);
-    edited.appendLeft(wrap.end, `, ${JSON.stringify(wrap.site)})`);
+  for (const injection of [...wraps, ...adopted]) {
+    edited.prependRight(injection.start, `${SCOPE}.${injection.call}(`);
+    edited.appendLeft(injection.end, `, ${JSON.stringify(injection.site)})`);
   }
 
   edited.prepend(header(input));
@@ -239,6 +309,11 @@ function header(input: TransformInput): string {
     `const ${SCOPE} = ${FACTORY}(${args}); ${SCOPE}.clear(); ` +
     `if (import.meta.hot) import.meta.hot.prune(() => { ${SCOPE}.clear(); });\n`
   );
+}
+
+/** The second half of the pre-parse test: a file importing no creator can still be adopted from. */
+function mayAdopt(input: TransformInput): boolean {
+  return input.adoptFactories && BINDS_DOLLAR_NAME.test(input.code);
 }
 
 function exportName(name: ModuleExportName): string {

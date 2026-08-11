@@ -5,7 +5,7 @@ import { connectDevtools } from "../connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
 import { getEntry, listEntries, trackStores } from "../registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
-import { type CreationSite, fileScope } from "./runtime.ts";
+import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";
 
 const MODULE_ID = "/repo/src/stores/cart.ts";
 const HOME = "src/stores/cart.ts";
@@ -302,6 +302,59 @@ describe("adopt", () => {
     scope.adopt(atom(0), site({ name: "$row", type: "unknown" }));
 
     expect(names()).toEqual(["$row", "$row #2"]);
+  });
+});
+
+/**
+ * A known limit, pinned so it stays known: the factory's module did not re-run, so it did not
+ * clear, and the caller's reload adds to what the run before it left.
+ */
+describe("a factory defined in one module and called from another", () => {
+  const FACTORY_ID = "/repo/src/stores/factory.ts";
+  const FACTORY_HOME = "src/stores/factory.ts";
+
+  function reload(times: number, run: (caller: FileScope) => void): void {
+    const caller = fileScope(MODULE_ID, HOME, 2);
+
+    for (let count = 0; count < times; count += 1) {
+      caller.clear();
+      run(caller);
+    }
+  }
+
+  it("piles the factory's entries up under the factory when the caller reloads", () => {
+    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 50);
+
+    reload(2, () => {
+      factory.store(atom(0), site({ fn: "makeCart" }));
+      factory.store(atom(0), site({ fn: "makeCart" }));
+    });
+
+    expect(names()).toEqual(["$items", "$items #2", "$items #3", "$items #4"]);
+  });
+
+  it("holds that pile at the cap and drops the dead ones", () => {
+    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 2);
+
+    reload(5, () => {
+      factory.store(atom(0), site({ fn: "makeCart" }));
+    });
+
+    expect(names()).toEqual(["$items #4", "$items #5"]);
+  });
+
+  it("keeps an adopted store out of the pile, because it moves to the caller", () => {
+    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 50);
+
+    reload(3, (caller) => {
+      const $made = atom(0);
+
+      factory.store($made, site({ fn: "makeCart" }));
+      caller.adopt($made, site({ name: "$cart", line: 5, type: "unknown" }));
+    });
+
+    expect(names()).toEqual(["$cart"]);
+    expect(listEntries()[0]).toMatchObject({ home: HOME, type: "atom" });
   });
 });
 
