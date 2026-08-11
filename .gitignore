@@ -16,6 +16,7 @@ coverage
 .claude
 AGENTS.override.md
 CLAUDE.local.md
+docs/.wip/
 
 # Editor directories and files
 .idea
