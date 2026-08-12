@@ -1,20 +1,15 @@
 import { decode } from "@jridgewell/sourcemap-codec";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 
 import { loadParser } from "./parser.ts";
 import type { CreationSite } from "./runtime.ts";
-import { type StoreTransform, transformStores } from "./transform.ts";
+import { type StoreTransform, type TransformInput, transformStores } from "./transform.ts";
 
 const MODULE_KEY = "src/stores/cart.ts";
 const parser = await loadParser();
 
-type Overrides = {
-  home?: string;
-  external?: boolean;
-  maxStoresPerSite?: number;
-  moduleKey?: string;
-  adoptFactories?: boolean;
-};
+/** Everything the transform takes but the source itself, which every test writes for itself. */
+type Overrides = Partial<Omit<TransformInput, "code">>;
 
 function transform(code: string, overrides: Overrides = {}): StoreTransform {
   return transformStores({
@@ -24,6 +19,7 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     external: false,
     maxStoresPerSite: 50,
     adoptFactories: true,
+    parseEveryFile: true,
     parser,
     ...overrides,
   });
@@ -58,36 +54,37 @@ function ownCall(result: StoreTransform): string | undefined {
 }
 
 describe("the pre-parse test", () => {
-  it("never parses a file that imports no creator and binds no $ name", () => {
-    const parseSync = vi.fn();
-    const result = transformStores({
-      code: `import { useStore } from "@nanostores/react";\nconst theme = useStore($cart);\n`,
-      moduleKey: MODULE_KEY,
-      home: MODULE_KEY,
-      external: false,
-      maxStoresPerSite: 50,
-      adoptFactories: true,
-      parser: { ...parser, parseSync },
-    });
+  const FACTORY_CALL =
+    `import { createPanel } from "./panel.ts";\n` + `export const panel = createPanel();\n`;
 
-    expect(parseSync).not.toHaveBeenCalled();
-    expect(result.changed).toBe(false);
+  it("parses a file that imports no nanostores and binds no $ name", () => {
+    const result = transform(FACTORY_CALL);
+
+    expect(output(result)).toContain(
+      `__nsdt.end((__nsdt.begin(), createPanel()), ` +
+        `{"name":"panel","fn":null,"line":2,"type":"unknown"})`,
+    );
+    expect(ownCall(result)).toBe(`__nsdt.own([["panel", panel]]);`);
   });
 
-  it("never parses for a $ name that adoption cannot reach", () => {
-    const parseSync = vi.fn();
+  it("reaches a file whose only store sits in an unenumerable holder", () => {
+    const result = transform(
+      `import { Editor } from "./editor.ts";\nconst hidden = new WeakMap([[{}, new Editor()]]);\n`,
+    );
 
-    transformStores({
-      code: `const read = ($cart) => $cart.get();\nconst same = $a === $b;\n`,
-      moduleKey: MODULE_KEY,
-      home: MODULE_KEY,
-      external: false,
-      maxStoresPerSite: 50,
-      adoptFactories: true,
-      parser: { ...parser, parseSync },
-    });
+    expect(output(result)).toContain(
+      `__nsdt.end((__nsdt.begin(), new WeakMap([[{}, new Editor()]])), {"name":"hidden"`,
+    );
+    expect(ownCall(result)).toBe(`__nsdt.own([["hidden", hidden]]);`);
+  });
 
-    expect(parseSync).not.toHaveBeenCalled();
+  it("leaves a file that binds nothing at the top level alone, though it parses it", () => {
+    const result = transform(
+      `import { useStore } from "@nanostores/react";\n` +
+        `export function Cart() {\n  return useStore($cart);\n}\n`,
+    );
+
+    expect(result.changed).toBe(false);
   });
 
   it("leaves a file that imports nanostores and makes no store alone", () => {
@@ -107,6 +104,43 @@ describe("the pre-parse test", () => {
     const result = transform(`import { atom } from "nanostores";\nconst $c = atom(;\n`);
 
     expect(result.changed).toBe(false);
+  });
+
+  /** The narrow gate, which is what a very large repository turns the wide one back off for. */
+  describe("with parseEveryFile off", () => {
+    function spied(code: string): { parseSync: Mock; result: StoreTransform } {
+      const parseSync = vi.fn();
+      const result = transform(code, {
+        parseEveryFile: false,
+        parser: { ...parser, parseSync },
+      });
+
+      return { parseSync, result };
+    }
+
+    it("never parses a file that imports no creator and binds no $ name", () => {
+      const { parseSync, result } = spied(
+        `import { useStore } from "@nanostores/react";\nconst theme = useStore($cart);\n`,
+      );
+
+      expect(parseSync).not.toHaveBeenCalled();
+      expect(result.changed).toBe(false);
+    });
+
+    it("never parses for a $ name that adoption cannot reach", () => {
+      const { parseSync } = spied(
+        `const read = ($cart) => $cart.get();\nconst same = $a === $b;\n`,
+      );
+
+      expect(parseSync).not.toHaveBeenCalled();
+    });
+
+    it("leaves the factory call the wide gate reaches unparsed", () => {
+      const { parseSync, result } = spied(FACTORY_CALL);
+
+      expect(parseSync).not.toHaveBeenCalled();
+      expect(result.changed).toBe(false);
+    });
   });
 });
 
@@ -155,7 +189,7 @@ describe("callee matching", () => {
   it("takes no name from a type-only import", () => {
     const source = `import type { atom } from "nanostores";\nconst $c = atom(0);\n`;
 
-    expect(transform(source, { adoptFactories: false }).changed).toBe(false);
+    expect(output(transform(source, { adoptFactories: false }))).not.toContain("__nsdt.adopt(");
     expect(output(transform(source))).toContain(
       `__nsdt.adopt(atom(0), {"name":"$c","fn":null,"line":2,"type":"unknown"})`,
     );
@@ -249,7 +283,7 @@ describe("callee matching", () => {
     const source = `import * as ns from "nanostores";\nconst $c = ns.atom(0);\n`;
     const result = transform(source);
 
-    expect(transform(source, { adoptFactories: false }).changed).toBe(false);
+    expect(output(transform(source, { adoptFactories: false }))).not.toContain("__nsdt.adopt(");
     expect(output(result)).toContain(
       `__nsdt.adopt(ns.atom(0), {"name":"$c","fn":null,"line":2,"type":"unknown"})`,
     );
@@ -362,10 +396,12 @@ describe("adoption", () => {
     );
   });
 
-  it("leaves a binding without a $ alone", () => {
+  /** The wide gate still frames the call and lists the binding: only adoption stays out of it. */
+  it("adopts no binding without a $", () => {
     const result = transform(`const theme = persistentAtom("theme", "dark");\n`);
 
-    expect(result.changed).toBe(false);
+    expect(output(result)).not.toContain("__nsdt.adopt(");
+    expect(ownCall(result)).toBe(`__nsdt.own([["theme", theme]]);`);
   });
 
   it("leaves a call callee matching already wrapped alone", () => {

@@ -16,6 +16,14 @@ export type VitePluginOptions = {
    * a dependency as `node_modules/…`. Pin it when the default sits so high that homes get long.
    */
   projectRoot?: string | undefined;
+  /**
+   * Whether every source file is parsed, which is what sees `const panel = createPanel()` and puts
+   * the stores that factory returns under `panel`. On by default: it costs about 0.02 ms per file,
+   * paid once per file per dev server run, because Vite caches the transform. Turn it off in a very
+   * large repository, and a file is parsed again only when it imports nanostores or binds a `$`
+   * name.
+   */
+  parseEveryFile?: boolean | undefined;
 };
 
 /** The two roots a home is measured from: the Vite root first, and the wider one outside it. */
@@ -81,6 +89,7 @@ export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
         external: keys.external,
         maxStoresPerSite: options.maxStoresPerSite ?? DEFAULT_MAX_STORES_PER_SITE,
         adoptFactories: options.adoptFactories ?? true,
+        parseEveryFile: options.parseEveryFile ?? true,
         parser: await parser,
       });
 

@@ -24,6 +24,8 @@ export type TransformInput = {
   external: boolean;
   maxStoresPerSite: number;
   adoptFactories: boolean;
+  /** Whether every file is parsed, rather than only one that looks like it holds a store. */
+  parseEveryFile: boolean;
   parser: Parser;
 };
 
@@ -45,8 +47,9 @@ const CREATORS: ReadonlyMap<string, StoreType> = new Map<string, StoreType>([
 ]);
 
 /**
- * A file that binds nothing from `"nanostores"` can make no store through callee matching, and
- * this is what keeps the commonest file in an app (a component that only reads stores) unparsed.
+ * A file that binds nothing from `"nanostores"` can make no store through callee matching. This is
+ * the narrow gate, which `parseEveryFile` skips: on its own it leaves a component that only reads
+ * stores unparsed, which is most of an app, and `const panel = createPanel()` unparsed with it.
  */
 const IMPORTS_NANOSTORES = /from\s*["']nanostores["']/;
 
@@ -94,7 +97,7 @@ type TopLevel = Program["body"][number];
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
 
-  if (!IMPORTS_NANOSTORES.test(input.code) && !mayAdopt(input)) {
+  if (!input.parseEveryFile && !IMPORTS_NANOSTORES.test(input.code) && !mayAdopt(input)) {
     return { changed: false, warnings: [] };
   }
 
@@ -375,9 +378,12 @@ export function transformStores(input: TransformInput): StoreTransform {
 
   /**
    * A file that binds a creator is instrumented even when it makes no store today, because an
-   * edit that took the last store out still has to clear what the run before it registered.
+   * edit that took the last store out still has to clear what the run before it registered. A
+   * top-level binding is enough on its own: what it holds may be a store another file made, and
+   * only the scan at the end of this body places it. A file that binds nothing at the top level
+   * gives the scan nothing, so it is left exactly as it was written.
    */
-  if (creators.size === 0 && adopted.length === 0) {
+  if (creators.size === 0 && adopted.length === 0 && bound.length === 0) {
     return { changed: false, warnings: [...warnings] };
   }
 

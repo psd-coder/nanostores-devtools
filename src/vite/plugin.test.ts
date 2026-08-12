@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDevtoolsGlobal } from "../global.ts";
 import { listEntries, type StoreEntry } from "../registry.ts";
 import { buildSnapshot } from "../snapshot.ts";
-import { fileHome, type ModuleRoots, moduleKeys, nanostoresDevtools } from "./plugin.ts";
+import {
+  fileHome,
+  type ModuleRoots,
+  moduleKeys,
+  nanostoresDevtools,
+  type VitePluginOptions,
+} from "./plugin.ts";
 
 const ROOT = "/repo";
 const ROOTS: ModuleRoots = { root: ROOT, projectRoot: ROOT };
@@ -255,6 +261,87 @@ describe("a file that imports no nanostores creator", () => {
         .map((entry) => entry.name)
         .sort(),
     ).toEqual(["$router", "$theme"]);
+  });
+});
+
+/**
+ * The two cases only the wide parse gate reaches: `workspace.ts` imports no nanostores and binds no
+ * `$` name, so the narrow gate never parses it. Its factory results stay under the file that holds
+ * the factory, and the instance it hides in a `WeakMap` under the file that declares the class.
+ */
+const WORKSPACE_HOME = "fixture/workspace.ts";
+const PANEL_HOME = "fixture/panel.ts";
+const EDITOR_HOME = "fixture/editor.ts";
+const WORKSPACE = `${FIXTURE_DIR}/workspace.ts`;
+
+const GATE_FILES: Record<string, string> = {
+  [`${FIXTURE_DIR}/panel.ts`]:
+    `import { atom } from "nanostores";\n` +
+    `export function createPanel(width) {\n` +
+    `  return { open: atom(false), width: atom(width) };\n` +
+    `}\n`,
+  [`${FIXTURE_DIR}/editor.ts`]:
+    `import { atom } from "nanostores";\n` +
+    `export class Editor {\n` +
+    `  $value = atom("draft");\n` +
+    `}\n`,
+  [WORKSPACE]:
+    `import { createPanel } from "./panel.ts";\n` +
+    `import { Editor } from "./editor.ts";\n` +
+    `export const panel = createPanel(320);\n` +
+    `export const sidebar = createPanel(240);\n` +
+    `export const hidden = new WeakMap([[{}, new Editor()]]);\n`,
+};
+
+/** A node the panel draws with its type in front of it, which is what the wrapper carries. */
+function labelled(type: string, children: Record<string, unknown>): unknown {
+  return { data: children, __serializedType__: type };
+}
+
+describe("a file the narrow parse gate never sees", () => {
+  let server: ViteDevServer;
+
+  async function load(options: VitePluginOptions): Promise<void> {
+    resetDevtoolsGlobal();
+    server = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root: PROJECT_ROOT,
+      plugins: [nanostoresDevtools(options), memoryFixture(GATE_FILES)],
+      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+    });
+
+    await server.ssrLoadModule(WORKSPACE);
+  }
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("attributes what it binds, and draws every registry entry exactly once", async () => {
+    await load({});
+
+    expect(buildSnapshot()).toEqual({
+      [WORKSPACE_HOME]: {
+        panel: { open: false, width: 320 },
+        sidebar: { open: false, width: 240 },
+        hidden: labelled("WeakMap", { "ref#1": labelled("Editor", { $value: "draft" }) }),
+      },
+    });
+    expect(listEntries()).toHaveLength(5);
+  });
+
+  it("leaves both cases under the files that built them with the wide gate turned off", async () => {
+    await load({ parseEveryFile: false });
+
+    expect(buildSnapshot()).toEqual({
+      [PANEL_HOME]: {
+        "createPanel()": { open: false, "open #2": false, width: 320, "width #2": 240 },
+      },
+      [EDITOR_HOME]: { "ref#1": labelled("Editor", { $value: "draft" }) },
+    });
+    expect(listEntries()).toHaveLength(5);
   });
 });
 
