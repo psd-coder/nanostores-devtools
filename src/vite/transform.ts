@@ -1,6 +1,8 @@
 import { MagicString, type SourceMap } from "magic-string";
 import type {
   ArrayExpression,
+  AssignmentTargetMaybeDefault,
+  BindingPattern,
   CallExpression,
   ExportNamedDeclaration,
   Expression,
@@ -89,8 +91,14 @@ type FramedInit = { start: number; end: number; callee: string | null; site: Cre
 /** An object property, a class field and a method all name what sits under them the same way. */
 type Keyed = { key: NodePropertyKey; computed: boolean };
 
+/**
+ * A value as it is written, which `bared` looks through. A property holds an expression, but the
+ * same node type stands in a destructuring pattern, where what it holds is a pattern instead.
+ */
+type Written = Expression | BindingPattern | AssignmentTargetMaybeDefault;
+
 /** A key that also holds a value, so the value's own offset can carry the key's name. */
-type Valued = Keyed & { value: { start: number } | null };
+type Valued = Keyed & { value: Written | null };
 
 /** One statement standing at the top level of a module body, taken off the program that holds it. */
 type TopLevel = Program["body"][number];
@@ -113,8 +121,8 @@ export function transformStores(input: TransformInput): StoreTransform {
   const adopts: Injection[] = [];
   const stack: Frame[] = [];
   /**
-   * Where a named binding's value starts, and the name it is bound to. An array element has no
-   * key of its own, so it is named where the array itself is named.
+   * Where a named binding's value starts, past every wrapper around it, and the name it is bound
+   * to. An array element has no key of its own, so it is named where the array itself is named.
    */
   const namedValues = new Map<number, string | null>();
   const open: number[] = [];
@@ -190,7 +198,7 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     node.elements.forEach((element, index) => {
       if (element !== null && element.type !== "SpreadElement") {
-        namedValues.set(element.start, base === null ? null : `${base}[${index}]`);
+        namedValues.set(bared(element).start, base === null ? null : `${base}[${index}]`);
       }
     });
   }
@@ -338,7 +346,7 @@ export function transformStores(input: TransformInput): StoreTransform {
     pushName(name, self);
 
     if (node.value !== null) {
-      namedValues.set(node.value.start, name);
+      namedValues.set(bared(node.value).start, name);
     }
   }
 
@@ -363,7 +371,7 @@ export function transformStores(input: TransformInput): StoreTransform {
       pushName(name);
 
       if (node.init !== null) {
-        namedValues.set(node.init.start, name);
+        namedValues.set(bared(node.init).start, name);
       }
     },
     "VariableDeclarator:exit": pop,
@@ -498,7 +506,7 @@ function calledIn(node: Expression): CallExpression | NewExpression | undefined 
   return bare.type === "CallExpression" || bare.type === "NewExpression" ? bare : undefined;
 }
 
-function bared(node: Expression): Expression {
+function bared(node: Written): Written {
   switch (node.type) {
     case "TSAsExpression":
     case "TSSatisfiesExpression":

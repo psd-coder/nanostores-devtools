@@ -499,6 +499,38 @@ describe("adoption", () => {
     );
   });
 
+  it("reads through parentheses around the call, and through a cast over them", () => {
+    const result = transform(
+      `export const $theme = (persistentAtom("theme", "dark"));\n` +
+        `export const $router = (createRouter({ home: "/" })) as Router;\n`,
+    );
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(persistentAtom("theme", "dark"), ` +
+        `{"name":"$theme","fn":null,"line":1,"type":"unknown"})`,
+    );
+    expect(output(result)).toContain(
+      `__nsdt.adopt(createRouter({ home: "/" }), ` +
+        `{"name":"$router","fn":null,"line":2,"type":"unknown"})`,
+    );
+  });
+
+  it("keeps the name of a parenthesized object property and array element", () => {
+    const result = transform(
+      `export const stores = { $count: (persistentAtom("count")) };\n` +
+        `export const $list = [(persistentAtom("a"))];\n`,
+    );
+
+    expect(metas(result).map((meta) => meta.name)).toEqual(["$count", "$list[0]"]);
+  });
+
+  it("adopts no parenthesized call callee matching already named", () => {
+    const result = transform(`import { atom } from "nanostores";\nconst $c = (atom(0));\n`);
+
+    expect(output(result)).not.toContain("__nsdt.adopt(");
+    expect(metas(result)).toEqual([{ name: "$c", fn: null, line: 2, type: "atom" }]);
+  });
+
   it("gives a file that only adopts the same header, so a reload clears it", () => {
     const result = transform(`const $theme = persistentAtom("theme", "dark");\n`);
 
