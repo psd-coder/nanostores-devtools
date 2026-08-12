@@ -539,7 +539,7 @@ change, and a gap might.
 
 - **25 members of one collection** become nodes. **The tree says what it left out**, as one extra
   key `…` labelled `5 more members past the 25 walked; their stores are listed here without a node
-  of their own`. No store is lost: the ones past the cap sit on the collection itself, keeping the
+of their own`. No store is lost: the ones past the cap sit on the collection itself, keeping the
   numbers the registry gave them, such as `open #30`.
 - **Three steps into a binding**, counting a property, an index and a key alike. This cut is silent.
 
