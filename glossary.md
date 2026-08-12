@@ -17,20 +17,24 @@ registry.
 **Entry** — one store's record in the registry. The registry maps the store object to its
 entry, so the object is what makes an entry unique, never its name.
 
-**Home** — the level above a store in the tree. A file path for a store the Vite plugin
-found, a group name for one registered by hand.
+**Home** — the top level of the tree, holding everything one file or one group put there. A
+file path for a store the Vite plugin found, a group name for one registered by hand. A file
+inside the Vite root keeps its short path, `app/model.ts`. A file outside it is measured from
+the project root, `vendor/withUndo.ts`, instead of climbing out of the Vite root with `../`.
 
 **Group** — the name a developer must give when registering stores by hand. It takes a
 file's place in the tree for stores the plugin did not find, and it is also the unit that
 `untrack` removes.
 
 **Label** — home, a slash, then the store name: `src/stores/cart.ts/$counter` or
-`cart/$counter`. Internal. It decides where a store is drawn, not whether two stores are the
-same. Registering a label that is already taken replaces the store behind it.
+`cart/$counter`. Internal. It decides which home holds a store, not how deep inside that home
+the store is drawn and not whether two stores are the same. Registering a label that is
+already taken replaces the store behind it.
 
-**Tree** — the single state object the bridge sends to the extension. Two levels: file,
-then store name. The extension expects one root state; nanostores has none, so the bridge
-invents this. The file level exists to keep two stores with the same name apart.
+**Tree** — the single state object the bridge sends to the extension. Its top level is the
+home. Below that a store sits under whatever built it, at any depth. The extension expects one
+root state; nanostores has none, so the bridge invents this. The home level exists to keep two
+stores with the same name apart.
 
 **Type note** — the store's type in square brackets behind its name in the tree,
 `$total [computed]`. Tree key only: the name and the label stay bare. An `atom` and an
@@ -72,6 +76,31 @@ made it, and ignores it if it is not a store at all. It carries a name, never a 
 the file imported from `nanostores`, renamed imports included. Adoption only handles what
 this misses.
 
+Four mechanisms decide where a store is drawn. Adoption and callee matching decide whether a
+store reaches the tree at all; these four decide its **owner** once it is in.
+
+**Binding scan** — one call appended at the end of a module body, listing that module's
+top-level `const`, `let` and `var` names. At load the bridge walks each value one holds. A store
+found under a binding is drawn under that binding. It reaches `Object.assign($atom, {…})`
+members, a factory result, a class instance held in a binding and a collection's members, and it
+is the only mechanism that reaches an alias such as `export const $canUndo = $draft.$canUndo`,
+where the initializer is a property read and not a call.
+
+**Creation frame** — a frame opened around a top-level initializer that is a call or a `new`,
+and closed on the value it returned. A plain store creator needs none: the wrap around it already
+names the one store it makes. Every store born while a frame was open records it, which is the
+only way to reach a store kept in a closure, where no property walk can find it. A frame is not
+opened across an `await`: it must close in the same tick or it would catch every store made
+anywhere until it did.
+
+**`this` in a class field** — a field initializer runs with `this` bound to the new instance, so
+the transform hands it over. A static field's `this` is the constructor instead, which is why a
+static store belongs to the class. It is also the only way to reach a private field.
+
+**Enclosing-function fallback** — the last resort, for a store no other mechanism placed: the
+function it was made inside holds it, keyed `track()`. A store made at module level has no
+enclosing function and stays flat, because its home is already its only holding.
+
 **Converter** — our code that turns a store value into something that survives the trip to
 the extension. It is a jsan **replacer**, passed to the extension as
 `serialize: { replacer, options: true }`, so it rides on the `serialize` option rather than
@@ -94,8 +123,10 @@ listener leaves, and the `onMount` cleanup runs 1000 ms later. A new listener in
 window cancels the cleanup, and the mount code does not run again. **The bridge reads
 `lc === 0` and does not wait out that window**, so a store inside it counts as unmounted.
 
-**Slot** — one store's place in the tree, the value under its name. A mounted store's slot
-holds its value bare; a marked one wraps.
+**Slot** — one store's place in the tree, the value under its name. Store-only: a slot holds a
+value, and a **node** holds slots and other nodes. A mounted store's slot holds its value bare;
+a marked one wraps. A store that owns others keeps its slot under `(value)`, so its children can
+sit beside it.
 
 **Marker** — what a slot carries when its store's value cannot be trusted, which is not the same
 as "not mounted". An unmounted `atom`, `map` or `deepMap` holds a correct value and is left bare.
@@ -107,6 +138,28 @@ whatever its type; that is the one invented key name in the design, and the `$$`
 ours. The marker states the consequence, not the mount state, so where there is no consequence
 there is no marker. Nothing is ever hidden, so a marker is how an untrustworthy store appears,
 never a replacement for a missing key.
+
+**Node** — a thing in the tree that holds others and has no value of its own: a class instance,
+a factory result, a collection, a class's statics, or a function we held stores under. It pairs
+with **slot**, a store's own place holding its value. It is not a **group**: that word keeps its
+v1 meaning, the name a developer passes to `trackStores()` and the unit `untrack` removes.
+
+**Owner** — what a store is drawn under. Either another store or a node.
+
+**Placement** — one key in the tree pointing at a store. A store has one entry and may have two
+placements: the name the developer bound it to, drawn flat, and the name its owner knows it by,
+drawn under the owner.
+
+**Written name** — a name that exists in the developer's source: a binding, a property key, an
+array index, a `Map` key. It beats any name we derive.
+
+**Type label** — what built a node, `Editor` or `Map`, carried in `__serializedType__` and drawn
+by the panel in front of the node. `Object` is left off, because a plain object node says that
+much by itself. A store never takes one: that slot already holds its marker.
+
+**Ref name** — `ref#1`, the key for an instance nothing could name, such as one held in a
+`WeakMap`. It says plainly that the name is ours. Every unnamed instance shares the base `ref`
+and they number across the file, not per class.
 
 **Lifecycle row** — a timeline entry for something other than a value change: a store
 joining or leaving the registry, or mounting and unmounting. All four are on by default,

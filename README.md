@@ -92,15 +92,138 @@ trackStores("cart", { $items, $count });
 
 ## Where a store sits in the tree
 
-The tree is two levels deep: **home**, then **name**.
+The top level of the tree is the **home**. Under it, **a store sits beneath whatever built it, at
+any depth**.
 
 - **Home** is the file path for a store the plugin found, and the group name for a store you
-  listed by hand. File paths are relative to the project root and always use `/`, so macOS and
-  Windows read the same.
+  listed by hand. A file inside the Vite root keeps its short path, `app/model.ts`. A file outside
+  it, such as a linked package or anything above that root, is measured from the
+  [project root](#nanostoresdevtoolsoptions) instead of climbing out with `../`. Paths always use
+  `/`, so macOS and Windows read the same. A file under `node_modules` is never instrumented, so it
+  never has a home of its own.
 - **Name** is the variable name or the object key, with `$` kept exactly as you wrote it.
 
-Groups sort first, then files. Both are alphabetical, and stores inside a home are alphabetical
-too. A home holding at least one store you listed by hand counts as a group.
+Homes sort in three bands: groups first, then your own files, then the files that are somebody
+else's. A home holding at least one store you listed by hand counts as a group. There is no wrapper
+node over the external files: it would cost a click to reach anything inside and say nothing itself.
+
+Inside a home everything sorts too, on **the name your source wrote**, so a type note, a number or
+a suffix never moves a row. The order is by character code rather than by locale, so the tree reads
+the same everywhere and a capital letter sorts before a small one: `Editor` sits above `byId`.
+
+### The ownership tree
+
+This is the shape our own acceptance fixture draws, trimmed:
+
+```
+app/editor.ts
+  Editor: { $opened: 0 }                                   <- a static field, keyed by the class
+  byId: Map { ["scratch"]: Editor { $count, $value } }     <- a Map, walked by key
+  drafts: Array { [0]: Editor {…}, [1]: Editor {…} }       <- an array, walked by index
+  editorOne: Editor { $count: 0, $value: "" }              <- an instance, named by its binding
+  hidden: WeakMap { ref#1: Editor {…}, ref#2: Viewer {…} } <- nothing here can be named
+app/model.ts
+  $busy [computed]: false
+  $draft: { (value): "the quick brown fox jumps ", $canRedo [computed], $canUndo [computed],
+            $history [computed], $position [computed], $timeline }
+  $entries [computed]: ["", "the ", …]                     <- your own name for a nested store
+  counter: { (value): 0, $doubled [computed] }             <- a store with no $ that owns others
+app/workspace.ts
+  panel: { open: false, width: 320 }                       <- what a factory returned
+vendor/tracker.ts
+  track(): { $hits: 0 }                                    <- a store nothing else could place
+```
+
+#### `(value)`: a store that owns others
+
+A store that owns nothing is drawn as v1 drew it: its name, its value. **A store that owns others
+keeps its own value under `(value)`**, so its children can sit beside it. Only a store that owns
+something is wrapped, so a value you can read today stays readable.
+
+#### What becomes a node
+
+A **node** holds others and has no value of its own. Five things become one:
+
+| what it is                   | its key                                | its type label         |
+| ---------------------------- | -------------------------------------- | ---------------------- |
+| a class instance             | the binding that holds it, `editorOne` | the class, `Editor`    |
+| an object a factory returned | the binding that holds it, `panel`     | none, when it is plain |
+| an array, `Map` or `Set`     | the binding, then one child per member | `Array`, `Map`, …      |
+| a class's static fields      | the class name, `Editor`               | none                   |
+| a store nothing else placed  | the function that built it, `track()`  | none                   |
+
+A member that is itself an object is keyed by a name you could write to reach it: `[0]` for an array
+or a `Set`, and `["scratch"]` for a `Map`. A node may sit inside a node, which is how an array's
+members nest under the array. **A member that is a store keeps its own name instead**, the one the
+registry gave it, because a store is drawn as a store wherever it sits.
+
+The **type label** is not part of the key. It rides in the extension's own `__serializedType__`
+wrapper, and the panel prints it in front of the node, so it costs no key and no nesting level. A
+plain object carries none, because `Object` says nothing the node does not already say. A store
+carries none either: that place already holds its `not mounted` marker.
+
+An instance nothing could name is keyed `ref#1`. The name is ours, so it says so rather than
+borrowing the class name the label already holds. Every unnamed instance shares the base `ref`, and
+they number across the file rather than per class.
+
+#### How a store finds its owner
+
+Four mechanisms, and each covers what the others miss.
+
+- **The binding scan.** The plugin appends one call at the end of each module body listing that
+  module's top-level `const`, `let` and `var` names, and we walk what each one holds. This is what
+  reaches a factory result, a class instance in a binding, `Object.assign($atom, {…})` members, a
+  collection's members, and an alias such as `export const $canUndo = $draft.$canUndo`, which is
+  the one case nothing else reaches.
+- **`this` in a class field.** A field initializer runs with `this` bound to the new instance, so
+  the plugin hands it over. Static fields included, and this is the only way a private field
+  `#hidden = atom()` is reachable at all.
+- **The creation frame.** A frame is opened around a top-level initializer that is a call or a
+  `new`, and closed on the value it returned. A plain store creator needs none, and neither does an
+  initializer holding an `await`, which a frame must never span. It is the only thing that reaches a
+  store a library kept in a closure, such as the `$timeline` inside `pipe(atom(""), withUndo())`.
+- **The enclosing function.** Last resort. A store nothing else placed sits under the function it
+  was made inside, keyed `track()`. A store made at module level has no enclosing function and
+  stays flat, which is right: its home is already its only holding.
+
+The scan and a class field both know a property name, so either may correct a frame, which only
+knows that a store was born while some expression ran. Neither corrects the other. A store is never
+drawn under itself: an owner already above it in the chain is refused.
+
+#### Two placements
+
+**A store you bound to a top-level name in one of your own files keeps that name, drawn flat. Its
+owner keeps a second placement of the same store, under the name the owner knows it by.**
+
+For `export const $entries = $draft.$history`:
+
+```
+$entries [computed]: ["a", "b"]                        <- the name you wrote
+$draft: { (value): "b", $history [computed]: ["a", "b"] }   <- the same store, as $draft knows it
+```
+
+One entry, one identity, two keys. With only the first, `$draft` reads as incomplete. With only the
+second, the name you chose is lost: `export const $undoable = $draft2.$canUndo` would be drawn under
+`$draft2` as `$canUndo`, and `$undoable` would appear nowhere at all. The value is sent twice,
+because the extension's encoder writes a repeat again rather than as a pointer. On the tree we
+measured that cost about 11% more bytes.
+
+The flat placement owns the name for every other purpose, timeline rows included, so a store
+renamed by your own binding has its rows renamed too: `$undoable/set`, not `$canUndo/set`.
+
+Two bindings holding one store: the exported one wins, whichever is scanned first. Two of the same
+kind pick one arbitrarily. **A binding inside somebody else's file claims nothing**, because that
+is no name you chose.
+
+#### Numbers under an owner
+
+A nested store drops the number its creation site gave it, because the parent already says which
+one this is: `$draft` and `$draft2` read the same way inside, even though the registry knows the
+second set as `$timeline #2` and names its timeline rows that way.
+
+Where the number is all that tells two children apart, both sides take one back. Where a node
+holds stores from two different files that share a name, both take the file as a suffix:
+`$history [computed] (vendor/withUndo.ts)`.
 
 ### The kind of store, after the name
 
@@ -238,11 +361,13 @@ First, what a **creation site** is, because the cap below only makes sense once 
 factory or a loop makes a new store every time it runs, and all of them share one name. The
 registry holds strong references on purpose, so nothing leaves it on its own.
 
-| option             | default                        | what it does                                       |
-| ------------------ | ------------------------------ | -------------------------------------------------- |
-| `fileKey`          | the project-root-relative path | rewrites the path shown as a store's home          |
-| `adoptFactories`   | `true`                         | wrap `$`-named calls the plugin does not recognise |
-| `maxStoresPerSite` | `50`                           | how many live stores one creation site may hold    |
+| option             | default                   | what it does                                       |
+| ------------------ | ------------------------- | -------------------------------------------------- |
+| `fileKey`          | the home unchanged        | rewrites the path shown as a store's home          |
+| `adoptFactories`   | `true`                    | wrap `$`-named calls the plugin does not recognise |
+| `maxStoresPerSite` | `50`                      | how many live stores one creation site may hold    |
+| `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from |
+| `parseEveryFile`   | `true`                    | parse every source file, not only a likely one     |
 
 `maxStoresPerSite` keeps the last 50 live stores of a site. It evicts unmounted stores first,
 oldest of those first, and never the store just made. So **a table with 200 rows, one store per
@@ -250,14 +375,32 @@ row, all from one factory line, shows 50 of them.** The number 50 is a guess; on
 order is settled. Stores registered through `trackStores` have no site and no cap, because you
 wrote each one by hand.
 
-`fileKey` only changes what is displayed. A hot reload still clears a module by its real path, so
-two files sharing one display key cannot delete each other's stores.
+**`fileKey` receives the home as the tree would show it**, so a file inside the Vite root arrives
+relative to that root and a file outside it arrives relative to `projectRoot`. It only changes what
+is displayed. A hot reload still clears a module by its real path, so two files sharing one display
+key cannot delete each other's stores.
 
 We do not cut the shared start of your file paths for you, because that shared part changes as
 routes load. Cutting it would rename every key in the tree at once, and the extension reads that
 as every key deleted and added again. Write a fixed rule instead, such as
 `fileKey: (path) => path.replace(/^src\/stores\//, "")`. A fixed rule gives the same key on every
 page load.
+
+**`projectRoot` defaults to Vite's own `searchForWorkspaceRoot`**, which climbs until it meets a
+lockfile or a workspace file. That is right for a real app: a linked package then reads as
+`packages/…`. Pin it when that default sits so high above your app that every external home gets
+long. It changes no path inside the Vite root. A file the project root cannot reach either keeps its
+full path, which still opens in an editor.
+
+**`parseEveryFile` defaults to `true`.** Parsing costs about 0.02 ms per file, paid once per file
+per dev server run, because Vite caches the transform. Turning it off restores v1's quick text test
+before the parse, and **nothing else**: a file is then parsed only when it imports `"nanostores"`,
+or binds a `$` name while `adoptFactories` is on, and a file that passes that test still gets its
+bindings scanned as before. What
+you lose is the file that passes neither test, such as `export const panel = createPanel()` in a
+file that imports no nanostores. Its stores are still registered, but nothing there says the factory
+result holds them, so they stay under the factory's own file and under the function that built them.
+Turn it off in a very large repository, where 0.02 ms per file adds up.
 
 On **Vite 8** the plugin costs you nothing extra: Vite re-exports the parser it needs. On **Vite 6
 and 7** it needs `oxc-parser` as a dev dependency, declared here as an optional peer.
@@ -328,10 +471,11 @@ no way around that in v1.** A way to leave a store out is the first thing a v2 w
 
 Other things values do:
 
-- **The same object appearing twice is written once, and after that as a `$.path` pointer.** The
-  extension's own encoder does this to make a value that refers back to itself safe to write. It
-  applies to every repeat, not only to a real loop. This is the price of letting a `Date`, a `Map`
-  and a `Set` render as themselves in the panel.
+- **A value that refers back to itself is written as a `$.path` pointer.** The extension's own
+  encoder does this to make a loop safe to write. A plain repeat is not: the same object in two
+  places is written out twice, because the option that would collapse it is off in the extension's
+  defaults. This is the price of letting a `Date`, a `Map` and a `Set` render as themselves in the
+  panel.
 - **A getter is never read**, because a getter can run app code. An object whose data lives
   entirely on its prototype, such as a `URL`, shows its `String()` form or nothing.
 - **A function arrives with its body stripped.**
@@ -366,6 +510,54 @@ A store of unknown type is timed wrongly in the same way. The bridge treats it a
 So if it really is a computed, its recompute opens a row of its own instead of joining the row that
 caused it. It also closes the open row while the cascade is still running.
 
+### What the ownership tree cannot reach
+
+Some of these we refuse, and the rest we cannot do. The difference matters: a refusal will not
+change, and a gap might.
+
+**Refused, by the read-only rule:**
+
+- **A value behind a getter is never read.** A getter runs your code, and running it would change
+  how the app behaves. A store held only behind a getter still reaches the tree; it just sits where
+  it was made rather than under the object that holds it. An object whose data lives entirely on its
+  prototype is the same case.
+- **A collection is iterated through the built-in `forEach`**, never through a method of its own, so
+  a subclass that overrides iteration cannot run its code while we scan. If that fails, the
+  collection contributes nothing.
+
+**Cannot be reached at all:**
+
+- **A `WeakMap` or `WeakSet` member.** Unenumerable by design. An instance inside one still reaches
+  the tree through the creation frame; only its key is lost, which is what `ref#1` says.
+- **A `Promise`'s value**, which is reachable only through `then`.
+- **A symbol-keyed property, an inherited property, and a non-enumerable own property.** We read own
+  enumerable data properties only.
+- **A `Map` key that is not a string or a number.** There is no name for it that exists in your
+  source, so that member is left out.
+
+**Bounded on purpose:**
+
+- **25 members of one collection** become nodes. **The tree says what it left out**, as one extra
+  key `…` labelled `5 more members past the 25 walked; their stores are listed here without a node
+  of their own`. No store is lost: the ones past the cap sit on the collection itself, keeping the
+  numbers the registry gave them, such as `open #30`.
+- **Three steps into a binding**, counting a property, an index and a key alike. This cut is silent.
+
+**Undetectable:** a `Proxy` can trap a property read and run your code. We cannot see one, so this
+is an accepted risk. It is the same risk the getter rule above is written against, and it matters
+more here than in v1, because the ownership tree reads far more properties.
+
+**A plain object node and a store that owns others both carry no label**, so they look alike. In
+redux-devtools 3.2.10 a collapsed node previews what is inside it, so the `(value)` key usually
+tells the two apart.
+
+**A binding that names a store built in another file never gives that name up.** Once a top-level
+binding of yours claims a store, we remember the claim for the life of the page. Delete
+`export const $undoable = $draft2.$canUndo` and save: the store was built elsewhere, so the hot
+reload does not replace it, and it keeps both the name and the home the deleted binding gave it
+until you reload the page in full. A store the same file created is unaffected: the reload builds a
+new one, and no binding has claimed that one yet.
+
 ### What the Vite plugin misses
 
 - **Reassignment.** `let $late = atom("a"); $late = atom("b")` registers the first store only.
@@ -384,10 +576,11 @@ caused it. It also closes the open row while the cascade is still running.
   took `$items` from 2 rows to 4. The per-site cap keeps the count bounded, and it drops the
   unmounted stores first. Adopted stores do not have this problem, because they move to the
   calling module.
-- **An edit that leaves a file with nothing to find leaves that file's old entries behind.** The
-  plugin runs a quick text test before it parses anything. A file with no store creator imported
-  by name and no `$`-named binding left fails that test, so it never gets the header that clears
-  its own stores. They stay in the tree until you reload the page.
+- **An edit that leaves a file with nothing at all to instrument leaves that file's old entries
+  behind.** A file gets the header that clears its own stores when it imports a store creator by
+  name, holds a `$`-named call to adopt, or declares a top-level `const`, `let` or `var` under a
+  plain name. A file left with none of the three never runs that header, so its old entries stay in
+  the tree until you reload the page.
 
 ### Cost
 
@@ -413,7 +606,8 @@ what to do about it stays yours.
 ## Words this project uses in one fixed way
 
 [glossary.md](./glossary.md) defines the terms above: bridge, registry, home, group, label, tree,
-direct write, follower, creation site, adoption, slot, marker and the rest.
+direct write, follower, creation site, adoption, slot, node, owner, placement, type label, marker
+and the rest.
 
 ## License
 
