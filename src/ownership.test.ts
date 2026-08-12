@@ -301,6 +301,27 @@ describe("a node", () => {
     expect(nodeInfoOf(editorOne)).toMatchObject({ name: "editorOne", type: "Editor" });
   });
 
+  it("reads the constructor's name through the descriptor, so a getter over it never runs", () => {
+    class Sneaky {}
+    let ran = 0;
+
+    Object.defineProperty(Sneaky, "name", {
+      get(): string {
+        ran += 1;
+
+        return "Sneaky";
+      },
+    });
+
+    const held = new Sneaky();
+
+    ownBindings(FROM, [["held", held]]);
+
+    expect(nameOf(held)).toBe("held");
+    expect(nodeInfoOf(held)?.type).toBeUndefined();
+    expect(ran).toBe(0);
+  });
+
   it("keys a plain object a factory returned by its binding, and labels it with nothing", () => {
     const created = panel();
 

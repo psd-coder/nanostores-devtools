@@ -407,16 +407,18 @@ function classKey(owner: object): string | undefined {
 }
 
 /**
- * What built the value, read off the prototype's own `constructor` through the descriptor, so a
- * getter the developer put in the way never runs. `Object` is left off: a plain object node says
- * that much by itself, and the label is there to say what the key cannot.
+ * What built the value, read off the prototype's own `constructor` through the descriptor, and its
+ * name read the same way, so no getter the developer put in either place runs. `Object` is left
+ * off: a plain object node says that much by itself, and the label is there to say what the key
+ * cannot.
  */
 function typeNameOf(value: object): string | undefined {
   const prototype: object | null = Object.getPrototypeOf(value);
   const descriptor =
     prototype === null ? undefined : Object.getOwnPropertyDescriptor(prototype, "constructor");
   const built: unknown = descriptor?.value;
-  const name: unknown = typeof built === "function" ? built.name : undefined;
+  const name: unknown =
+    typeof built === "function" ? Object.getOwnPropertyDescriptor(built, "name")?.value : undefined;
 
   return typeof name === "string" && name !== "" && name !== "Object" ? name : undefined;
 }
