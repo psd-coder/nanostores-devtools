@@ -8,7 +8,7 @@ import {
   type OwnerSource,
   peekDevtoolsGlobal,
 } from "./global.ts";
-import { getEntry, isStore } from "./registry.ts";
+import { getEntry, isStore, renameEntry } from "./registry.ts";
 
 /**
  * What nanostores itself puts on a store. Skipped while walking, or an atom holding a store would
@@ -40,8 +40,11 @@ export const MAX_MEMBERS = 25;
  */
 const UNNAMED = "ref";
 
-/** One top-level binding: the name as the developer wrote it, and the value it holds. */
-export type Binding = readonly [string, unknown];
+/**
+ * One top-level binding: the name as the developer wrote it, the value it holds, and whether they
+ * exported it, which is what settles a race between two bindings holding one store.
+ */
+export type Binding = readonly [string, unknown, boolean?];
 
 /** The module these bindings come from, which is where a node one of them makes is drawn. */
 export type ModuleHome = Pick<NodeInfo, "home" | "external">;
@@ -57,15 +60,25 @@ type Scan = { module: ModuleHome; seen: Set<object> };
  * what that store holds; a binding holding anything else becomes a node, and so does every member
  * of it, which is how an array's members nest under the array.
  *
- * Nothing is registered. A store is born once and has one entry, which is what makes two names
- * for one store resolve to one store, so this decides where the tree draws it and nothing else.
+ * No store is registered here. A store is born once and has one entry, which is what makes two
+ * names for one store resolve to one store, so this decides where the tree draws it and what the
+ * entry it already has is called.
  */
 export function ownBindings(module: ModuleHome, bindings: readonly Binding[]): void {
-  for (const [name, value] of bindings) {
+  for (const [name, value, exported = false] of bindings) {
+    if (!module.external && isStore(value)) {
+      claimName(module, value, name, exported);
+    }
+
     if (canHold(value)) {
       walk({ module, seen: new Set() }, value, name, undefined, 0);
     }
   }
+}
+
+/** Whether a top-level binding of the developer's own names the store, which draws it flat. */
+export function namedByBinding(store: Store): boolean {
+  return peekDevtoolsGlobal()?.bound.has(store) ?? false;
 }
 
 /**
@@ -212,6 +225,27 @@ export function ownerOf(store: Store): object | undefined {
 /** What the tree knows about a value it drew as a node, or nothing for a value it never walked. */
 export function nodeInfoOf(value: object): NodeInfo | undefined {
   return peekDevtoolsGlobal()?.nodes.get(value);
+}
+
+/**
+ * A store the developer bound to a top-level name in a file of their own. They wrote that name, so
+ * it beats the one the creation site gave: `export const $undoable = $draft2.$canUndo` is drawn
+ * nowhere at all under a rule that only follows the path to an owner. A binding inside somebody
+ * else's file is no name the developer chose, so it claims nothing.
+ *
+ * An exported binding is the name the rest of the app knows the store by, so it wins whatever order
+ * the two bindings are scanned in. Two bindings of the same kind pick one arbitrarily, and the last
+ * one scanned is the one that wins.
+ */
+function claimName(module: ModuleHome, store: Store, name: string, exported: boolean): void {
+  const { bound } = getDevtoolsGlobal();
+
+  if (getEntry(store) === undefined || (bound.get(store) === true && !exported)) {
+    return;
+  }
+
+  bound.set(store, exported);
+  renameEntry(store, name, module.home);
 }
 
 /**

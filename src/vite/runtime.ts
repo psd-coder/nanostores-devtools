@@ -75,6 +75,7 @@ export function fileScope(
     const entry = registerStore({
       store,
       name: numbered(state.display, state.made),
+      ownerName: state.display,
       home,
       type,
       origin: "plugin",
@@ -216,6 +217,7 @@ function suffixSite(state: SiteState, home: string): void {
       registerStore({
         store: held.store,
         name: numbered(state.display, held.number),
+        ownerName: state.display,
         home,
         type: entry.type,
         origin: "plugin",

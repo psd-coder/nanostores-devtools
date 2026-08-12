@@ -7,6 +7,7 @@ import {
   enclosingNode,
   endFrame,
   MAX_MEMBERS,
+  namedByBinding,
   nodeInfoOf,
   noteBirth,
   ownBindings,
@@ -192,6 +193,67 @@ describe("ownBindings", () => {
     ownBindings(FROM, [["$draft", $draft]]);
 
     expect(listEntries()).toEqual([]);
+  });
+
+  describe("the name a binding gives a store", () => {
+    it("renames the entry, and says the store is named, so the tree draws it flat", () => {
+      const $canUndo = atom(false);
+
+      track($canUndo, "$canUndo");
+      ownBindings(FROM, [["$undoable", $canUndo, true]]);
+
+      expect(listEntries()[0]?.name).toBe("$undoable");
+      expect(namedByBinding($canUndo)).toBe(true);
+    });
+
+    it("lets the exported binding win, whatever order the two are scanned in", () => {
+      const $typed = atom("");
+      const $also = atom("");
+
+      track($typed, "$typed");
+      track($also, "$typed #2");
+      ownBindings(FROM, [
+        ["$typed", $typed, false],
+        ["$value", $typed, true],
+        ["$alias", $typed, false],
+      ]);
+      ownBindings(FROM, [
+        ["$exported", $also, true],
+        ["$plain", $also, false],
+      ]);
+
+      expect(listEntries().map((entry) => entry.name)).toEqual(["$value", "$exported"]);
+    });
+
+    it("takes the last of two bindings of the same kind, which is the accepted gap", () => {
+      const $typed = atom("");
+
+      track($typed, "$typed");
+      ownBindings(FROM, [
+        ["$first", $typed, true],
+        ["$second", $typed, true],
+      ]);
+
+      expect(listEntries()[0]?.name).toBe("$second");
+    });
+
+    it("names nothing from a binding in somebody else's file", () => {
+      const $canUndo = atom(false);
+
+      track($canUndo, "$canUndo");
+      ownBindings({ home: "vendor/withUndo.ts", external: true }, [["$undoable", $canUndo, true]]);
+
+      expect(listEntries()[0]?.name).toBe("$canUndo");
+      expect(namedByBinding($canUndo)).toBe(false);
+    });
+
+    it("claims no store the registry never took", () => {
+      const $loose = atom(false);
+
+      ownBindings(FROM, [["$loose", $loose, true]]);
+
+      expect(namedByBinding($loose)).toBe(false);
+    });
   });
 
   it("holds the store and its owner weakly, so it keeps neither of them alive", () => {

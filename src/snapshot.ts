@@ -2,7 +2,7 @@ import type { Store } from "nanostores";
 
 import type { NodeInfo } from "./global.ts";
 import { box, mark } from "./marker.ts";
-import { enclosingNode, MAX_MEMBERS, nodeInfoOf, ownerOf } from "./ownership.ts";
+import { enclosingNode, MAX_MEMBERS, namedByBinding, nodeInfoOf, ownerOf } from "./ownership.ts";
 import {
   DERIVED,
   getEntry,
@@ -29,11 +29,14 @@ const SELF_KEY = "(value)";
 /** What a capped collection says it left out, so silence never reads as "this is all of it". */
 const MORE_KEY = "…";
 
-/** The number the registry adds when one creation site made several stores: `$canUndo #2`. */
-const ORDINAL = / #\d+$/;
-
-/** One thing the tree draws: a store's own slot, or a node holding others and no value at all. */
-type Held = { kind: "store"; entry: StoreEntry } | { kind: "node"; value: object; info: NodeInfo };
+/**
+ * One thing the tree draws: a store's own slot, the second placement its owner keeps of a store the
+ * developer named themselves, or a node holding others and no value at all.
+ */
+type Held =
+  | { kind: "store"; entry: StoreEntry }
+  | { kind: "second"; entry: StoreEntry }
+  | { kind: "node"; value: object; info: NodeInfo };
 
 /** One key in the tree, and what sits behind it. Built for one snapshot: ownership can change. */
 type Placement = { key: string; held: Held };
@@ -56,15 +59,7 @@ export function buildSnapshot(): Snapshot {
   const tree: Tree = { homes: new Map(), children: new Map(), placed: new Set() };
 
   for (const entry of listEntries()) {
-    const owner = drawnOwner(entry.store) ?? enclosingOwner(entry);
-    const held: Held = { kind: "store", entry };
-
-    if (owner === undefined) {
-      collect(tree.homes, entry.home, held);
-    } else {
-      collect(tree.children, owner, held);
-      attach(tree, owner);
-    }
+    place(tree, entry);
   }
 
   const snapshot: Snapshot = {};
@@ -76,6 +71,30 @@ export function buildSnapshot(): Snapshot {
   }
 
   return snapshot;
+}
+
+/**
+ * Where one entry is drawn. A name the developer bound the store to takes its value, at the file
+ * level, and its owner keeps a second placement of the same store under the name the owner knows it
+ * by: without that the owner reads as incomplete, and it is also what a name of theirs is measured
+ * against. One entry, one identity, two keys.
+ *
+ * A store they named is theirs to hold, so the function it was made inside no longer holds it.
+ */
+function place(tree: Tree, entry: StoreEntry): void {
+  const named = namedByBinding(entry.store);
+  const owner = drawnOwner(entry.store) ?? (named ? undefined : enclosingOwner(entry));
+
+  if (named || owner === undefined) {
+    collect(tree.homes, entry.home, { kind: "store", entry });
+  }
+
+  if (owner === undefined) {
+    return;
+  }
+
+  collect(tree.children, owner, named ? { kind: "second", entry } : { kind: "store", entry });
+  attach(tree, owner);
 }
 
 /**
@@ -148,6 +167,15 @@ function collect<TKey>(index: Map<TKey, Held[]>, key: TKey, held: Held): void {
  * click for nothing.
  */
 function draw(pass: Pass, held: Held): unknown {
+  /**
+   * A second placement is the store's value and nothing else. Its children sit under the name the
+   * developer gave it, which is where the store itself is drawn, and drawing them twice would say
+   * the app holds twice as many stores as it does.
+   */
+  if (held.kind === "second") {
+    return slotFor(held.entry);
+  }
+
   if (held.kind === "store") {
     const children = pass.tree.children.get(held.entry.store);
 
@@ -193,7 +221,7 @@ function drawAll(pass: Pass, placements: readonly Placement[]): Record<string, u
 function rootPlacements(pass: Pass, held: readonly Held[]): Placement[] {
   const wanted = held.map((one) => ({
     held: one,
-    key: one.kind === "store" ? displayName(one.entry) : nodeKey(pass, one.info),
+    key: one.kind === "node" ? nodeKey(pass, one.info) : displayName(one.entry),
   }));
 
   return sorted(numberApart(wanted));
@@ -219,12 +247,13 @@ function childPlacements(
 }
 
 /**
- * A nested store drops its number, because the parent already says which one this is. Only where
- * the stripped keys stay apart: several stores from one creation site can land on one parent, and
- * stripping there would collapse them onto one key and lose all but the last.
+ * A nested store is keyed by the name its owner knows it by, which carries no number: the parent
+ * already says which one this is. Where several stores from one creation site land on one parent,
+ * `keepApart` and `numberApart` below tell them apart again.
  *
- * On a collection that left members out it keeps the number, because the member it came from has no
- * node here to say which one that was, and the number is then all that says it.
+ * On a collection that left members out it takes the name it is registered under instead, because
+ * the member it came from has no node here to say which one that was, and the number is then all
+ * that says it.
  */
 function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string {
   if (held.kind === "node") {
@@ -233,7 +262,7 @@ function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string 
 
   return inside !== undefined && inside.skipped > 0
     ? displayName(held.entry)
-    : noted(held.entry.name.replace(ORDINAL, ""), held.entry.type);
+    : noted(held.entry.ownerName, held.entry.type);
 }
 
 /**
@@ -242,8 +271,8 @@ function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string 
  * label. Every other node waits for a real clash, as a store's name does.
  *
  * The number is handed out here rather than when the node was made, because a binding may rename a
- * node afterwards and numbering at creation time would leave gaps. It sits tight against the name:
- * `ORDINAL` strips ` #2` off a nested store's key, and a space here would put a node key in its way.
+ * node afterwards and numbering at creation time would leave gaps. It sits tight against the name,
+ * `ref#1`, so a node's number never reads as the spaced one a store's name carries.
  */
 function nodeKey(pass: Pass, info: NodeInfo): string {
   if (!info.numbered) {
@@ -265,7 +294,14 @@ function homed(entry: StoreEntry, key: string): string {
 
 /** The name the source wrote, which orders the tree: a note or a suffix never moves a child. */
 function sortName(placement: Placement): string {
-  return placement.held.kind === "store" ? placement.held.entry.name : placement.held.info.name;
+  const { held } = placement;
+
+  if (held.kind === "node") {
+    return held.info.name;
+  }
+
+  /** A second placement sorts where its own key puts it, not where the developer's name would. */
+  return held.kind === "second" ? held.entry.ownerName : held.entry.name;
 }
 
 /**
@@ -375,7 +411,7 @@ function rank(held: Held[]): number {
     return 0;
   }
 
-  return held.every((one) => (one.kind === "store" ? one.entry.external : one.info.external))
+  return held.every((one) => (one.kind === "node" ? one.info.external : one.entry.external))
     ? 2
     : 1;
 }

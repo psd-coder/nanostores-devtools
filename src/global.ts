@@ -100,6 +100,12 @@ export type DevtoolsGlobal = {
   creations: WeakMap<Store, StoreType>;
   /** What each store is drawn under, which the registry knows nothing about. */
   owners: Owners;
+  /**
+   * Which stores a top-level binding of the developer's own names, and whether the developer
+   * exported that binding. The flag settles which of two bindings for one store wins; the name
+   * itself is written onto the entry, because the whole point is that the registry draws it.
+   */
+  bound: WeakMap<Store, boolean>;
   /** The nodes drawing has made, which hold stores the registry keeps no place for. */
   nodes: Nodes;
   /**
@@ -141,6 +147,7 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     scopes: new Map(),
     creations: new WeakMap(),
     owners: new WeakMap(),
+    bound: new WeakMap(),
     nodes: new WeakMap(),
     functions: new Map(),
     frames: [],

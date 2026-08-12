@@ -64,7 +64,7 @@ describe("the pre-parse test", () => {
       `__nsdt.end((__nsdt.begin(), createPanel()), ` +
         `{"name":"panel","fn":null,"line":2,"type":"unknown"})`,
     );
-    expect(ownCall(result)).toBe(`__nsdt.own([["panel", panel]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([["panel", panel, true]]);`);
   });
 
   it("reaches a file whose only store sits in an unenumerable holder", () => {
@@ -75,7 +75,7 @@ describe("the pre-parse test", () => {
     expect(output(result)).toContain(
       `__nsdt.end((__nsdt.begin(), new WeakMap([[{}, new Editor()]])), {"name":"hidden"`,
     );
-    expect(ownCall(result)).toBe(`__nsdt.own([["hidden", hidden]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([["hidden", hidden, false]]);`);
   });
 
   it("leaves a file that binds nothing at the top level alone, though it parses it", () => {
@@ -401,7 +401,7 @@ describe("adoption", () => {
     const result = transform(`const theme = persistentAtom("theme", "dark");\n`);
 
     expect(output(result)).not.toContain("__nsdt.adopt(");
-    expect(ownCall(result)).toBe(`__nsdt.own([["theme", theme]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([["theme", theme, false]]);`);
   });
 
   it("leaves a call callee matching already wrapped alone", () => {
@@ -518,8 +518,42 @@ describe("the binding scan", () => {
     expect(
       output(result)
         .trimEnd()
-        .endsWith(`__nsdt.own([["$draft", $draft], ["model", model], ["pending", pending]]);`),
+        .endsWith(
+          `__nsdt.own([["$draft", $draft, true], ["model", model, false], ` +
+            `["pending", pending, false]]);`,
+        ),
     ).toBe(true);
+  });
+
+  it("marks which bindings the developer exported, so the exported one can name a store", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `const $typed = atom("");\n` +
+        `export const $value = $typed;\n` +
+        `const $alias = $typed;\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([["$typed", $typed, false], ["$value", $value, true], ` +
+        `["$alias", $alias, false]]);`,
+    );
+  });
+
+  it("marks a binding an export list names, and not one a type or a re-export names", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `const $typed = atom("");\n` +
+        `const $only = atom(0);\n` +
+        `const $shared = atom(1);\n` +
+        `export { $typed };\n` +
+        `export type { $only };\n` +
+        `export { $shared } from "./other.ts";\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([["$typed", $typed, true], ["$only", $only, false], ` +
+        `["$shared", $shared, false]]);`,
+    );
   });
 
   it("leaves the module's own last line where it was", () => {
@@ -537,7 +571,7 @@ describe("the binding scan", () => {
         `const $real = atom(0);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([["$real", $real]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([["$real", $real, false]]);`);
   });
 
   it("leaves a destructured binding out", () => {
@@ -548,7 +582,7 @@ describe("the binding scan", () => {
         `const $plain = atom(0);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([["$plain", $plain]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([["$plain", $plain, false]]);`);
   });
 
   it("leaves out an import, a class, a function and a binding inside a block", () => {
@@ -561,7 +595,7 @@ describe("the binding scan", () => {
         `const $own = atom(0);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([["$own", $own]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([["$own", $own, false]]);`);
   });
 
   it("still parses when the module's last line is a comment that ends the file", () => {
@@ -647,7 +681,7 @@ describe("the creation frame", () => {
     );
 
     expect(frames(result)).toBe(0);
-    expect(ownCall(result)).toBe(`__nsdt.own([["$c", $c], ["$remote", $remote]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([["$c", $c, false], ["$remote", $remote, false]]);`);
   });
 
   it("keeps the frame around a sibling initializer the await never reached", () => {

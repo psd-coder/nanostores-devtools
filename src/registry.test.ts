@@ -10,6 +10,7 @@ import {
   onRegistryChange,
   type Registration,
   registerStore,
+  renameEntry,
   trackStores,
   untrack,
 } from "./registry.ts";
@@ -238,6 +239,17 @@ describe("registry", () => {
       expect(getEntry($count)?.fn).toBeNull();
     });
 
+    it("carries the name the site gave, without the number the registry added", () => {
+      const $canUndo = atom(false);
+      const $other = atom(false);
+
+      registerStore(plugin({ store: $canUndo, name: "$canUndo #2", ownerName: "$canUndo" }));
+      registerStore(plugin({ store: $other, name: "$typed" }));
+
+      expect(getEntry($canUndo)?.ownerName).toBe("$canUndo");
+      expect(getEntry($other)?.ownerName).toBe("$typed");
+    });
+
     it("answers who holds a label without scanning", () => {
       const $count = atom(0);
 
@@ -257,6 +269,73 @@ describe("registry", () => {
       expect(listEntries()).toHaveLength(2001);
       expect(console.warn).toHaveBeenCalledTimes(1);
       expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain("2000 stores are registered");
+    });
+  });
+
+  describe("renameEntry", () => {
+    it("moves the name, the home and the label of the entry the store already has", () => {
+      const $canUndo = atom(false);
+
+      registerStore(
+        plugin({
+          store: $canUndo,
+          name: "$canUndo #2",
+          ownerName: "$canUndo",
+          home: "vendor/withUndo.ts",
+          external: true,
+        }),
+      );
+      renameEntry($canUndo, "$undoable", "src/model.ts");
+
+      expect(listEntries()).toHaveLength(1);
+      expect(getEntry($canUndo)).toMatchObject({
+        name: "$undoable",
+        ownerName: "$canUndo",
+        home: "src/model.ts",
+        label: "src/model.ts/$undoable",
+        external: false,
+      });
+      expect(getEntryByLabel("vendor/withUndo.ts/$canUndo #2")).toBeUndefined();
+    });
+
+    it("leaves a name a group was given by hand alone", () => {
+      const $count = atom(0);
+
+      trackStores("cart", { $count });
+      renameEntry($count, "$counter", "src/model.ts");
+
+      expect(getEntry($count)).toMatchObject({ name: "$count", home: "cart" });
+    });
+
+    it("says the registry moved, so a listener redraws", () => {
+      const $count = atom(0);
+      const changed = vi.fn();
+
+      registerStore(plugin({ store: $count, name: "$count" }));
+      onRegistryChange(changed);
+      renameEntry($count, "$counter", "src/model.ts");
+      renameEntry($count, "$counter", "src/model.ts");
+
+      expect(changed.mock.calls).toEqual([[{ kind: "update" }]]);
+    });
+
+    it("drops whatever else held the label it takes, as a registration does", () => {
+      const $held = atom(1);
+      const $taking = atom(2);
+
+      registerStore(plugin({ store: $held, name: "$counter", home: "src/model.ts" }));
+      registerStore(plugin({ store: $taking, name: "$inner", home: "src/model.ts" }));
+      renameEntry($taking, "$counter", "src/model.ts");
+
+      expect(labels()).toEqual(["src/model.ts/$counter"]);
+      expect(getEntryByLabel("src/model.ts/$counter")?.store).toBe($taking);
+    });
+
+    it("does nothing for a store the registry never took", () => {
+      expect(() => {
+        renameEntry(atom(0), "$counter", "src/model.ts");
+      }).not.toThrow();
+      expect(listEntries()).toHaveLength(0);
     });
   });
 

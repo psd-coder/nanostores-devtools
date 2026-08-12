@@ -16,6 +16,7 @@ import {
   type StoreEntry,
   type StoreType,
   trackStores,
+  untrack,
 } from "./registry.ts";
 import { buildSnapshot, type Snapshot } from "./snapshot.ts";
 
@@ -636,6 +637,28 @@ describe("buildSnapshot", () => {
       });
     }
 
+    /**
+     * One of several stores from a single creation site, which the registry numbers from two on.
+     * Its owner knows it by the name without the number, as the runtime records it.
+     */
+    function trackNumbered(
+      store: Store,
+      name: string,
+      made: number,
+      type: StoreType = "atom",
+    ): StoreEntry {
+      return registerStore({
+        store,
+        name: made === 1 ? name : `${name} #${made}`,
+        ownerName: name,
+        home: HOME,
+        type,
+        origin: "plugin",
+        external: false,
+        fn: null,
+      });
+    }
+
     /** A store holding other stores beside its own value, which is what `Object.assign` builds. */
     function holder(value: unknown, held: Record<string, Store>): Store {
       return Object.assign(atom<unknown>(value), held);
@@ -732,13 +755,13 @@ describe("buildSnapshot", () => {
 
     it("drops a nested store's ordinal, because the parent already says which one it is", () => {
       const $canUndo = atom(false);
-      const $draft = holder("", { $canUndo });
+      const $draft2 = holder("", { $canUndo });
 
-      track($draft, "$draft #2");
-      track($canUndo, "$canUndo #2");
-      ownBindings(FROM, [["$draft", $draft]]);
+      track($draft2, "$draft2");
+      trackNumbered($canUndo, "$canUndo", 2);
+      ownBindings(FROM, [["$draft2", $draft2]]);
 
-      expect(keysOf(HOME, "$draft #2")).toEqual(["(value)", "$canUndo"]);
+      expect(keysOf(HOME, "$draft2")).toEqual(["(value)", "$canUndo"]);
     });
 
     it("keeps the ordinal where one creation site put two stores on one parent", () => {
@@ -747,8 +770,8 @@ describe("buildSnapshot", () => {
       const $draft = holder("", { $first, $second });
 
       track($draft, "$draft");
-      track($first, "$row");
-      track($second, "$row #2");
+      trackNumbered($first, "$row", 1);
+      trackNumbered($second, "$row", 2);
       ownBindings(FROM, [["$draft", $draft]]);
 
       expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$row", "$row #2"]);
@@ -776,7 +799,7 @@ describe("buildSnapshot", () => {
       const $draft = holder("", { $total });
 
       track($draft, "$draft");
-      track($total, "$total #2", HOME, "computed");
+      trackNumbered($total, "$total", 2, "computed");
       ownBindings(FROM, [["$draft", $draft]]);
 
       expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$total [computed]"]);
@@ -887,8 +910,8 @@ describe("buildSnapshot", () => {
         const first = new Editor();
         const second = new Editor();
 
-        track(first.$value, "$value");
-        track(second.$value, "$value #2");
+        trackNumbered(first.$value, "$value", 1);
+        trackNumbered(second.$value, "$value", 2);
         ownBindings(FROM, [["drafts", [first, second]]]);
 
         expect(buildSnapshot()).toEqual({
@@ -1044,9 +1067,9 @@ describe("buildSnapshot", () => {
         }
 
         /** Two instances mean two stores from one creation site, which the registry numbers. */
-        function trackFields(editor: Editor, ordinal: string): void {
-          track(editor.$value, `$value${ordinal}`);
-          track(editor.hidden, `#hidden${ordinal}`);
+        function trackFields(editor: Editor, made: number): void {
+          trackNumbered(editor.$value, "$value", made);
+          trackNumbered(editor.hidden, "#hidden", made);
         }
 
         it("draws an instance field, a private field and the class's statics", () => {
@@ -1054,7 +1077,7 @@ describe("buildSnapshot", () => {
 
           ownField(FROM, Editor.$opened, Editor);
           track(Editor.$opened, "$opened");
-          trackFields(editorOne, "");
+          trackFields(editorOne, 1);
           ownBindings(FROM, [["editorOne", editorOne]]);
 
           expect(buildSnapshot()).toEqual({
@@ -1069,8 +1092,8 @@ describe("buildSnapshot", () => {
           const editorOne = new Editor();
           const editorTwo = new Editor();
 
-          trackFields(editorOne, "");
-          trackFields(editorTwo, " #2");
+          trackFields(editorOne, 1);
+          trackFields(editorTwo, 2);
           ownBindings(FROM, [
             ["editorOne", editorOne],
             ["editorTwo", editorTwo],
@@ -1092,8 +1115,8 @@ describe("buildSnapshot", () => {
           editorTwo.hidden.set(5);
           ownField(FROM, Editor.$opened, Editor);
           track(Editor.$opened, "$opened");
-          trackFields(editorOne, "");
-          trackFields(editorTwo, " #2");
+          trackFields(editorOne, 1);
+          trackFields(editorTwo, 2);
           ownBindings(FROM, [["editorOne", editorOne]]);
 
           expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
@@ -1314,6 +1337,169 @@ describe("buildSnapshot", () => {
         track(atom(2), "$typed");
 
         expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([0, 1, 2]);
+      });
+
+      it("keeps a store the developer bound at the top level out of the function's node", () => {
+        const $hits = atom(0);
+
+        madeIn("makeHits", $hits, "$hits");
+        ownBindings(FROM, [["$hits", $hits, true]]);
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { $hits: 0 } });
+      });
+    });
+
+    describe("the developer's own binding", () => {
+      it("names the store, drawn flat, and its owner keeps a second placement of it", () => {
+        const $canUndo = atom(false);
+        const $draft = holder("", { $canUndo });
+
+        track($draft, "$draft");
+        track($canUndo, "$canUndo", "vendor/withUndo.ts");
+        ownBindings(FROM, [
+          ["$draft", $draft, true],
+          ["$canUndo", $canUndo, true],
+        ]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { $canUndo: false, $draft: { "(value)": "", $canUndo: false } },
+        });
+      });
+
+      it("keeps a renamed alias under the name it was given, and the owner's under its own", () => {
+        const $canUndo = computed(atom(1), (count) => count > 0);
+        const $draft2 = holder("", { $canUndo });
+
+        /** Mounted, so the slot holds the value itself and the two keys read as one store. */
+        $canUndo.listen(() => {});
+        track($draft2, "$draft2");
+        trackNumbered($canUndo, "$canUndo", 2, "computed");
+        ownBindings(FROM, [
+          ["$draft2", $draft2, true],
+          ["$undoable", $canUndo, true],
+        ]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: {
+            "$undoable [computed]": true,
+            $draft2: { "(value)": "", "$canUndo [computed]": true },
+          },
+        });
+      });
+
+      it("resolves both placements to one entry, so one write moves both", () => {
+        const $canUndo = atom(false);
+        const $draft = holder("", { $canUndo });
+
+        track($draft, "$draft");
+        track($canUndo, "$canUndo");
+        ownBindings(FROM, [
+          ["$draft", $draft, true],
+          ["$canUndo", $canUndo, true],
+        ]);
+        $canUndo.set(true);
+
+        expect(listEntries()).toHaveLength(2);
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { $canUndo: true, $draft: { "(value)": "", $canUndo: true } },
+        });
+      });
+
+      it("lets an exported binding name the store over a plain one scanned before it", () => {
+        const $typed = atom("");
+
+        track($typed, "$typed");
+        ownBindings(FROM, [
+          ["$typed", $typed, false],
+          ["$value", $typed, true],
+          ["$alias", $typed, false],
+        ]);
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { $value: "" } });
+      });
+
+      it("keeps an exported binding's name against a plain one scanned after it", () => {
+        const $typed = atom("");
+
+        track($typed, "$typed");
+        ownBindings(FROM, [
+          ["$value", $typed, true],
+          ["$alias", $typed, false],
+        ]);
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { $value: "" } });
+      });
+
+      it("lets no binding in somebody else's file name the store it holds", () => {
+        const $canUndo = atom(false);
+        const $draft = holder("", { $canUndo });
+
+        track($draft, "$draft");
+        track($canUndo, "$canUndo");
+        ownBindings({ home: "vendor/withUndo.ts", external: true }, [
+          ["$draft", $draft, true],
+          ["$canUndo", $canUndo, true],
+        ]);
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { $draft: { "(value)": "", $canUndo: false } } });
+      });
+
+      it("leaves the name a group was given by hand alone, and still draws it twice", () => {
+        const $canUndo = atom(false);
+        const $draft = holder("", { $canUndo });
+
+        track($draft, "$draft");
+        trackStores("cart", { $canUndo });
+        ownBindings(FROM, [
+          ["$draft", $draft, true],
+          ["$undoable", $canUndo, true],
+        ]);
+
+        expect(buildSnapshot()).toEqual({
+          cart: { $canUndo: stale(false) },
+          [HOME]: { $draft: { "(value)": "", $canUndo: stale(false) } },
+        });
+      });
+
+      it("drops both placements with the entry when untrack removes its group", () => {
+        const $canUndo = atom(false);
+        const $draft = holder("", { $canUndo });
+
+        track($draft, "$draft");
+        trackStores("cart", { $canUndo });
+        ownBindings(FROM, [
+          ["$draft", $draft, true],
+          ["$canUndo", $canUndo, true],
+        ]);
+        untrack("cart");
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { $draft: "" } });
+      });
+
+      it("draws one slot per entry, plus one for every second placement", () => {
+        const $canUndo = atom(1);
+        const $history = atom(2);
+        const $draft = holder(3, { $canUndo, $history });
+
+        track($draft, "$draft");
+        track($canUndo, "$canUndo", "vendor/withUndo.ts");
+        track($history, "$history", "vendor/withUndo.ts");
+        track(atom(4), "$typed");
+        ownBindings(FROM, [
+          ["$draft", $draft, true],
+          ["$canUndo", $canUndo, true],
+          ["$entries", $history, true],
+        ]);
+
+        const drawn = Object.values(buildSnapshot()).reduce(
+          (total, node) => total + countSlots(node),
+          0,
+        );
+
+        expect(drawn).toBe(listEntries().length + 2);
+        expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
+          1, 1, 2, 2, 3, 4,
+        ]);
       });
     });
   });

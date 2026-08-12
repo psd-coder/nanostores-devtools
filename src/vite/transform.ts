@@ -2,6 +2,7 @@ import { MagicString, type SourceMap } from "magic-string";
 import type {
   ArrayExpression,
   CallExpression,
+  ExportNamedDeclaration,
   Expression,
   ImportDeclaration,
   ModuleExportName,
@@ -120,6 +121,8 @@ export function transformStores(input: TransformInput): StoreTransform {
   const lines = lineStarts(input.code);
   /** The module's top-level bindings, in source order, for the scan the runtime walks at load. */
   const bound: string[] = [];
+  /** Which of them the developer exported, which is the name the app knows a store by. */
+  const exported = new Set<string>();
   const initializers: FramedInit[] = [];
   /** Where an `await` stands, which drops the frame around it once the walk has been through. */
   const awaits: number[] = [];
@@ -245,8 +248,12 @@ export function transformStores(input: TransformInput): StoreTransform {
    * is not an `Identifier`.
    */
   function readBindings(statement: TopLevel): void {
-    const declared =
-      statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
+    const exportedHere = statement.type === "ExportNamedDeclaration";
+    const declared = exportedHere ? statement.declaration : statement;
+
+    if (exportedHere) {
+      readExportList(statement);
+    }
 
     if (declared?.type !== "VariableDeclaration" || declared.declare === true) {
       return;
@@ -259,8 +266,29 @@ export function transformStores(input: TransformInput): StoreTransform {
 
       bound.push(declarator.id.name);
 
+      if (exportedHere) {
+        exported.add(declarator.id.name);
+      }
+
       if (declarator.init !== null) {
         readFrame(declarator.id.name, declarator.init);
+      }
+    }
+  }
+
+  /**
+   * `export { $value }`, which exports a binding declared above it rather than declaring one. A
+   * re-export names nothing this module binds, and a type export binds nothing at all once the
+   * types are stripped.
+   */
+  function readExportList(statement: ExportNamedDeclaration): void {
+    if (statement.source !== null || statement.exportKind === "type") {
+      return;
+    }
+
+    for (const specifier of statement.specifiers) {
+      if (specifier.exportKind !== "type") {
+        exported.add(exportName(specifier.local));
       }
     }
   }
@@ -421,7 +449,9 @@ export function transformStores(input: TransformInput): StoreTransform {
    * file whose last line is a comment still ends that comment before this call.
    */
   if (bound.length > 0) {
-    edited.append(`\n${SCOPE}.own([${bound.map(binding).join(", ")}]);\n`);
+    const listed = bound.map((name) => binding(name, exported.has(name)));
+
+    edited.append(`\n${SCOPE}.own([${listed.join(", ")}]);\n`);
   }
 
   return {
@@ -433,8 +463,8 @@ export function transformStores(input: TransformInput): StoreTransform {
 }
 
 /** The name as it is written in the source, beside the value it holds at the end of the body. */
-function binding(name: string): string {
-  return `[${JSON.stringify(name)}, ${name}]`;
+function binding(name: string, exported: boolean): string {
+  return `[${JSON.stringify(name)}, ${name}, ${exported}]`;
 }
 
 /**

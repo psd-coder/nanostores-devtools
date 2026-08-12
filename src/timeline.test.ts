@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./connect.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
+import { ownBindings } from "./ownership.ts";
 import { registerStore, type StoreType, trackStores } from "./registry.ts";
 import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
 
@@ -170,6 +171,21 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends[0]?.action["type"]).toBe("$user/setKey:name");
+    });
+
+    it("names a row after the binding the developer gave the store", async () => {
+      const $canUndo = atom(false);
+
+      register("$canUndo", $canUndo);
+      ownBindings({ home: "cart", external: false }, [["$undoable", $canUndo, true]]);
+      await listen();
+
+      $canUndo.set(true);
+
+      await endOfTurn();
+
+      expect(fake.sends[0]?.action["type"]).toBe("$undoable/set");
+      expect(fake.sends[0]?.state).toEqual({ cart: { $undoable: true } });
     });
 
     it("names a deepMap write after the dotted path", async () => {

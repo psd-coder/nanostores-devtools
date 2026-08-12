@@ -411,6 +411,22 @@ describe("own", () => {
     expect(names()).toEqual(["$draft"]);
   });
 
+  it("lets a binding rename a numbered store, and keeps the site's name for its owner", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $first = atom(false);
+    const $second = atom(false);
+
+    scope.store($first, site({ name: "$canUndo" }));
+    scope.store($second, site({ name: "$canUndo" }));
+
+    expect(names()).toEqual(["$canUndo", "$canUndo #2"]);
+
+    scope.own([["$undoable", $second, true]]);
+
+    expect(names()).toEqual(["$canUndo", "$undoable"]);
+    expect(getEntry($second)?.ownerName).toBe("$canUndo");
+  });
+
   it("draws a node in this module's own home, whichever file made the value", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const panel = { $open: atom(false) };
