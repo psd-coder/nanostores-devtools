@@ -2,8 +2,10 @@ import { MagicString, type SourceMap } from "magic-string";
 import type {
   ArrayExpression,
   CallExpression,
+  Expression,
   ImportDeclaration,
   ModuleExportName,
+  NewExpression,
   PropertyKey as NodePropertyKey,
   Program,
   VisitorObject,
@@ -74,6 +76,12 @@ type Injection = {
   self: boolean;
 };
 
+/**
+ * One top-level initializer a creation frame is opened around: where it starts and ends, the name
+ * of the function it calls, if that is an identifier at all, and the binding the frame closes on.
+ */
+type FramedInit = { start: number; end: number; callee: string | null; site: CreationSite };
+
 /** An object property, a class field and a method all name what sits under them the same way. */
 type Keyed = { key: NodePropertyKey; computed: boolean };
 
@@ -109,6 +117,9 @@ export function transformStores(input: TransformInput): StoreTransform {
   const lines = lineStarts(input.code);
   /** The module's top-level bindings, in source order, for the scan the runtime walks at load. */
   const bound: string[] = [];
+  const initializers: FramedInit[] = [];
+  /** Where an `await` stands, which drops the frame around it once the walk has been through. */
+  const awaits: number[] = [];
 
   function currentName(): string | null {
     const top = stack.at(-1);
@@ -239,10 +250,39 @@ export function transformStores(input: TransformInput): StoreTransform {
     }
 
     for (const declarator of declared.declarations) {
-      if (declarator.id.type === "Identifier") {
-        bound.push(declarator.id.name);
+      if (declarator.id.type !== "Identifier") {
+        continue;
+      }
+
+      bound.push(declarator.id.name);
+
+      if (declarator.init !== null) {
+        readFrame(declarator.id.name, declarator.init);
       }
     }
+  }
+
+  /**
+   * A frame is opened around a top-level initializer that calls something, `new Thing()` included.
+   * Whether the call is a plain creator is settled after the walk, because an import may stand
+   * below the binding that uses it.
+   */
+  function readFrame(name: string, init: Expression): void {
+    const call = calledIn(init);
+
+    if (call === undefined) {
+      return;
+    }
+
+    initializers.push({
+      start: init.start,
+      end: init.end,
+      callee:
+        call.type === "CallExpression" && call.callee.type === "Identifier"
+          ? call.callee.name
+          : null,
+      site: siteAt(init.start, name, "unknown"),
+    });
   }
 
   /**
@@ -277,6 +317,9 @@ export function transformStores(input: TransformInput): StoreTransform {
 
   new input.parser.Visitor({
     ArrayExpression: readArray,
+    AwaitExpression(node) {
+      awaits.push(node.start);
+    },
     CallExpression: readCall,
     "CallExpression:exit"(node) {
       if (open.at(-1) === node.start) {
@@ -338,6 +381,18 @@ export function transformStores(input: TransformInput): StoreTransform {
     return { changed: false, warnings: [...warnings] };
   }
 
+  /**
+   * A plain creator needs no frame: it makes the one store the wrap around it already names. A
+   * frame around an `await` is dropped instead, because one must close in the same tick or it
+   * catches every store made anywhere until it does, and the `await` beneath a frame is only known
+   * once the walk has been through it.
+   */
+  const framed = initializers.filter(
+    (init) =>
+      (init.callee === null || !creators.has(init.callee)) &&
+      !awaits.some((at) => at >= init.start && at < init.end),
+  );
+
   const edited = new MagicString(input.code);
 
   for (const injection of [...wraps, ...adopted]) {
@@ -345,6 +400,12 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     edited.prependRight(injection.start, `${SCOPE}.${injection.call}(`);
     edited.appendLeft(injection.end, `, ${JSON.stringify(injection.site)}${owner})`);
+  }
+
+  /** Last, so a frame sharing an initializer's bounds with an adopt call stands outside it. */
+  for (const init of framed) {
+    edited.prependRight(init.start, `${SCOPE}.end((${SCOPE}.begin(), `);
+    edited.appendLeft(init.end, `), ${JSON.stringify(init.site)})`);
   }
 
   edited.prepend(header(input));
@@ -388,6 +449,30 @@ function header(input: TransformInput): string {
     `const ${SCOPE} = ${FACTORY}(${args}); ${SCOPE}.clear(); ` +
     `if (import.meta.hot) import.meta.hot.prune(() => { ${SCOPE}.clear(); });\n`
   );
+}
+
+/**
+ * The call an initializer holds, or nothing when it holds none. A TypeScript-only expression is
+ * looked through first: `pipe(...) as Draft` is a `TSAsExpression`, so a test on the node type
+ * alone sees no call at all, and parentheses hide one the same way.
+ */
+function calledIn(node: Expression): CallExpression | NewExpression | undefined {
+  const bare = bared(node);
+
+  return bare.type === "CallExpression" || bare.type === "NewExpression" ? bare : undefined;
+}
+
+function bared(node: Expression): Expression {
+  switch (node.type) {
+    case "TSAsExpression":
+    case "TSSatisfiesExpression":
+    case "TSNonNullExpression":
+    case "TSInstantiationExpression":
+    case "ParenthesizedExpression":
+      return bared(node.expression);
+    default:
+      return node;
+  }
 }
 
 /** The second half of the pre-parse test: a file importing no creator can still be adopted from. */

@@ -399,6 +399,61 @@ describe("own", () => {
   });
 });
 
+describe("begin and end", () => {
+  it("returns exactly what it was given", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $draft = atom("");
+
+    scope.begin();
+
+    expect(scope.end($draft, site({ name: "$draft" }))).toBe($draft);
+  });
+
+  it("places a store one module's factory made for another under the binding that called it", () => {
+    const caller = fileScope(MODULE_ID, HOME, CAP, false);
+    const factory = fileScope("/repo/vendor/undo.ts", "vendor/undo.ts", CAP, true);
+    const $draft = atom("");
+
+    caller.begin();
+
+    const $timeline = factory.store(
+      atom<string[]>([]),
+      site({ name: "$timeline", fn: "withUndo" }),
+    );
+
+    caller.store($draft, site({ name: "$draft" }));
+    caller.end($draft, site({ name: "$draft", type: "unknown" }));
+
+    expect(ownerOf($timeline)).toBe($draft);
+    expect(names()).toEqual(["$timeline", "$draft"]);
+  });
+
+  it("names the node after the binding, in the module the binding was written in", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const model = { $open: atom(false) };
+
+    scope.begin();
+    scope.store(model.$open, site({ name: "$open" }));
+    scope.end(model, site({ name: "model", type: "unknown" }));
+
+    expect(ownerOf(model.$open)).toBe(model);
+    expect(nodeInfoOf(model)).toMatchObject({ name: "model", home: HOME, external: false });
+  });
+
+  it("catches no store the registry already knew, so an adopted one keeps its place", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $shared = atom(0);
+    const panel = { title: "" };
+
+    scope.store($shared, site({ name: "$shared" }));
+    scope.begin();
+    scope.adopt($shared, site({ name: "$shared", type: "unknown" }));
+    scope.end(panel, site({ name: "panel", type: "unknown" }));
+
+    expect(ownerOf($shared)).toBeUndefined();
+  });
+});
+
 /**
  * A known limit, pinned so it stays known: the factory's module did not re-run, so it did not
  * clear, and the caller's reload adds to what the run before it left.

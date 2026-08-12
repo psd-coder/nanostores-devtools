@@ -31,11 +31,26 @@ export type ModuleScope = {
 };
 
 /**
+ * Which mechanism drew an owner edge, which is what decides whether another one may replace it: a
+ * frame only knows that a store was born while an expression ran, and the other two know a name.
+ */
+export type OwnerSource = "frame" | "scan" | "field";
+
+/** What one store is drawn under, and what put it there. */
+export type OwnerLink = { owner: WeakRef<object>; source: OwnerSource };
+
+/**
  * What each store is drawn under: another store, or a node holding it. Weak on both sides: the map
  * holds no store held, and the reference to an owner holds none either, so devtools keeps nothing
  * alive that the app has let go.
  */
-export type Owners = WeakMap<Store, WeakRef<object>>;
+export type Owners = WeakMap<Store, OwnerLink>;
+
+/**
+ * One creation frame, open while a top-level initializer runs, holding the stores born while it
+ * was. A store kept in a closure is reachable from nothing, so this is all that places it.
+ */
+export type OpenFrame = { stores: Store[] };
 
 /**
  * A thing in the tree that holds others and has no value of its own: a class instance, an object a
@@ -81,6 +96,8 @@ export type DevtoolsGlobal = {
   owners: Owners;
   /** The nodes drawing has made, which hold stores the registry keeps no place for. */
   nodes: Nodes;
+  /** The creation frames open right now, the innermost last. Empty between two ticks. */
+  frames: OpenFrame[];
   bridge?: Bridge | undefined;
 };
 
@@ -113,6 +130,7 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     creations: new WeakMap(),
     owners: new WeakMap(),
     nodes: new WeakMap(),
+    frames: [],
   };
 
   holder()[GLOBAL_KEY] = created;

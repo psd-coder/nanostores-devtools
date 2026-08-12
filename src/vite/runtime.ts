@@ -7,7 +7,15 @@ import {
   type SiteState,
   type SiteStore,
 } from "../global.ts";
-import { type Binding, ownBindings, ownField } from "../ownership.ts";
+import {
+  beginFrame,
+  type Binding,
+  endFrame,
+  type ModuleHome,
+  noteBirth,
+  ownBindings,
+  ownField,
+} from "../ownership.ts";
 import {
   evictStore,
   getEntry,
@@ -33,6 +41,8 @@ export type FileScope = {
   store: <TStore>(store: TStore, site: CreationSite, owner?: object) => TStore;
   adopt: <TValue>(value: TValue, site: CreationSite) => TValue;
   own: (bindings: readonly Binding[]) => void;
+  begin: () => void;
+  end: <TValue>(value: TValue, site: CreationSite) => TValue;
   clear: () => void;
 };
 
@@ -42,6 +52,9 @@ export function fileScope(
   maxStoresPerSite: number,
   external: boolean,
 ): FileScope {
+  /** Where a node this module names is drawn, which every placement it asks for is handed. */
+  const module: ModuleHome = { home, external };
+
   function take(site: CreationSite, store: Store, name: string, type: StoreType): void {
     const scope = scopeOf(moduleId);
     const state = siteState(scope, site, name);
@@ -53,6 +66,11 @@ export function fileScope(
 
     state.made += 1;
     claimName(scope, state, home);
+
+    /** A store the registry does not know yet is born here, which is what an open frame catches. */
+    if (getEntry(store) === undefined) {
+      noteBirth(store);
+    }
 
     const entry = registerStore({
       store,
@@ -90,7 +108,7 @@ export function fileScope(
         }
 
         if (owner !== undefined) {
-          ownField({ home, external }, store, owner);
+          ownField(module, store, owner);
         }
       }
 
@@ -111,7 +129,22 @@ export function fileScope(
      * this can change.
      */
     own(bindings) {
-      ownBindings({ home, external }, bindings);
+      ownBindings(module, bindings);
+    },
+
+    /**
+     * The frame around one top-level initializer, opened before the expression runs and closed on
+     * the value it returned. It is the only mechanism that reaches a store the expression kept in
+     * a closure, where no property walk can find it.
+     */
+    begin() {
+      beginFrame();
+    },
+
+    end(value, site) {
+      endFrame(module, value, site.name);
+
+      return value;
     },
 
     /**

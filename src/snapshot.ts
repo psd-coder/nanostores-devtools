@@ -42,6 +42,13 @@ type Placement = { key: string; held: Held };
 type Tree = { homes: Map<string, Held[]>; children: Map<object, Held[]>; placed: Set<object> };
 
 /**
+ * One home being drawn: the tree it comes out of, and how many nodes carrying a name of ours it has
+ * numbered so far. The count runs across the whole file rather than per parent or per class, because
+ * two `ref#1`s in one file, one an `Editor` and one a `Viewer`, would read as the same node.
+ */
+type Pass = { tree: Tree; named: number };
+
+/**
  * `.value` is the whole read. `get()` mounts an unmounted store and a getter runs whatever the
  * developer put behind it, and either one would make watching a store change how the app behaves.
  */
@@ -63,7 +70,9 @@ export function buildSnapshot(): Snapshot {
   const snapshot: Snapshot = {};
 
   for (const [home, held] of sortHomes(tree.homes)) {
-    snapshot[home] = drawAll(tree, rootPlacements(held));
+    const pass: Pass = { tree, named: 0 };
+
+    snapshot[home] = drawAll(pass, rootPlacements(pass, held));
   }
 
   return snapshot;
@@ -127,16 +136,22 @@ function collect<TKey>(index: Map<TKey, Held[]>, key: TKey, held: Held): void {
  * preview of what is inside, so wrapping a value the developer can already read turns it into one
  * click for nothing.
  */
-function draw(tree: Tree, held: Held): unknown {
+function draw(pass: Pass, held: Held): unknown {
   if (held.kind === "store") {
-    const children = tree.children.get(held.entry.store);
+    const children = pass.tree.children.get(held.entry.store);
 
     return children === undefined
       ? slotFor(held.entry)
-      : { [SELF_KEY]: slotFor(held.entry), ...drawAll(tree, childPlacements(children, undefined)) };
+      : {
+          [SELF_KEY]: slotFor(held.entry),
+          ...drawAll(pass, childPlacements(pass, children, undefined)),
+        };
   }
 
-  const node = drawAll(tree, childPlacements(tree.children.get(held.value) ?? [], held.info));
+  const node = drawAll(
+    pass,
+    childPlacements(pass, pass.tree.children.get(held.value) ?? [], held.info),
+  );
 
   if (held.info.skipped > 0) {
     node[MORE_KEY] = mark(
@@ -153,21 +168,21 @@ function draw(tree: Tree, held: Held): unknown {
   return held.info.type === undefined ? node : mark(held.info.type, node);
 }
 
-function drawAll(tree: Tree, placements: readonly Placement[]): Record<string, unknown> {
+function drawAll(pass: Pass, placements: readonly Placement[]): Record<string, unknown> {
   const node: Record<string, unknown> = {};
 
   for (const placement of placements) {
-    node[placement.key] = draw(tree, placement.held);
+    node[placement.key] = draw(pass, placement.held);
   }
 
   return node;
 }
 
 /** A file level keeps every name whole: a store its registry name, a node the one written. */
-function rootPlacements(held: readonly Held[]): Placement[] {
+function rootPlacements(pass: Pass, held: readonly Held[]): Placement[] {
   const wanted = held.map((one) => ({
     held: one,
-    key: one.kind === "store" ? displayName(one.entry) : one.info.name,
+    key: one.kind === "store" ? displayName(one.entry) : nodeKey(pass, one.info),
   }));
 
   return sorted(numberApart(wanted));
@@ -182,8 +197,12 @@ function rootPlacements(held: readonly Held[]): Placement[] {
  * suffix, as a name clash inside one file does, because one bare `$history` beside
  * `$history (vendor/withUndo.ts)` does not say which file the bare one came from.
  */
-function childPlacements(held: readonly Held[], inside: NodeInfo | undefined): Placement[] {
-  const wanted = held.map((one) => ({ held: one, key: childKey(one, inside) }));
+function childPlacements(
+  pass: Pass,
+  held: readonly Held[],
+  inside: NodeInfo | undefined,
+): Placement[] {
+  const wanted = held.map((one) => ({ held: one, key: childKey(pass, one, inside) }));
 
   return sorted(numberApart(keepApart(keepApart(wanted, displayName), homed)));
 }
@@ -196,14 +215,33 @@ function childPlacements(held: readonly Held[], inside: NodeInfo | undefined): P
  * On a collection that left members out it keeps the number, because the member it came from has no
  * node here to say which one that was, and the number is then all that says it.
  */
-function childKey(held: Held, inside: NodeInfo | undefined): string {
+function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string {
   if (held.kind === "node") {
-    return held.info.name;
+    return nodeKey(pass, held.info);
   }
 
   return inside !== undefined && inside.skipped > 0
     ? displayName(held.entry)
     : noted(held.entry.name.replace(ORDINAL, ""), held.entry.type);
+}
+
+/**
+ * The name a node is drawn under. A name the developer wrote stands as it is; one of ours is always
+ * numbered, because there is nothing to put parentheses around and borrowing the class name would
+ * only repeat the type label.
+ *
+ * The number is handed out here rather than when the node was made, because a binding may rename a
+ * node afterwards and numbering at creation time would leave gaps. It sits tight against the name:
+ * `ORDINAL` strips ` #2` off a nested store's key, and a space here would put a node key in its way.
+ */
+function nodeKey(pass: Pass, info: NodeInfo): string {
+  if (!info.ours) {
+    return info.name;
+  }
+
+  pass.named += 1;
+
+  return `${info.name}#${pass.named}`;
 }
 
 function sorted(placements: readonly Placement[]): Placement[] {

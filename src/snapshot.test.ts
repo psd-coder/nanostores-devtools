@@ -2,7 +2,14 @@ import { atom, computed, deepMap, map, type Store, type WritableAtom } from "nan
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "./global.ts";
-import { MAX_MEMBERS, ownBindings, ownField } from "./ownership.ts";
+import {
+  beginFrame,
+  endFrame,
+  MAX_MEMBERS,
+  noteBirth,
+  ownBindings,
+  ownField,
+} from "./ownership.ts";
 import {
   listEntries,
   registerStore,
@@ -1053,6 +1060,94 @@ describe("buildSnapshot", () => {
           expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
             1, 2, 3, 4, 5,
           ]);
+        });
+      });
+
+      describe("the creation frame", () => {
+        class Viewer {
+          $shown = atom(true);
+        }
+
+        it("keeps an instance in an unenumerable holder under its binding, keyed ref#1", () => {
+          beginFrame();
+
+          const editor = new Editor();
+
+          noteBirth(editor.$value);
+          ownField(FROM, editor.$value, editor);
+
+          const hidden = new WeakMap([[{}, editor]]);
+
+          endFrame(FROM, hidden, "hidden");
+          track(editor.$value, "$value");
+          ownBindings(FROM, [["hidden", hidden]]);
+
+          expect(buildSnapshot()).toEqual({
+            [HOME]: {
+              hidden: labelled("WeakMap", { "ref#1": labelled("Editor", { $value: "draft" }) }),
+            },
+          });
+        });
+
+        it("numbers a name of ours across the file, so two classes never share ref#1", () => {
+          const editorOne = new Editor();
+
+          ownField(FROM, editorOne.$value, editorOne);
+          track(editorOne.$value, "$value");
+          beginFrame();
+
+          const viewer = new Viewer();
+
+          noteBirth(viewer.$shown);
+          ownField(FROM, viewer.$shown, viewer);
+          track(viewer.$shown, "$shown");
+          endFrame(FROM, new WeakMap([[{}, viewer]]), "hidden");
+
+          const keys = Object.keys(buildSnapshot()[HOME] ?? {});
+
+          expect(keys).toContain("ref#1");
+          expect(Object.keys(heldBy("hidden"))).toEqual(["ref#2"]);
+        });
+
+        it("draws a store held in a closure under the binding the call fed", () => {
+          const $timeline = atom(["a"]);
+          const $draft = atom("");
+
+          beginFrame();
+          noteBirth($draft);
+          noteBirth($timeline);
+          endFrame(FROM, $draft, "$draft");
+          track($draft, "$draft");
+          track($timeline, "$timeline");
+          ownBindings(FROM, [["$draft", $draft]]);
+
+          expect(buildSnapshot()).toEqual({
+            [HOME]: { $draft: { "(value)": "", $timeline: ["a"] } },
+          });
+        });
+
+        it("draws every registry entry exactly once, what a frame placed included", () => {
+          const $timeline = atom(0);
+          const $draft = atom(1);
+          const scratch = { $open: atom(2) };
+          const byId = new Map([["scratch", scratch]]);
+
+          beginFrame();
+          noteBirth($draft);
+          noteBirth($timeline);
+          endFrame(FROM, $draft, "$draft");
+          beginFrame();
+          noteBirth(scratch.$open);
+          endFrame(FROM, byId, "byId");
+          track($draft, "$draft");
+          track($timeline, "$timeline");
+          track(scratch.$open, "$open");
+          ownBindings(FROM, [
+            ["$draft", $draft],
+            ["byId", byId],
+          ]);
+
+          expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([0, 1, 2]);
         });
       });
 
