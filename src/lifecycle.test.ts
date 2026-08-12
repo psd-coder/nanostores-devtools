@@ -129,7 +129,7 @@ describe("mount and unmount rows", () => {
         { label: `${HOME}/$total`, op: "computed", from: undefined },
       ],
     });
-    expect(fake.sends[0]?.state).toEqual({ [HOME]: { $source: 1, $total: 2 } });
+    expect(fake.sends[0]?.state).toEqual({ [HOME]: { $source: 1, "$total [computed]": 2 } });
   });
 });
 

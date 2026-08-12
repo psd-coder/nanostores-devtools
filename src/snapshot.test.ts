@@ -177,9 +177,79 @@ describe("buildSnapshot", () => {
     });
     trackStores("cart", { $unknown: atom(2) });
 
-    expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$mounted", "$never", "$unknown"]);
+    expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual([
+      "$mounted",
+      "$never [computed]",
+      "$unknown",
+    ]);
 
     unbind();
+  });
+
+  describe("the type note", () => {
+    it("leaves an atom and an unknown type bare", () => {
+      registerStore({
+        store: atom(1),
+        name: "$atom",
+        home: "cart",
+        type: "atom",
+        origin: "plugin",
+      });
+      trackStores("cart", { $adopted: atom(2) });
+
+      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$adopted", "$atom"]);
+    });
+
+    it("names every other type after the store", () => {
+      registerStore({ store: map({}), name: "$map", home: "cart", type: "map", origin: "plugin" });
+      registerStore({
+        store: deepMap({}),
+        name: "$deep",
+        home: "cart",
+        type: "deepMap",
+        origin: "plugin",
+      });
+      registerStore({
+        store: computed(atom(1), (count) => count + 1),
+        name: "$total",
+        home: "cart",
+        type: "computed",
+        origin: "plugin",
+      });
+      registerStore({
+        store: computed(atom(1), (count) => count + 1),
+        name: "$slow",
+        home: "cart",
+        type: "batched",
+        origin: "plugin",
+      });
+
+      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual([
+        "$deep [deepMap]",
+        "$map [map]",
+        "$slow [batched]",
+        "$total [computed]",
+      ]);
+    });
+
+    it("sorts on the name alone, so the note never moves a store", () => {
+      registerStore({ store: atom(1), name: "$b", home: "cart", type: "atom", origin: "plugin" });
+      registerStore({ store: map({}), name: "$a", home: "cart", type: "map", origin: "plugin" });
+
+      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$a [map]", "$b"]);
+    });
+
+    it("sits behind the place suffix a name clash adds", () => {
+      registerStore({
+        store: computed(atom(1), (count) => count + 1),
+        name: "$total (line 20)",
+        home: "cart",
+        type: "computed",
+        origin: "plugin",
+      });
+
+      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$total (line 20) [computed]"]);
+    });
   });
 
   describe("the marker table", () => {
@@ -199,7 +269,7 @@ describe("buildSnapshot", () => {
       });
       trackStores("cart", { $unknown });
 
-      expect(buildSnapshot()).toEqual({ cart: { $computed: 2, $unknown: "hi" } });
+      expect(buildSnapshot()).toEqual({ cart: { "$computed [computed]": 2, $unknown: "hi" } });
 
       unbindComputed();
       unbindUnknown();
@@ -229,7 +299,11 @@ describe("buildSnapshot", () => {
       });
 
       expect(buildSnapshot()).toEqual({
-        cart: { $atom: 1, $map: { total: 2 }, $deepMap: { deep: { total: 3 } } },
+        cart: {
+          $atom: 1,
+          "$map [map]": { total: 2 },
+          "$deepMap [deepMap]": { deep: { total: 3 } },
+        },
       });
     });
 
@@ -256,7 +330,7 @@ describe("buildSnapshot", () => {
         origin: "plugin",
       });
 
-      const total = slot(buildSnapshot(), "cart", "$total");
+      const total = slot(buildSnapshot(), "cart", "$total [computed]");
 
       expect(total).toStrictEqual({ data: {}, __serializedType__: "not mounted, never computed" });
       expect(boxedKeys(total)).toEqual([]);
@@ -271,7 +345,7 @@ describe("buildSnapshot", () => {
         origin: "plugin",
       });
 
-      expect(slot(buildSnapshot(), "cart", "$batched")).toStrictEqual({
+      expect(slot(buildSnapshot(), "cart", "$batched [batched]")).toStrictEqual({
         data: {},
         __serializedType__: "not mounted, never computed",
       });
@@ -292,7 +366,7 @@ describe("buildSnapshot", () => {
       unbind();
       entry.everMounted = true;
 
-      expect(buildSnapshot()).toEqual({ cart: { $total: stale(2) } });
+      expect(buildSnapshot()).toEqual({ cart: { "$total [computed]": stale(2) } });
     });
 
     it("marks a batched store that mounted before and is unmounted now as may be stale", () => {
@@ -310,7 +384,7 @@ describe("buildSnapshot", () => {
       unbind();
       entry.everMounted = true;
 
-      expect(buildSnapshot()).toEqual({ cart: { $batched: stale(2) } });
+      expect(buildSnapshot()).toEqual({ cart: { "$batched [batched]": stale(2) } });
     });
 
     it("marks a computed known to have mounted but holding no value as may be stale", () => {
@@ -324,7 +398,7 @@ describe("buildSnapshot", () => {
 
       entry.everMounted = true;
 
-      expect(slot(buildSnapshot(), "cart", "$total")).toStrictEqual(stale(undefined));
+      expect(slot(buildSnapshot(), "cart", "$total [computed]")).toStrictEqual(stale(undefined));
     });
 
     it("marks an unmounted store of unknown type as may be stale", () => {
@@ -372,7 +446,7 @@ describe("buildSnapshot", () => {
         origin: "plugin",
       });
 
-      expect(buildSnapshot()).toEqual({ cart: { $total: stale(2) } });
+      expect(buildSnapshot()).toEqual({ cart: { "$total [computed]": stale(2) } });
     });
   });
 

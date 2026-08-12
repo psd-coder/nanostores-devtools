@@ -7,6 +7,12 @@ export type Snapshot = Record<string, Record<string, unknown>>;
 const TRUSTED_UNMOUNTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "map", "deepMap"]);
 
 /**
+ * The two types the tree writes no note for: an atom is the plain case that needs no word, and an
+ * unknown type would state a guess. Every other type names itself.
+ */
+const UNNOTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "unknown"]);
+
+/**
  * `.value` is the whole read. `get()` mounts an unmounted store and a getter runs whatever the
  * developer put behind it, and either one would make watching a store change how the app behaves.
  */
@@ -29,13 +35,23 @@ export function buildSnapshot(): Snapshot {
     const node: Record<string, unknown> = {};
 
     for (const entry of entries.sort((left, right) => compare(left.name, right.name))) {
-      node[entry.name] = slotFor(entry);
+      node[displayName(entry)] = slotFor(entry);
     }
 
     snapshot[home] = node;
   }
 
   return snapshot;
+}
+
+/**
+ * The tree key, and the only place the type is written. `name` and `label` stay as they are,
+ * because they name timeline rows and decide which two stores are one, and a key that changes when
+ * adoption learns a type costs one row redrawn. Square brackets, so the type never reads as the
+ * place suffix a name clash adds (`$counter (line 20) [computed]`).
+ */
+function displayName(entry: StoreEntry): string {
+  return UNNOTED.has(entry.type) ? entry.name : `${entry.name} [${entry.type}]`;
 }
 
 /**

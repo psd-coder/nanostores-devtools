@@ -32,6 +32,10 @@ same. Registering a label that is already taken replaces the store behind it.
 then store name. The extension expects one root state; nanostores has none, so the bridge
 invents this. The file level exists to keep two stores with the same name apart.
 
+**Type note** — the store's type in square brackets behind its name in the tree,
+`$total [computed]`. Tree key only: the name and the label stay bare. An `atom` and an
+unknown type carry none.
+
 **Timeline entry** — one row in the extension's list of changes. The extension calls
 these actions. Nanostores has no actions, so the bridge invents each entry from a store
 change. One entry holds exactly one direct write and the followers it caused.

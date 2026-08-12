@@ -102,6 +102,22 @@ The tree is two levels deep: **home**, then **name**.
 Groups sort first, then files. Both are alphabetical, and stores inside a home are alphabetical
 too. A home holding at least one store you listed by hand counts as a group.
 
+### The kind of store, after the name
+
+A store the plugin found carries its kind in square brackets: `$total [computed]`, `$cart [map]`,
+`$settings [deepMap]`, `$slow [batched]`.
+
+**A plain `atom` gets nothing**, because it is the common case, and **a store of an unknown kind
+gets nothing either**, because we would be guessing. A kind is read from the creator call at build
+time, so a store listed by hand in a project without the plugin, and a store made by a third-party
+factory such as `createRouter`, both show a bare name. Nothing at runtime can tell a `map` from a
+`deepMap`, or a `computed` from a `batched`.
+
+The brackets are part of the tree key only. Timeline rows keep the bare name (`$total/set`), and
+sorting is on the bare name too, so the kind never moves a store in the tree. A store that gains a
+kind later, which adoption can do, changes its key, and the panel draws that as one key removed
+and one added.
+
 ### A store listed by hand leaves the file tree
 
 This surprises people, so it is worth saying plainly. **With the plugin on, a store you also pass

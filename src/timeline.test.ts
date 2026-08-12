@@ -183,7 +183,9 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends[0]?.action["type"]).toBe("$settings/setKey:theme.color");
-      expect(fake.sends[0]?.state).toEqual({ cart: { $settings: { theme: { color: "blue" } } } });
+      expect(fake.sends[0]?.state).toEqual({
+        cart: { "$settings [deepMap]": { theme: { color: "blue" } } },
+      });
     });
   });
 
@@ -515,7 +517,7 @@ describe("computed follower rows", () => {
     await endOfTurn();
 
     expect(fake.sends).toHaveLength(1);
-    expect(fake.sends[0]?.state).toEqual({ cart: { $count: 3, $items: [1, 2, 3] } });
+    expect(fake.sends[0]?.state).toEqual({ cart: { "$count [computed]": 3, $items: [1, 2, 3] } });
   });
 
   it("keeps a three level chain in one row, each follower naming the one before it", async () => {
