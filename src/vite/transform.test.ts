@@ -10,6 +10,7 @@ const parser = await loadParser();
 
 type Overrides = {
   home?: string;
+  external?: boolean;
   maxStoresPerSite?: number;
   moduleKey?: string;
   adoptFactories?: boolean;
@@ -20,6 +21,7 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     code,
     moduleKey: MODULE_KEY,
     home: MODULE_KEY,
+    external: false,
     maxStoresPerSite: 50,
     adoptFactories: true,
     parser,
@@ -55,6 +57,7 @@ describe("the pre-parse test", () => {
       code: `import { useStore } from "@nanostores/react";\nconst theme = useStore($cart);\n`,
       moduleKey: MODULE_KEY,
       home: MODULE_KEY,
+      external: false,
       maxStoresPerSite: 50,
       adoptFactories: true,
       parser: { ...parser, parseSync },
@@ -71,6 +74,7 @@ describe("the pre-parse test", () => {
       code: `const read = ($cart) => $cart.get();\nconst same = $a === $b;\n`,
       moduleKey: MODULE_KEY,
       home: MODULE_KEY,
+      external: false,
       maxStoresPerSite: 50,
       adoptFactories: true,
       parser: { ...parser, parseSync },
@@ -373,10 +377,19 @@ describe("the injected header", () => {
     );
   });
 
-  it("carries the module key, the home and the per-site cap", () => {
+  it("carries the module key, the home, the per-site cap and where the file sits", () => {
     const result = transform(source, { home: "stores", maxStoresPerSite: 25 });
 
-    expect(output(result)).toContain(`__nsdtFileScope("src/stores/cart.ts", "stores", 25)`);
+    expect(output(result)).toContain(`__nsdtFileScope("src/stores/cart.ts", "stores", 25, false)`);
+  });
+
+  it("carries the external flag the plugin passed, because no path spelling says it", () => {
+    const result = transform(source, {
+      home: "node_modules/nanobots/dist/index.js",
+      external: true,
+    });
+
+    expect(output(result)).toContain(`"node_modules/nanobots/dist/index.js", 50, true)`);
   });
 
   it("leaves the module body on the next line, so nothing before it moves", () => {

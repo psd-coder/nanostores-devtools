@@ -25,6 +25,8 @@ export type StoreEntry = {
   label: string;
   type: StoreType;
   origin: StoreOrigin;
+  /** Whether the home is a file of somebody else's, which sorts it after the developer's own. */
+  external: boolean;
   everMounted: boolean;
   unhook: (() => void)[];
 };
@@ -35,6 +37,7 @@ export type Registration = {
   home: string;
   type: StoreType;
   origin: StoreOrigin;
+  external: boolean;
 };
 
 /**
@@ -70,6 +73,7 @@ export function registerStore(registration: Registration): StoreEntry {
     label,
     type: registration.type,
     origin: registration.origin,
+    external: registration.external,
     everMounted: false,
     unhook: [],
   };
@@ -97,7 +101,14 @@ export function trackStores(group: string, stores: Readonly<Record<string, Store
     }
 
     firstName.set(store, name);
-    registerStore({ store, name, home: group, type: "unknown", origin: "explicit" });
+    registerStore({
+      store,
+      name,
+      home: group,
+      type: "unknown",
+      origin: "explicit",
+      external: false,
+    });
   }
 }
 
@@ -193,6 +204,7 @@ function relabelEntry(
 
   if (label === entry.label) {
     entry.origin = registration.origin;
+    entry.external = registration.external;
 
     return entry;
   }
@@ -216,6 +228,8 @@ function relabelEntry(
   entry.home = registration.home;
   entry.label = label;
   entry.origin = registration.origin;
+  /** The home moved, so where that home sits moved with it. */
+  entry.external = registration.external;
 
   notifyChange(devtools, { kind: "update" });
 

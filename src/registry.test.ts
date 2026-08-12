@@ -21,6 +21,7 @@ function plugin(
     home: "src/stores/cart.ts",
     type: "atom",
     origin: "plugin",
+    external: false,
     ...overrides,
   };
 }
@@ -168,6 +169,20 @@ describe("registry", () => {
       registerStore(plugin({ store: $cart, name: "$cart", type: "deepMap" }));
 
       expect(getEntry($cart)?.type).toBe("deepMap");
+    });
+
+    it("holds where the file sits, and lets a group that takes the store move it home", () => {
+      const $count = atom(0);
+      const $hand = atom(0);
+
+      registerStore(plugin({ store: $count, name: "$count", home: "vendor/x.ts", external: true }));
+
+      expect(getEntry($count)?.external).toBe(true);
+
+      trackStores("cart", { $count, $hand });
+
+      expect(getEntry($count)).toMatchObject({ home: "cart", external: false });
+      expect(getEntry($hand)?.external).toBe(false);
     });
 
     it("lets an explicit registration take the name and home while the plugin keeps the type", () => {

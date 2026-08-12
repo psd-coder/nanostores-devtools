@@ -76,7 +76,9 @@ function slotFor(entry: StoreEntry): unknown {
 /**
  * Groups are written by hand and there are few of them, so they belong on top. A home holding
  * at least one explicitly registered store counts as a group, which settles a group named
- * after a file.
+ * after a file. Then the developer's own files, and last the files that are somebody else's:
+ * they keep their own top-level nodes, because a wrapper node holding them all would cost a click
+ * to reach anything inside and say nothing itself.
  */
 function sortHomes(homes: Map<string, StoreEntry[]>): [string, StoreEntry[]][] {
   return [...homes].sort(([leftHome, left], [rightHome, right]) => {
@@ -86,8 +88,13 @@ function sortHomes(homes: Map<string, StoreEntry[]>): [string, StoreEntry[]][] {
   });
 }
 
+/** A home is external only if every store in it is: one file of the developer's own lifts it. */
 function rank(entries: StoreEntry[]): number {
-  return entries.some((entry) => entry.origin === "explicit") ? 0 : 1;
+  if (entries.some((entry) => entry.origin === "explicit")) {
+    return 0;
+  }
+
+  return entries.every((entry) => entry.external) ? 2 : 1;
 }
 
 /** Code unit order, not `localeCompare`, so the tree reads the same under every locale. */

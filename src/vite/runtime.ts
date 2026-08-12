@@ -33,7 +33,12 @@ export type FileScope = {
   clear: () => void;
 };
 
-export function fileScope(moduleId: string, home: string, maxStoresPerSite: number): FileScope {
+export function fileScope(
+  moduleId: string,
+  home: string,
+  maxStoresPerSite: number,
+  external: boolean,
+): FileScope {
   function take(site: CreationSite, store: Store, name: string, type: StoreType): void {
     const scope = scopeOf(moduleId);
     const state = siteState(scope, site, name);
@@ -52,6 +57,7 @@ export function fileScope(moduleId: string, home: string, maxStoresPerSite: numb
       home,
       type,
       origin: "plugin",
+      external,
     });
 
     /** An explicit registration keeps the store, so this module neither owns nor drops it. */
@@ -160,6 +166,7 @@ function suffixSite(state: SiteState, home: string): void {
         home,
         type: entry.type,
         origin: "plugin",
+        external: entry.external,
       });
     }
   }

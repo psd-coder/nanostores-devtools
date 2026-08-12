@@ -51,14 +51,14 @@ afterEach(() => {
 
 describe("store", () => {
   it("returns exactly what it was given", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $items = atom<string[]>([]);
 
     expect(scope.store($items, site())).toBe($items);
   });
 
   it("registers the store with its name, its type and the module's home", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $items = atom<string[]>([]);
 
     scope.store($items, site({ type: "deepMap" }));
@@ -72,8 +72,34 @@ describe("store", () => {
     });
   });
 
+  it("carries where the file sits, so a store from somebody else's file says so", () => {
+    const vendor = fileScope(
+      "/repo/packages/nanobots/src/withUndo.ts",
+      "packages/nanobots/src/withUndo.ts",
+      CAP,
+      true,
+    );
+    const $undo = atom(false);
+
+    vendor.store($undo, site({ name: "$undo" }));
+
+    expect(getEntry($undo)).toMatchObject({
+      home: "packages/nanobots/src/withUndo.ts",
+      external: true,
+    });
+  });
+
+  it("keeps the developer's own file own, whatever the file is named", () => {
+    const scope = fileScope(MODULE_ID, "src/vendor/thing.ts", CAP, false);
+    const $items = atom<string[]>([]);
+
+    scope.store($items, site());
+
+    expect(getEntry($items)).toMatchObject({ external: false });
+  });
+
   it("numbers repeats of one site and never renames the first", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     scope.store(atom(0), site());
     scope.store(atom(0), site());
@@ -83,7 +109,7 @@ describe("store", () => {
   });
 
   it("keeps a store whose creation site had no name out of the tree", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $theme = atom("dark");
 
     scope.store($theme, site({ name: null, type: "map" }));
@@ -92,7 +118,7 @@ describe("store", () => {
   });
 
   it("counts each site on its own", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     scope.store(atom(0), site({ line: 3 }));
     scope.store(atom(0), site({ line: 7, name: "$cart" }));
@@ -104,7 +130,7 @@ describe("store", () => {
 
 describe("a name two source lines claim", () => {
   it("suffixes both entries with the enclosing function and the line", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
@@ -113,7 +139,7 @@ describe("a name two source lines claim", () => {
   });
 
   it("warns once and names both places", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
@@ -124,8 +150,17 @@ describe("a name two source lines claim", () => {
     expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain("line 20");
   });
 
+  it("keeps where the file sits while it renames both entries", () => {
+    const vendor = fileScope("/repo/vendor/undo.ts", "vendor/undo.ts", CAP, true);
+
+    vendor.store(atom(0), site({ name: "$counter", line: 12 }));
+    vendor.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    expect(listEntries().map((entry) => entry.external)).toEqual([true, true]);
+  });
+
   it("keeps the numbering of the site it renames", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     scope.store(atom(0), site({ name: "$counter", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 12 }));
@@ -135,7 +170,7 @@ describe("a name two source lines claim", () => {
   });
 
   it("leaves a store an explicit group took where it is", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $counter = atom(0);
 
     scope.store($counter, site({ name: "$counter", line: 12 }));
@@ -146,7 +181,7 @@ describe("a name two source lines claim", () => {
   });
 
   it("starts the claims again after a clear, so a reload does not clash with itself", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     scope.store(atom(0), site({ name: "$counter", line: 12 }));
     scope.clear();
@@ -158,7 +193,7 @@ describe("a name two source lines claim", () => {
 
 describe("the per-site cap", () => {
   it("holds at the cap and drops the unmounted stores first", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $real = atom(0);
 
     scope.store($real, site());
@@ -174,7 +209,7 @@ describe("the per-site cap", () => {
   });
 
   it("drops the oldest when every store of the site is mounted", () => {
-    const scope = fileScope(MODULE_ID, HOME, 2);
+    const scope = fileScope(MODULE_ID, HOME, 2, false);
     const $first = atom(0);
     const $second = atom(0);
     const $third = atom(0);
@@ -189,7 +224,7 @@ describe("the per-site cap", () => {
   });
 
   it("keeps the store it just took, because the cap keeps the last ones", () => {
-    const scope = fileScope(MODULE_ID, HOME, 2);
+    const scope = fileScope(MODULE_ID, HOME, 2, false);
     const $first = atom(0);
     const $second = atom(0);
     const $third = atom(0);
@@ -206,7 +241,7 @@ describe("the per-site cap", () => {
   });
 
   it("counts one store once, however often the site hands the same one back", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $memo = atom(0);
 
     scope.adopt($memo, site({ name: "$memo" }));
@@ -216,7 +251,7 @@ describe("the per-site cap", () => {
   });
 
   it("runs the unhook of every store it evicts", () => {
-    const scope = fileScope(MODULE_ID, HOME, 1);
+    const scope = fileScope(MODULE_ID, HOME, 1, false);
     const $first = atom(0);
     const unhook = vi.fn();
 
@@ -229,7 +264,7 @@ describe("the per-site cap", () => {
   });
 
   it("caps each site on its own", () => {
-    const scope = fileScope(MODULE_ID, HOME, 1);
+    const scope = fileScope(MODULE_ID, HOME, 1, false);
 
     scope.store(atom(0), site({ line: 3 }));
     scope.store(atom(0), site({ line: 7, name: "$cart" }));
@@ -240,7 +275,7 @@ describe("the per-site cap", () => {
 
 describe("adopt", () => {
   it("passes a value that is no store through and registers nothing", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const router = { open: () => {} };
 
     expect(scope.adopt(router, site({ name: "$router", type: "unknown" }))).toBe(router);
@@ -249,8 +284,8 @@ describe("adopt", () => {
   });
 
   it("moves an already registered store here under this name and keeps its type", () => {
-    const factory = fileScope("/repo/src/stores/factory.ts", "src/stores/factory.ts", CAP);
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const factory = fileScope("/repo/src/stores/factory.ts", "src/stores/factory.ts", CAP, false);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $theme = atom("dark");
 
     factory.store($theme, site({ name: "$made", type: "map" }));
@@ -266,7 +301,7 @@ describe("adopt", () => {
   });
 
   it("supplies the name for a store whose creation site had none and keeps that type", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $theme = atom("dark");
 
     scope.store($theme, site({ name: null, type: "map" }));
@@ -276,7 +311,7 @@ describe("adopt", () => {
   });
 
   it("keeps the recorded type when the store already sits in the tree as unknown", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $theme = atom("dark");
 
     scope.store($theme, site({ name: null, type: "map" }));
@@ -287,7 +322,7 @@ describe("adopt", () => {
   });
 
   it("registers a store nothing instrumented made as unknown", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $theme = atom("dark");
 
     scope.adopt($theme, site({ name: "$theme", type: "unknown" }));
@@ -296,7 +331,7 @@ describe("adopt", () => {
   });
 
   it("numbers repeats of one adopt site", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     scope.adopt(atom(0), site({ name: "$row", type: "unknown" }));
     scope.adopt(atom(0), site({ name: "$row", type: "unknown" }));
@@ -314,7 +349,7 @@ describe("a factory defined in one module and called from another", () => {
   const FACTORY_HOME = "src/stores/factory.ts";
 
   function reload(times: number, run: (caller: FileScope) => void): void {
-    const caller = fileScope(MODULE_ID, HOME, 2);
+    const caller = fileScope(MODULE_ID, HOME, 2, false);
 
     for (let count = 0; count < times; count += 1) {
       caller.clear();
@@ -323,7 +358,7 @@ describe("a factory defined in one module and called from another", () => {
   }
 
   it("piles the factory's entries up under the factory when the caller reloads", () => {
-    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 50);
+    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 50, false);
 
     reload(2, () => {
       factory.store(atom(0), site({ fn: "makeCart" }));
@@ -334,7 +369,7 @@ describe("a factory defined in one module and called from another", () => {
   });
 
   it("holds that pile at the cap and drops the dead ones", () => {
-    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 2);
+    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 2, false);
 
     reload(5, () => {
       factory.store(atom(0), site({ fn: "makeCart" }));
@@ -344,7 +379,7 @@ describe("a factory defined in one module and called from another", () => {
   });
 
   it("keeps an adopted store out of the pile, because it moves to the caller", () => {
-    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 50);
+    const factory = fileScope(FACTORY_ID, FACTORY_HOME, 50, false);
 
     reload(3, (caller) => {
       const $made = atom(0);
@@ -360,7 +395,7 @@ describe("a factory defined in one module and called from another", () => {
 
 describe("clear", () => {
   it("does nothing on a first run", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     expect(() => {
       scope.clear();
@@ -369,7 +404,7 @@ describe("clear", () => {
   });
 
   it("removes this module's stores and numbers the next run from the start again", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP);
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $reloaded = atom(0);
 
     scope.store(atom(0), site());
@@ -384,8 +419,13 @@ describe("clear", () => {
   });
 
   it("leaves another module's stores alone", () => {
-    const cart = fileScope(MODULE_ID, HOME, CAP);
-    const checkout = fileScope("/repo/src/stores/checkout.ts", "src/stores/checkout.ts", CAP);
+    const cart = fileScope(MODULE_ID, HOME, CAP, false);
+    const checkout = fileScope(
+      "/repo/src/stores/checkout.ts",
+      "src/stores/checkout.ts",
+      CAP,
+      false,
+    );
     const $kept = atom(0);
 
     cart.store(atom(0), site());
@@ -397,8 +437,8 @@ describe("clear", () => {
   });
 
   it("keys off the module id, so two files sharing a display home do not wipe each other", () => {
-    const first = fileScope("/repo/src/stores/cart.ts", "stores", CAP);
-    const second = fileScope("/repo/src/features/cart.ts", "stores", CAP);
+    const first = fileScope("/repo/src/stores/cart.ts", "stores", CAP, false);
+    const second = fileScope("/repo/src/features/cart.ts", "stores", CAP, false);
     const $kept = atom(0);
 
     first.store(atom(0), site());
@@ -409,8 +449,8 @@ describe("clear", () => {
   });
 
   it("leaves a store an explicit group took, whichever of the two ran first", () => {
-    const early = fileScope(MODULE_ID, HOME, CAP);
-    const late = fileScope("/repo/src/stores/checkout.ts", "src/stores/checkout.ts", CAP);
+    const early = fileScope(MODULE_ID, HOME, CAP, false);
+    const late = fileScope("/repo/src/stores/checkout.ts", "src/stores/checkout.ts", CAP, false);
     const $early = atom(0);
     const $late = atom(0);
 
@@ -429,7 +469,7 @@ describe("clear", () => {
 
 describe("the rows a change draws", () => {
   it("draws an unregister row for a clear and none for an eviction", async () => {
-    const scope = fileScope(MODULE_ID, HOME, 1);
+    const scope = fileScope(MODULE_ID, HOME, 1, false);
 
     scope.store(atom(0), site());
     await listen();

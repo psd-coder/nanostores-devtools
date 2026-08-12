@@ -17,6 +17,8 @@ export type TransformInput = {
   /** The module's own key, and the unit a hot reload clears. Never an absolute path. */
   moduleKey: string;
   home: string;
+  /** Whether the file is somebody else's. Handed in, because no path spelling settles it. */
+  external: boolean;
   maxStoresPerSite: number;
   adoptFactories: boolean;
   parser: Parser;
@@ -302,6 +304,7 @@ function header(input: TransformInput): string {
     JSON.stringify(input.moduleKey),
     JSON.stringify(input.home),
     input.maxStoresPerSite,
+    input.external,
   ].join(", ");
 
   return (

@@ -1,20 +1,43 @@
+import { fileURLToPath } from "node:url";
+
 import type { Plugin } from "vite";
 
 import { loadParser, type Parser } from "./parser.ts";
 import { transformStores } from "./transform.ts";
+import { findWorkspaceRoot } from "./workspace.ts";
 
 export type VitePluginOptions = {
   fileKey?: ((path: string) => string) | undefined;
   adoptFactories?: boolean | undefined;
   maxStoresPerSite?: number | undefined;
+  /**
+   * An absolute path a file outside the Vite root is measured from. Vite's own workspace root by
+   * default, which is right for an app in a repository: a linked package reads as `packages/…` and
+   * a dependency as `node_modules/…`. Pin it when the default sits so high that homes get long.
+   */
+  projectRoot?: string | undefined;
 };
 
-/** Where a store's home comes from, and the key a hot reload clears. Both root-relative. */
-export type ModuleKeys = { moduleKey: string; home: string };
+/** The two roots a home is measured from: the Vite root first, and the wider one outside it. */
+export type ModuleRoots = { root: string; projectRoot: string };
+
+/** A file's place in the tree, and whether it is the developer's own file or somebody else's. */
+export type FileHome = { home: string; external: boolean };
+
+/** Where a store's home comes from, and the key a hot reload clears. */
+export type ModuleKeys = FileHome & { moduleKey: string };
 
 const DEFAULT_MAX_STORES_PER_SITE = 50;
 
 const SCRIPT = /\.[cm]?[jt]sx?$/;
+
+/**
+ * Where this package's own code sits, read from this file. A normal install sits under
+ * `node_modules` and is skipped already, but `link:../nanostores-devtools` does not: without this
+ * the plugin would transform our own runtime and inject into it an import of itself. It stops at the
+ * code directory rather than the package root, so it skips our code and nothing else beside it.
+ */
+const OWN_CODE = fileURLToPath(new URL("../", import.meta.url)).replaceAll("\\", "/");
 
 /**
  * `apply: "serve"` keeps a production build clean: it never loads this plugin, so nothing the
@@ -22,7 +45,7 @@ const SCRIPT = /\.[cm]?[jt]sx?$/;
  * source, before another plugin has rewritten it.
  */
 export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
-  let root = "";
+  let roots: ModuleRoots = { root: "", projectRoot: "" };
   let parser: Promise<Parser> | undefined;
   /**
    * Every edit re-transforms the file, and the same warning on every save teaches people to
@@ -35,12 +58,15 @@ export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
     apply: "serve",
     enforce: "pre",
 
-    configResolved(config) {
-      root = config.root;
+    async configResolved(config) {
+      roots = {
+        root: config.root,
+        projectRoot: options.projectRoot ?? (await findWorkspaceRoot(config.root)),
+      };
     },
 
     async transform(code, id) {
-      const keys = moduleKeys(id, root, options.fileKey);
+      const keys = moduleKeys(id, roots, options.fileKey);
 
       if (keys === undefined) {
         return null;
@@ -52,6 +78,7 @@ export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
         code,
         moduleKey: keys.moduleKey,
         home: keys.home,
+        external: keys.external,
         maxStoresPerSite: options.maxStoresPerSite ?? DEFAULT_MAX_STORES_PER_SITE,
         adoptFactories: options.adoptFactories ?? true,
         parser: await parser,
@@ -70,17 +97,23 @@ export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
 }
 
 /**
- * The module key stays the plain project-relative path, whatever `fileKey` displays, so two files
- * that share a display home still clear only their own stores.
+ * The module key stays measured from the Vite root, whatever `fileKey` displays and wherever the
+ * home comes from, so two files that share a display home still clear only their own stores. Two
+ * roots can name the same path, and only one root can keep the key unique.
  */
 export function moduleKeys(
   id: string,
-  root: string,
+  roots: ModuleRoots,
   fileKey?: ((path: string) => string) | undefined,
 ): ModuleKeys | undefined {
   const [file] = id.split("?");
 
-  if (file === undefined || id.startsWith("\0") || file.includes("/node_modules/")) {
+  if (
+    file === undefined ||
+    id.startsWith("\0") ||
+    file.includes("/node_modules/") ||
+    file.startsWith(OWN_CODE)
+  ) {
     return undefined;
   }
 
@@ -88,9 +121,27 @@ export function moduleKeys(
     return undefined;
   }
 
-  const moduleKey = relativeTo(root, file);
+  const { home, external } = fileHome(roots, file);
 
-  return { moduleKey, home: fileKey?.(moduleKey) ?? moduleKey };
+  return { moduleKey: relativeTo(roots.root, file), home: fileKey?.(home) ?? home, external };
+}
+
+/**
+ * A file inside the Vite root keeps its short path. One outside it is measured from the project
+ * root instead of climbing out, because `../packages/nanobots/src/withUndo.ts` is a path nobody
+ * has in their editor.
+ */
+export function fileHome(roots: ModuleRoots, file: string): FileHome {
+  const inside = relativeTo(roots.root, file);
+
+  if (!inside.startsWith("../")) {
+    return { home: inside, external: false };
+  }
+
+  const measured = relativeTo(roots.projectRoot, file);
+
+  /** A file the project root cannot reach either keeps its full path, which still opens. */
+  return { home: measured.startsWith("../") ? file : measured, external: true };
 }
 
 /**

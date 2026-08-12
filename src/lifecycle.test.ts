@@ -15,7 +15,7 @@ function endOfTurn(): Promise<void> {
 }
 
 function register(name: string, store: Store, type: StoreType = "atom", home = HOME): void {
-  registerStore({ store, name, home, type, origin: "plugin" });
+  registerStore({ store, name, home, type, origin: "plugin", external: false });
 }
 
 /** Connect, reach the deferred `init`, then open the panel, which is when rows start flowing. */

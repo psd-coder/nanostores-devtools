@@ -84,6 +84,7 @@ describe("buildSnapshot", () => {
       home: "src/stores/zebra.ts",
       type: "atom",
       origin: "plugin",
+      external: false,
     });
     registerStore({
       store: atom(2),
@@ -91,6 +92,7 @@ describe("buildSnapshot", () => {
       home: "src/stores/apple.ts",
       type: "atom",
       origin: "plugin",
+      external: false,
     });
     trackStores("shop", { $total: atom(3) });
     trackStores("auth", { $user: atom("me"), $session: atom("id") });
@@ -106,6 +108,65 @@ describe("buildSnapshot", () => {
     expect(Object.keys(snapshot["auth"] ?? {})).toEqual(["$session", "$user"]);
   });
 
+  it("sorts every external file after the developer's own, groups still first", () => {
+    registerStore({
+      store: atom(1),
+      name: "$undo",
+      home: "packages/nanobots/src/withUndo.ts",
+      type: "atom",
+      origin: "plugin",
+      external: true,
+    });
+    registerStore({
+      store: atom(2),
+      name: "$route",
+      home: "node_modules/@nanostores/router/index.js",
+      type: "atom",
+      origin: "plugin",
+      external: true,
+    });
+    registerStore({
+      store: atom(3),
+      name: "$own",
+      home: "src/vendor/thing.ts",
+      type: "atom",
+      origin: "plugin",
+      external: false,
+    });
+    trackStores("shop", { $total: atom(4) });
+
+    expect(Object.keys(buildSnapshot())).toEqual([
+      "shop",
+      "src/vendor/thing.ts",
+      "node_modules/@nanostores/router/index.js",
+      "packages/nanobots/src/withUndo.ts",
+    ]);
+  });
+
+  it("gives each external file its own top-level node, with no wrapper around them", () => {
+    registerStore({
+      store: atom(1),
+      name: "$undo",
+      home: "packages/nanobots/src/withUndo.ts",
+      type: "atom",
+      origin: "plugin",
+      external: true,
+    });
+    registerStore({
+      store: atom(2),
+      name: "$route",
+      home: "node_modules/@nanostores/router/index.js",
+      type: "atom",
+      origin: "plugin",
+      external: true,
+    });
+
+    expect(buildSnapshot()).toEqual({
+      "node_modules/@nanostores/router/index.js": { $route: 2 },
+      "packages/nanobots/src/withUndo.ts": { $undo: 1 },
+    });
+  });
+
   it("sorts a home holding at least one explicit store as a group", () => {
     const $plugin = atom(1);
 
@@ -115,6 +176,7 @@ describe("buildSnapshot", () => {
       home: "src/stores/cart.ts",
       type: "atom",
       origin: "plugin",
+      external: false,
     });
     registerStore({
       store: atom(2),
@@ -122,6 +184,7 @@ describe("buildSnapshot", () => {
       home: "src/stores/apple.ts",
       type: "atom",
       origin: "plugin",
+      external: false,
     });
     trackStores("src/stores/cart.ts", { $hand: atom(3) });
 
@@ -138,6 +201,7 @@ describe("buildSnapshot", () => {
       home: "src/stores/cart.ts",
       type: "atom",
       origin: "plugin",
+      external: false,
     });
     trackStores("src/stores/cart.ts", { $hand });
 
@@ -167,6 +231,7 @@ describe("buildSnapshot", () => {
       home: "cart",
       type: "atom",
       origin: "plugin",
+      external: false,
     });
     registerStore({
       store: computed(atom(1), (count) => count + 1),
@@ -174,6 +239,7 @@ describe("buildSnapshot", () => {
       home: "cart",
       type: "computed",
       origin: "plugin",
+      external: false,
     });
     trackStores("cart", { $unknown: atom(2) });
 
@@ -194,6 +260,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "atom",
         origin: "plugin",
+        external: false,
       });
       trackStores("cart", { $adopted: atom(2) });
 
@@ -201,13 +268,21 @@ describe("buildSnapshot", () => {
     });
 
     it("names every other type after the store", () => {
-      registerStore({ store: map({}), name: "$map", home: "cart", type: "map", origin: "plugin" });
+      registerStore({
+        store: map({}),
+        name: "$map",
+        home: "cart",
+        type: "map",
+        origin: "plugin",
+        external: false,
+      });
       registerStore({
         store: deepMap({}),
         name: "$deep",
         home: "cart",
         type: "deepMap",
         origin: "plugin",
+        external: false,
       });
       registerStore({
         store: computed(atom(1), (count) => count + 1),
@@ -215,6 +290,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "computed",
         origin: "plugin",
+        external: false,
       });
       registerStore({
         store: computed(atom(1), (count) => count + 1),
@@ -222,6 +298,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "batched",
         origin: "plugin",
+        external: false,
       });
 
       expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual([
@@ -233,8 +310,22 @@ describe("buildSnapshot", () => {
     });
 
     it("sorts on the name alone, so the note never moves a store", () => {
-      registerStore({ store: atom(1), name: "$b", home: "cart", type: "atom", origin: "plugin" });
-      registerStore({ store: map({}), name: "$a", home: "cart", type: "map", origin: "plugin" });
+      registerStore({
+        store: atom(1),
+        name: "$b",
+        home: "cart",
+        type: "atom",
+        origin: "plugin",
+        external: false,
+      });
+      registerStore({
+        store: map({}),
+        name: "$a",
+        home: "cart",
+        type: "map",
+        origin: "plugin",
+        external: false,
+      });
 
       expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$a [map]", "$b"]);
     });
@@ -246,6 +337,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "computed",
         origin: "plugin",
+        external: false,
       });
 
       expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$total (line 20) [computed]"]);
@@ -266,6 +358,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "computed",
         origin: "plugin",
+        external: false,
       });
       trackStores("cart", { $unknown });
 
@@ -282,6 +375,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "atom",
         origin: "plugin",
+        external: false,
       });
       registerStore({
         store: map({ total: 2 }),
@@ -289,6 +383,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "map",
         origin: "plugin",
+        external: false,
       });
       registerStore({
         store: deepMap({ deep: { total: 3 } }),
@@ -296,6 +391,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "deepMap",
         origin: "plugin",
+        external: false,
       });
 
       expect(buildSnapshot()).toEqual({
@@ -310,7 +406,14 @@ describe("buildSnapshot", () => {
     it("keeps an atom's slot the same shape after it mounts and unmounts", () => {
       const $atom = atom(1);
 
-      registerStore({ store: $atom, name: "$atom", home: "cart", type: "atom", origin: "plugin" });
+      registerStore({
+        store: $atom,
+        name: "$atom",
+        home: "cart",
+        type: "atom",
+        origin: "plugin",
+        external: false,
+      });
 
       const before = buildSnapshot();
       const unbind = $atom.listen(() => {});
@@ -328,6 +431,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "computed",
         origin: "plugin",
+        external: false,
       });
 
       const total = slot(buildSnapshot(), "cart", "$total [computed]");
@@ -343,6 +447,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "batched",
         origin: "plugin",
+        external: false,
       });
 
       expect(slot(buildSnapshot(), "cart", "$batched [batched]")).toStrictEqual({
@@ -360,6 +465,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "computed",
         origin: "plugin",
+        external: false,
       });
       const unbind = $total.listen(() => {});
 
@@ -378,6 +484,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "batched",
         origin: "plugin",
+        external: false,
       });
       const unbind = $total.listen(() => {});
 
@@ -394,6 +501,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "computed",
         origin: "plugin",
+        external: false,
       });
 
       entry.everMounted = true;
@@ -444,6 +552,7 @@ describe("buildSnapshot", () => {
         home: "cart",
         type: "computed",
         origin: "plugin",
+        external: false,
       });
 
       expect(buildSnapshot()).toEqual({ cart: { "$total [computed]": stale(2) } });
@@ -454,13 +563,21 @@ describe("buildSnapshot", () => {
     const $atom = atom(1);
     const $total = computed($atom, (count) => count + 1);
 
-    registerStore({ store: $atom, name: "$atom", home: "cart", type: "atom", origin: "plugin" });
+    registerStore({
+      store: $atom,
+      name: "$atom",
+      home: "cart",
+      type: "atom",
+      origin: "plugin",
+      external: false,
+    });
     registerStore({
       store: $total,
       name: "$total",
       home: "cart",
       type: "computed",
       origin: "plugin",
+      external: false,
     });
     buildSnapshot();
 
