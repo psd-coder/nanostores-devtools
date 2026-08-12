@@ -7,7 +7,7 @@ import {
   type SiteState,
   type SiteStore,
 } from "../global.ts";
-import { type Binding, ownBindings } from "../ownership.ts";
+import { type Binding, ownBindings, ownField } from "../ownership.ts";
 import {
   evictStore,
   getEntry,
@@ -30,7 +30,7 @@ export type CreationSite = {
 };
 
 export type FileScope = {
-  store: <TStore>(store: TStore, site: CreationSite) => TStore;
+  store: <TStore>(store: TStore, site: CreationSite, owner?: object) => TStore;
   adopt: <TValue>(value: TValue, site: CreationSite) => TValue;
   own: (bindings: readonly Binding[]) => void;
   clear: () => void;
@@ -77,13 +77,20 @@ export function fileScope(
     /**
      * A creation site with no name records its type and stays out of the tree: every store one
      * factory line makes carries the same name, and only the call site knows the right one.
+     *
+     * `owner` is the `this` of a class field initializer: the new instance, or the class itself
+     * for a static field.
      */
-    store(store, site) {
+    store(store, site, owner) {
       if (isStore(store)) {
         if (site.name === null) {
           getDevtoolsGlobal().creations.set(store, site.type);
         } else {
           take(site, store, site.name, site.type);
+        }
+
+        if (owner !== undefined) {
+          ownField({ home, external }, store, owner);
         }
       }
 

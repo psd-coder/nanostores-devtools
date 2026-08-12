@@ -1,8 +1,8 @@
-import { atom, computed, deepMap, map, type Store } from "nanostores";
+import { atom, computed, deepMap, map, type Store, type WritableAtom } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "./global.ts";
-import { MAX_MEMBERS, ownBindings } from "./ownership.ts";
+import { MAX_MEMBERS, ownBindings, ownField } from "./ownership.ts";
 import {
   listEntries,
   registerStore,
@@ -976,6 +976,84 @@ describe("buildSnapshot", () => {
         ownBindings({ home: "node_modules/panel/index.ts", external: true }, [["panel", panel]]);
 
         expect(Object.keys(buildSnapshot())).toEqual([HOME, "node_modules/panel/index.ts"]);
+      });
+
+      describe("a class field", () => {
+        /** A class that places its own fields, `this` being what each initializer holds. */
+        class Editor {
+          static $opened = atom(3);
+
+          $value = atom(1);
+
+          #hidden = atom(2);
+
+          constructor() {
+            ownField(FROM, this.$value, this);
+            ownField(FROM, this.#hidden, this);
+          }
+
+          get hidden(): WritableAtom<number> {
+            return this.#hidden;
+          }
+        }
+
+        /** Two instances mean two stores from one creation site, which the registry numbers. */
+        function trackFields(editor: Editor, ordinal: string): void {
+          track(editor.$value, `$value${ordinal}`);
+          track(editor.hidden, `#hidden${ordinal}`);
+        }
+
+        it("draws an instance field, a private field and the class's statics", () => {
+          const editorOne = new Editor();
+
+          ownField(FROM, Editor.$opened, Editor);
+          track(Editor.$opened, "$opened");
+          trackFields(editorOne, "");
+          ownBindings(FROM, [["editorOne", editorOne]]);
+
+          expect(buildSnapshot()).toEqual({
+            [HOME]: {
+              Editor: { $opened: 3 },
+              editorOne: labelled("Editor", { "#hidden": 2, $value: 1 }),
+            },
+          });
+        });
+
+        it("keeps two instances apart, and neither steals the other's fields", () => {
+          const editorOne = new Editor();
+          const editorTwo = new Editor();
+
+          trackFields(editorOne, "");
+          trackFields(editorTwo, " #2");
+          ownBindings(FROM, [
+            ["editorOne", editorOne],
+            ["editorTwo", editorTwo],
+          ]);
+
+          expect(buildSnapshot()).toEqual({
+            [HOME]: {
+              editorOne: labelled("Editor", { "#hidden": 2, $value: 1 }),
+              editorTwo: labelled("Editor", { "#hidden": 2, $value: 1 }),
+            },
+          });
+        });
+
+        it("draws every store a class field placed exactly once", () => {
+          const editorOne = new Editor();
+          const editorTwo = new Editor();
+
+          editorTwo.$value.set(4);
+          editorTwo.hidden.set(5);
+          ownField(FROM, Editor.$opened, Editor);
+          track(Editor.$opened, "$opened");
+          trackFields(editorOne, "");
+          trackFields(editorTwo, " #2");
+          ownBindings(FROM, [["editorOne", editorOne]]);
+
+          expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
+            1, 2, 3, 4, 5,
+          ]);
+        });
       });
 
       it("draws every registry entry exactly once, nodes and collections included", () => {

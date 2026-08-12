@@ -32,6 +32,12 @@ const MAX_DEPTH = 3;
 /** How many members of one collection become nodes of their own. */
 export const MAX_MEMBERS = 25;
 
+/**
+ * What a node no name in the source reaches is keyed by. It says plainly that the name is ours,
+ * rather than borrowing the class name, which the type label already holds.
+ */
+const UNNAMED = "ref";
+
 /** One top-level binding: the name as the developer wrote it, and the value it holds. */
 export type Binding = readonly [string, unknown];
 
@@ -58,6 +64,32 @@ export function ownBindings(module: ModuleHome, bindings: readonly Binding[]): v
       walk({ module, seen: new Set() }, value, name, undefined, 0);
     }
   }
+}
+
+/**
+ * A store made in a class field initializer, where `this` is what holds it. `typeof owner ===
+ * "function"` is the whole test that tells the two cases apart: a static initializer's `this` is
+ * the constructor, so its node is keyed by the class name and carries no type label, because the
+ * key already says what the label would.
+ *
+ * An instance has no name here. The binding that will hold it does not exist while the constructor
+ * runs, so the node is `ref` until the binding scan corrects it.
+ */
+export function ownField(module: ModuleHome, store: Store, owner: object): void {
+  const statics = typeof owner === "function";
+  const written = statics ? classKey(owner) : undefined;
+
+  makeNode(owner, {
+    home: module.home,
+    external: module.external,
+    name: written ?? UNNAMED,
+    ours: written === undefined,
+    type: statics ? undefined : typeNameOf(owner),
+    parent: undefined,
+    skipped: 0,
+  });
+
+  recordOwner(store, owner);
 }
 
 /** An owner the app has let go reads as none, and the store it held is drawn flat again. */
@@ -91,7 +123,15 @@ function walk(
 
   /** A store already holds a place of its own, so only another kind of value becomes a node. */
   if (!isStore(value)) {
-    makeNode(scan, value, name, owner, members.past.length);
+    makeNode(value, {
+      home: scan.module.home,
+      external: scan.module.external,
+      name,
+      ours: false,
+      type: typeNameOf(value),
+      parent: owner === undefined ? undefined : new WeakRef(owner),
+      skipped: members.past.length,
+    });
   }
 
   for (const [key, member] of members.drawn) {
@@ -133,28 +173,27 @@ function placeStores(value: unknown, owner: object, depth: number): void {
 }
 
 /**
- * The record that makes a value a node. The first name wins: every name this mechanism has is one
- * the developer wrote, so a second binding holding the same value has nothing better to offer.
+ * The record that makes a value a node. The first name the developer wrote wins: a second binding
+ * holding the same value has nothing better to offer. A name of ours is replaced by a written one
+ * whenever one turns up, because a class field names its instance before any binding holds it.
  */
-function makeNode(
-  scan: Scan,
-  value: object,
-  name: string,
-  owner: object | undefined,
-  skipped: number,
-): void {
+function makeNode(value: object, node: NodeInfo): void {
   const { nodes } = getDevtoolsGlobal();
+  const known = nodes.get(value);
 
-  if (!nodes.has(value)) {
-    nodes.set(value, {
-      home: scan.module.home,
-      external: scan.module.external,
-      name,
-      type: typeNameOf(value),
-      parent: owner === undefined ? undefined : new WeakRef(owner),
-      skipped,
-    });
+  if (known === undefined || (known.ours && !node.ours)) {
+    nodes.set(value, node);
   }
+}
+
+/**
+ * The class's own name, read through the descriptor so a getter never runs, and taken only while it
+ * is still a string: a static field or getter named `name` shadows the one every class carries.
+ */
+function classKey(owner: object): string | undefined {
+  const name: unknown = Object.getOwnPropertyDescriptor(owner, "name")?.value;
+
+  return typeof name === "string" && name !== "" ? name : undefined;
 }
 
 /**

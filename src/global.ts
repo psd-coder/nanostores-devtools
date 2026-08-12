@@ -49,6 +49,11 @@ export type NodeInfo = {
   /** As the developer wrote it: a binding, a property key, an array index, a `Map` key. */
   name: string;
   /**
+   * Whether the name is ours rather than the developer's, which is what lets a name written in the
+   * source replace one we invented. A written name is never replaced.
+   */
+  ours: boolean;
+  /**
    * What built the value, `Editor` or `Array`. Its own field rather than part of the name, because
    * the tree draws the two apart: the name is the key, and this is the label behind it. `Object`
    * says nothing a plain object node does not already say, so it is left out.

@@ -2,7 +2,7 @@ import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { peekDevtoolsGlobal, resetDevtoolsGlobal } from "./global.ts";
-import { MAX_MEMBERS, nodeInfoOf, ownBindings, ownerOf } from "./ownership.ts";
+import { MAX_MEMBERS, nodeInfoOf, ownBindings, ownerOf, ownField } from "./ownership.ts";
 import { listEntries, registerStore, unregisterStore } from "./registry.ts";
 
 const HOME = "src/model.ts";
@@ -404,5 +404,141 @@ describe("a node", () => {
       ownBindings(FROM, [["drafts", drafts]]);
     }).not.toThrow();
     expect(created.$open.lc).toBe(0);
+  });
+});
+
+describe("ownField", () => {
+  class Editor {
+    static $opened = atom(false);
+
+    $value = atom("");
+  }
+
+  beforeEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  afterEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  it("draws a store made in an instance field under a node for that instance", () => {
+    const editorOne = new Editor();
+
+    ownField(FROM, editorOne.$value, editorOne);
+
+    expect(ownerOf(editorOne.$value)).toBe(editorOne);
+    expect(nodeInfoOf(editorOne)).toMatchObject({ name: "ref", ours: true, type: "Editor" });
+  });
+
+  it("keys a static field's node by the class name and labels it with nothing", () => {
+    ownField(FROM, Editor.$opened, Editor);
+
+    expect(ownerOf(Editor.$opened)).toBe(Editor);
+    expect(nodeInfoOf(Editor)).toMatchObject({ name: "Editor", ours: false });
+    expect(nodeInfoOf(Editor)?.type).toBeUndefined();
+  });
+
+  it("lets the binding scan correct the name no constructor could know yet", () => {
+    const editorOne = new Editor();
+
+    ownField(FROM, editorOne.$value, editorOne);
+    ownBindings(FROM, [["editorOne", editorOne]]);
+
+    expect(nodeInfoOf(editorOne)).toMatchObject({
+      name: "editorOne",
+      ours: false,
+      type: "Editor",
+    });
+  });
+
+  it("keeps the name the developer wrote when a class field runs after the scan", () => {
+    const editorOne = new Editor();
+
+    ownBindings(FROM, [["editorOne", editorOne]]);
+    ownField(FROM, editorOne.$value, editorOne);
+
+    expect(nodeInfoOf(editorOne)?.name).toBe("editorOne");
+  });
+
+  it("gives two instances of one class a node each, holding its own fields", () => {
+    const editorOne = new Editor();
+    const editorTwo = new Editor();
+
+    ownField(FROM, editorOne.$value, editorOne);
+    ownField(FROM, editorTwo.$value, editorTwo);
+
+    expect(ownerOf(editorOne.$value)).toBe(editorOne);
+    expect(ownerOf(editorTwo.$value)).toBe(editorTwo);
+  });
+
+  it("places a private field, which the walk over the instance never sees", () => {
+    class Vault {
+      #hidden = atom(0);
+
+      constructor() {
+        ownField(FROM, this.#hidden, this);
+      }
+
+      get hidden(): Store {
+        return this.#hidden;
+      }
+    }
+
+    const vault = new Vault();
+
+    ownBindings(FROM, [["vault", vault]]);
+
+    expect(ownerOf(vault.hidden)).toBe(vault);
+    expect(nodeInfoOf(vault)).toMatchObject({ name: "vault", type: "Vault" });
+  });
+
+  it("reads the class name through the descriptor, so a getter over it never runs", () => {
+    class Sneaky {}
+
+    Object.defineProperty(Sneaky, "name", {
+      get(): never {
+        throw new Error("a name getter ran");
+      },
+    });
+
+    expect(() => {
+      ownField(FROM, atom(false), Sneaky);
+    }).not.toThrow();
+    expect(nodeInfoOf(Sneaky)).toMatchObject({ name: "ref", ours: true });
+  });
+
+  it("keys the node with ours when a static field shadows the class's own name", () => {
+    class Sneaky {}
+
+    Object.defineProperty(Sneaky, "name", { value: { written: false } });
+
+    ownField(FROM, atom(false), Sneaky);
+
+    expect(nodeInfoOf(Sneaky)?.name).toBe("ref");
+  });
+
+  it("draws the node in the module the field was written in", () => {
+    const editorOne = new Editor();
+
+    ownField({ home: "vendor/editor.ts", external: true }, editorOne.$value, editorOne);
+
+    expect(nodeInfoOf(editorOne)).toMatchObject({ home: "vendor/editor.ts", external: true });
+  });
+
+  it("registers nothing, so a field's store gains no entry of its own", () => {
+    const editorOne = new Editor();
+
+    ownField(FROM, editorOne.$value, editorOne);
+
+    expect(listEntries()).toEqual([]);
+  });
+
+  it("holds the instance weakly, so it keeps nothing the app has let go alive", () => {
+    const editorOne = new Editor();
+
+    ownField(FROM, editorOne.$value, editorOne);
+
+    expect(peekDevtoolsGlobal()?.owners.get(editorOne.$value)).toBeInstanceOf(WeakRef);
   });
 });

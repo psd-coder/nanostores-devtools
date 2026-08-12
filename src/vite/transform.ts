@@ -56,11 +56,23 @@ const IMPORTS_NANOSTORES = /from\s*["']nanostores["']/;
  */
 const BINDS_DOLLAR_NAME = /\$[\w$]*\s*(?::|=(?![=>]))/;
 
-/** A name frame carries what a store born under it is called; a function frame ends that reach. */
-type Frame = { fn: boolean; name: string | null };
+/**
+ * A name frame carries what a store born under it is called; a function frame ends that reach.
+ * `self` is whether `this` here is still the class a field initializer runs for.
+ */
+type Frame = { fn: boolean; name: string | null; self: boolean };
 
-/** One call the transform wraps, and the runtime function it hands the call to. */
-type Injection = { start: number; end: number; call: "store" | "adopt"; site: CreationSite };
+/**
+ * One call the transform wraps, the runtime function it hands the call to, and whether it hands
+ * over `this` as well.
+ */
+type Injection = {
+  start: number;
+  end: number;
+  call: "store" | "adopt";
+  site: CreationSite;
+  self: boolean;
+};
 
 /** An object property, a class field and a method all name what sits under them the same way. */
 type Keyed = { key: NodePropertyKey; computed: boolean };
@@ -108,12 +120,18 @@ export function transformStores(input: TransformInput): StoreTransform {
     return stack.findLast((frame) => frame.fn)?.name ?? null;
   }
 
-  function pushName(name: string | null): void {
-    stack.push({ fn: false, name });
+  /** A field initializer's `this` reaches through everything but a function of its own. */
+  function currentSelf(): boolean {
+    return stack.at(-1)?.self ?? false;
   }
 
-  function pushFn(name: string | null): void {
-    stack.push({ fn: true, name: name ?? currentName() });
+  function pushName(name: string | null, self = currentSelf()): void {
+    stack.push({ fn: false, name, self });
+  }
+
+  /** A function of its own binds `this` again, which only an arrow leaves alone. */
+  function pushFn(name: string | null, self = false): void {
+    stack.push({ fn: true, name: name ?? currentName(), self });
   }
 
   function pop(): void {
@@ -182,6 +200,7 @@ export function transformStores(input: TransformInput): StoreTransform {
         end: node.end,
         call: "store",
         site: siteAt(node.start, nameAt(node.start), type),
+        self: currentSelf(),
       });
 
       return;
@@ -199,6 +218,7 @@ export function transformStores(input: TransformInput): StoreTransform {
         end: node.end,
         call: "adopt",
         site: siteAt(node.start, name, "unknown"),
+        self: false,
       });
     }
   }
@@ -241,10 +261,10 @@ export function transformStores(input: TransformInput): StoreTransform {
     pushName(keyName(node.key, node.computed));
   }
 
-  function pushValued(node: Valued): void {
+  function pushValued(node: Valued, self = currentSelf()): void {
     const name = keyName(node.key, node.computed);
 
-    pushName(name);
+    pushName(name, self);
 
     if (node.value !== null) {
       namedValues.set(node.value.start, name);
@@ -275,7 +295,15 @@ export function transformStores(input: TransformInput): StoreTransform {
     "VariableDeclarator:exit": pop,
     Property: pushValued,
     "Property:exit": pop,
-    PropertyDefinition: pushValued,
+    /**
+     * A field initializer runs with `this` bound to the new instance, and a static one with `this`
+     * bound to the class, so a store made in either can be handed what holds it. A computed key is
+     * left out, key and value alike: the key runs in the scope around the class, where `this` is
+     * something else or nothing at all, and the field it names is no name the tree can draw.
+     */
+    PropertyDefinition(node) {
+      pushValued(node, !node.computed);
+    },
     "PropertyDefinition:exit": pop,
     MethodDefinition: pushKey,
     "MethodDefinition:exit": pop,
@@ -284,7 +312,7 @@ export function transformStores(input: TransformInput): StoreTransform {
     FunctionExpression: pushDeclared,
     "FunctionExpression:exit": pop,
     ArrowFunctionExpression() {
-      pushFn(null);
+      pushFn(null, currentSelf());
     },
     "ArrowFunctionExpression:exit": pop,
   } satisfies VisitorObject).visit(parsed.program);
@@ -313,8 +341,10 @@ export function transformStores(input: TransformInput): StoreTransform {
   const edited = new MagicString(input.code);
 
   for (const injection of [...wraps, ...adopted]) {
+    const owner = injection.self ? ", this" : "";
+
     edited.prependRight(injection.start, `${SCOPE}.${injection.call}(`);
-    edited.appendLeft(injection.end, `, ${JSON.stringify(injection.site)})`);
+    edited.appendLeft(injection.end, `, ${JSON.stringify(injection.site)}${owner})`);
   }
 
   edited.prepend(header(input));

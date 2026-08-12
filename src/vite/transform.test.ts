@@ -254,6 +254,97 @@ describe("callee matching", () => {
   });
 });
 
+describe("`this` in a class field", () => {
+  it("hands a store made in an instance field the instance that holds it", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nclass Editor {\n  $value = atom("");\n}\n`,
+    );
+
+    expect(output(result)).toContain(
+      `$value = __nsdt.store(atom(""), {"name":"$value","fn":null,"line":3,"type":"atom"}, this);`,
+    );
+  });
+
+  it("hands a static field the very same `this`, which is the class itself", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `class Editor {\n` +
+        `  static $opened = atom(false);\n` +
+        `  $value = atom("");\n` +
+        `}\n`,
+    );
+
+    expect(output(result)).toContain(
+      `static $opened = __nsdt.store(atom(false), ` +
+        `{"name":"$opened","fn":null,"line":3,"type":"atom"}, this);`,
+    );
+    expect(output(result)).toContain(
+      `$value = __nsdt.store(atom(""), {"name":"$value","fn":null,"line":4,"type":"atom"}, this);`,
+    );
+  });
+
+  it("reaches a private field, which no property walk can see", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nclass Editor {\n  #hidden = atom(0);\n}\n`,
+    );
+
+    expect(output(result)).toContain(
+      `#hidden = __nsdt.store(atom(0), {"name":"#hidden","fn":null,"line":3,"type":"atom"}, this);`,
+    );
+  });
+
+  it("keeps `this` through an arrow inside a field, which shares the instance's own", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nclass Editor {\n  make = () => atom(0);\n}\n`,
+    );
+
+    expect(output(result)).toContain(
+      `__nsdt.store(atom(0), {"name":null,"fn":"make","line":3,"type":"atom"}, this)`,
+    );
+  });
+
+  it("stops at a function inside a field, which has a `this` of its own", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `class Editor {\n  make = function () {\n    return atom(0);\n  };\n}\n`,
+    );
+
+    expect(output(result)).not.toContain(", this)");
+  });
+
+  it("leaves a store made in a method body alone, which is one per call, not per field", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `class Editor {\n  load() {\n    const $each = atom(0);\n  }\n}\n`,
+    );
+
+    expect(output(result)).not.toContain(", this)");
+  });
+
+  it("leaves a field with a computed key alone, whose key runs outside the class", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `class Editor {\n  [key(atom(0))] = 1;\n  [name] = atom("");\n}\n`,
+    );
+
+    expect(output(result)).not.toContain(", this)");
+  });
+
+  it("leaves an object property alone, whose `this` is nothing of the sort", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nconst stores = { $count: atom(0) };\n`,
+    );
+
+    expect(output(result)).not.toContain(", this)");
+  });
+
+  it("leaves a store at module level alone, where there is no `this` to hand over", () => {
+    const result = transform(`import { atom } from "nanostores";\nconst $c = atom(0);\n`);
+
+    expect(output(result)).not.toContain(", this)");
+  });
+});
+
 describe("adoption", () => {
   it("wraps a $-named binding assigned from a call it did not instrument", () => {
     const result = transform(

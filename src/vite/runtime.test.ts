@@ -118,6 +118,41 @@ describe("store", () => {
     expect(listEntries()).toEqual([]);
   });
 
+  it("places a store made in an instance field under the instance the field ran for", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+
+    class Editor {
+      $value = scope.store(atom(""), site({ name: "$value" }), this);
+    }
+
+    const editorOne = new Editor();
+
+    expect(ownerOf(editorOne.$value)).toBe(editorOne);
+    expect(nodeInfoOf(editorOne)).toMatchObject({ name: "ref", type: "Editor", home: HOME });
+    expect(names()).toEqual(["$value"]);
+  });
+
+  it("tells a static field from an instance one by `this` being a function", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+
+    class Editor {
+      static $opened = scope.store(atom(false), site({ name: "$opened" }), this);
+    }
+
+    expect(ownerOf(Editor.$opened)).toBe(Editor);
+    expect(nodeInfoOf(Editor)).toMatchObject({ name: "Editor", home: HOME });
+    expect(nodeInfoOf(Editor)?.type).toBeUndefined();
+  });
+
+  it("leaves a store made with no owner where its own name puts it", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $items = atom<string[]>([]);
+
+    scope.store($items, site());
+
+    expect(ownerOf($items)).toBeUndefined();
+  });
+
   it("counts each site on its own", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
