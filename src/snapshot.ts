@@ -162,9 +162,8 @@ function collect<TKey>(index: Map<TKey, Held[]>, key: TKey, held: Held): void {
  * A store that owns nothing is drawn as v1 draws it: its name, its value. One that owns others
  * becomes a node holding its own value under `(value)`.
  *
- * Only a store that owns something is wrapped. The panel draws a collapsed object as `{…}` with no
- * preview of what is inside, so wrapping a value the developer can already read turns it into one
- * click for nothing.
+ * Only a store that owns something is wrapped. A value with nothing under it would gain a nesting
+ * level for nothing.
  */
 function draw(pass: Pass, held: Held): unknown {
   /**

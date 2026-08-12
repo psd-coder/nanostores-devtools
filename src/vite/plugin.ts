@@ -12,8 +12,8 @@ export type VitePluginOptions = {
   maxStoresPerSite?: number | undefined;
   /**
    * An absolute path a file outside the Vite root is measured from. Vite's own workspace root by
-   * default, which is right for an app in a repository: a linked package reads as `packages/…` and
-   * a dependency as `node_modules/…`. Pin it when the default sits so high that homes get long.
+   * default, which is right for an app in a repository: a linked package reads as `packages/…`.
+   * Pin it when the default sits so high that homes get long.
    */
   projectRoot?: string | undefined;
   /**
