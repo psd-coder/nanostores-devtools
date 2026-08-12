@@ -2,7 +2,7 @@ import { atom, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "./global.ts";
-import { ownBindings } from "./ownership.ts";
+import { MAX_MEMBERS, ownBindings } from "./ownership.ts";
 import {
   listEntries,
   registerStore,
@@ -51,6 +51,22 @@ function boxedKeys(value: unknown): string[] {
   }
 
   return Object.keys(value.data);
+}
+
+/**
+ * Every number the tree draws. One store holding one number makes the count invariant a list: a
+ * key that overwrote another loses its number, and a store drawn twice repeats one.
+ */
+function numbersIn(value: unknown): number[] {
+  if (typeof value === "number") {
+    return [value];
+  }
+
+  if (value === null || typeof value !== "object") {
+    return [];
+  }
+
+  return Object.values(value).flatMap(numbersIn);
 }
 
 function isMarked(value: unknown): value is { data: object } {
@@ -568,6 +584,7 @@ describe("buildSnapshot", () => {
 
   describe("the ownership tree", () => {
     const HOME = "src/model.ts";
+    const FROM = { home: HOME, external: false };
 
     function track(store: Store, name: string, home = HOME, type: StoreType = "atom"): StoreEntry {
       return registerStore({ store, name, home, type, origin: "plugin", external: false });
@@ -614,7 +631,7 @@ describe("buildSnapshot", () => {
       track($draft, "$draft");
       track($canUndo, "$canUndo");
       track(atom(""), "$typed");
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: {
@@ -639,7 +656,7 @@ describe("buildSnapshot", () => {
       track($draft, "$draft");
       track($history, "$history");
       track($position, "$position");
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: {
@@ -660,7 +677,7 @@ describe("buildSnapshot", () => {
       unbind();
       entry.everMounted = true;
       track($child, "$child");
-      ownBindings([["$total", $total]]);
+      ownBindings(FROM, [["$total", $total]]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: { "$total [computed]": { "(value)": stale(2), $child: 1 } },
@@ -673,7 +690,7 @@ describe("buildSnapshot", () => {
 
       track($draft, "$draft #2");
       track($canUndo, "$canUndo #2");
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       expect(keysOf(HOME, "$draft #2")).toEqual(["(value)", "$canUndo"]);
     });
@@ -686,7 +703,7 @@ describe("buildSnapshot", () => {
       track($draft, "$draft");
       track($first, "$row");
       track($second, "$row #2");
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$row", "$row #2"]);
     });
@@ -699,7 +716,7 @@ describe("buildSnapshot", () => {
       track($draft, "$draft");
       track($mine, "$history");
       track($theirs, "$history", "vendor/withUndo.ts");
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       expect(keysOf(HOME, "$draft")).toEqual([
         "(value)",
@@ -714,7 +731,7 @@ describe("buildSnapshot", () => {
 
       track($draft, "$draft");
       track($total, "$total #2", HOME, "computed");
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$total [computed]"]);
     });
@@ -725,7 +742,7 @@ describe("buildSnapshot", () => {
 
       track($draft, "$draft");
       track($canUndo, "$canUndo", "vendor/withUndo.ts");
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       expect(buildSnapshot()).toEqual({ [HOME]: { $draft: { "(value)": "", $canUndo: false } } });
     });
@@ -733,7 +750,7 @@ describe("buildSnapshot", () => {
     it("leaves a store flat when nothing registered its owner", () => {
       const $canUndo = atom(false);
 
-      ownBindings([["$draft", holder("", { $canUndo })]]);
+      ownBindings(FROM, [["$draft", holder("", { $canUndo })]]);
       track($canUndo, "$canUndo");
 
       expect(buildSnapshot()).toEqual({ [HOME]: { $canUndo: false } });
@@ -754,7 +771,7 @@ describe("buildSnapshot", () => {
       track($position, "$position", "vendor/withUndo.ts");
       track($orphan, "$orphan", "src/other.ts");
       trackStores("cart", { $items: atom([]) });
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       const drawn = Object.values(buildSnapshot()).reduce(
         (total, node) => total + countSlots(node),
@@ -770,13 +787,223 @@ describe("buildSnapshot", () => {
 
       track($draft, "$draft");
       track($canUndo, "$canUndo");
-      ownBindings([["$draft", $draft]]);
+      ownBindings(FROM, [["$draft", $draft]]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: { $draft: { "(value)": 7, $canUndo: false } },
       });
       expect($draft.lc).toBe(0);
       expect($canUndo.lc).toBe(0);
+    });
+
+    describe("a node", () => {
+      class Editor {
+        $value = atom("draft");
+      }
+
+      /** The type label as the extension carries it: a wrapper its reviver drops before drawing. */
+      function labelled(type: string, children: Record<string, unknown>): unknown {
+        return { data: children, __serializedType__: type };
+      }
+
+      /** What one node holds, out from behind the type label, so a key list reads plainly. */
+      function heldBy(name: string, home = HOME): Record<string, unknown> {
+        const drawn = slot(buildSnapshot(), home, name);
+
+        if (drawn === null || typeof drawn !== "object") {
+          throw new Error(`"${name}" is no node`);
+        }
+
+        return Object.fromEntries(Object.entries(isMarked(drawn) ? drawn.data : drawn));
+      }
+
+      it("keys a class instance by its binding and labels it with its constructor", () => {
+        const editorOne = new Editor();
+
+        track(editorOne.$value, "$value");
+        ownBindings(FROM, [["editorOne", editorOne]]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { editorOne: labelled("Editor", { $value: "draft" }) },
+        });
+      });
+
+      it("keys a plain object a factory returned by its binding, and labels it with nothing", () => {
+        const panel = { $open: atom(false) };
+
+        track(panel.$open, "$open");
+        ownBindings(FROM, [["panel", panel]]);
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { panel: { $open: false } } });
+      });
+
+      it("walks an array by index, so an array of instances draws two levels", () => {
+        const first = new Editor();
+        const second = new Editor();
+
+        track(first.$value, "$value");
+        track(second.$value, "$value #2");
+        ownBindings(FROM, [["drafts", [first, second]]]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: {
+            drafts: labelled("Array", {
+              "[0]": labelled("Editor", { $value: "draft" }),
+              "[1]": labelled("Editor", { $value: "draft" }),
+            }),
+          },
+        });
+      });
+
+      it("walks a Map by key", () => {
+        const scratch = new Editor();
+
+        track(scratch.$value, "$value");
+        ownBindings(FROM, [["byId", new Map([["scratch", scratch]])]]);
+
+        expect(heldBy("byId")).toEqual({
+          '["scratch"]': labelled("Editor", { $value: "draft" }),
+        });
+      });
+
+      it("walks a Set in insertion order", () => {
+        const first = new Editor();
+        const second = new Editor();
+
+        track(second.$value, "$second");
+        track(first.$value, "$first");
+        ownBindings(FROM, [["pool", new Set([first, second])]]);
+
+        expect(Object.keys(heldBy("pool"))).toEqual(["[0]", "[1]"]);
+      });
+
+      it("draws a node the store that holds it keeps beside its own value", () => {
+        const first = new Editor();
+        const $draft = holder("", {});
+
+        Object.assign($draft, { drafts: [first] });
+        track($draft, "$draft");
+        track(first.$value, "$value");
+        ownBindings(FROM, [["$draft", $draft]]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: {
+            $draft: {
+              "(value)": "",
+              drafts: labelled("Array", { "[0]": labelled("Editor", { $value: "draft" }) }),
+            },
+          },
+        });
+      });
+
+      it("draws nothing for a node holding no store at all", () => {
+        track(atom("x"), "$typed");
+        ownBindings(FROM, [["panel", { title: "Files", size: [1, 2] }]]);
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { $typed: "x" } });
+      });
+
+      it("gives a store's own slot no type label, because it already carries its marker", () => {
+        /** A constructor over a store, so the tree has a type name it could wrongly reach for. */
+        class Draft {}
+
+        const $canUndo = atom(false);
+        const $draft = holder("", { $canUndo });
+
+        Object.setPrototypeOf($draft, Draft.prototype);
+        track($draft, "$draft");
+        track($canUndo, "$canUndo");
+        ownBindings(FROM, [["$draft", $draft]]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { $draft: { "(value)": "", $canUndo: false } },
+        });
+      });
+
+      it("says what a capped collection left out, and loses none of its stores", () => {
+        const members = Array.from({ length: MAX_MEMBERS + 2 }, () => ({ $open: atom(false) }));
+
+        members.forEach((member, index) => {
+          track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
+        });
+        ownBindings(FROM, [["many", members]]);
+
+        const held = heldBy("many");
+
+        expect(Object.keys(held)).toHaveLength(MAX_MEMBERS + 3);
+        expect(held["[0]"]).toEqual({ $open: false });
+        expect(held["$open #26"]).toBe(false);
+        expect(held["$open #27"]).toBe(false);
+        expect(held["…"]).toEqual({
+          data: {},
+          __serializedType__:
+            "2 more members past the 25 walked; their stores are listed here without a node of " +
+            "their own",
+        });
+      });
+
+      it("keeps the registry ordinal of the one store a single skipped member hung there", () => {
+        const members = Array.from({ length: MAX_MEMBERS + 1 }, () => ({ $open: atom(false) }));
+
+        members.forEach((member, index) => {
+          track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
+        });
+        ownBindings(FROM, [["many", members]]);
+
+        const held = heldBy("many");
+
+        expect(held["$open #26"]).toBe(false);
+        expect(held["$open"]).toBeUndefined();
+      });
+
+      it("numbers a name two children of one home both want", () => {
+        const panel = { $open: atom(false) };
+
+        track(atom("bare"), "panel");
+        track(panel.$open, "$open");
+        ownBindings(FROM, [["panel", panel]]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { "panel #1": "bare", "panel #2": { $open: false } },
+        });
+      });
+
+      it("sorts a home holding only a node of somebody else's after the developer's own", () => {
+        const panel = { $open: atom(false) };
+
+        track(atom("x"), "$typed");
+        track(panel.$open, "$open");
+        ownBindings({ home: "node_modules/panel/index.ts", external: true }, [["panel", panel]]);
+
+        expect(Object.keys(buildSnapshot())).toEqual([HOME, "node_modules/panel/index.ts"]);
+      });
+
+      it("draws every registry entry exactly once, nodes and collections included", () => {
+        /** One number per store, so a key that overwrote another leaves a number missing. */
+        class Row {
+          $value = atom(0);
+        }
+
+        const first = new Row();
+        const second = new Row();
+        const panel = { $open: atom(2) };
+        const $typed = atom(3);
+
+        second.$value.set(1);
+        track(first.$value, "$value");
+        track(second.$value, "$value #2");
+        track(panel.$open, "$open");
+        track($typed, "$typed");
+        ownBindings(FROM, [
+          ["drafts", [first, second]],
+          ["byId", new Map([["scratch", panel]])],
+          ["$typed", $typed],
+        ]);
+
+        expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
+          0, 1, 2, 3,
+        ]);
+      });
     });
   });
 

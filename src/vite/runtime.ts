@@ -100,10 +100,12 @@ export function fileScope(
 
     /**
      * The end of the module body, where every top-level binding holds its value. It places the
-     * stores a store holds and registers nothing, so where a store is drawn is the only thing
+     * stores a binding holds and registers nothing, so where a store is drawn is the only thing
      * this can change.
      */
-    own: ownBindings,
+    own(bindings) {
+      ownBindings({ home, external }, bindings);
+    },
 
     /**
      * The top of the module body runs this on every execution, so it is nothing on a first run

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "../connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
-import { ownerOf } from "../ownership.ts";
+import { nodeInfoOf, ownerOf } from "../ownership.ts";
 import { getEntry, listEntries, trackStores } from "../registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";
@@ -352,6 +352,15 @@ describe("own", () => {
 
     expect(ownerOf($canUndo)).toBe($draft);
     expect(names()).toEqual(["$draft"]);
+  });
+
+  it("draws a node in this module's own home, whichever file made the value", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const panel = { $open: atom(false) };
+
+    scope.own([["panel", panel]]);
+
+    expect(nodeInfoOf(panel)).toMatchObject({ name: "panel", home: HOME, external: false });
   });
 });
 

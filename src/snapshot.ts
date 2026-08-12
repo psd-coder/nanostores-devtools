@@ -1,8 +1,16 @@
 import type { Store } from "nanostores";
 
+import type { NodeInfo } from "./global.ts";
 import { box, mark } from "./marker.ts";
-import { ownerOf } from "./ownership.ts";
-import { DERIVED, getEntry, listEntries, type StoreEntry, type StoreType } from "./registry.ts";
+import { MAX_MEMBERS, nodeInfoOf, ownerOf } from "./ownership.ts";
+import {
+  DERIVED,
+  getEntry,
+  isStore,
+  listEntries,
+  type StoreEntry,
+  type StoreType,
+} from "./registry.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
 
@@ -18,65 +26,96 @@ const UNNOTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "unknown"]);
 /** Where a store that owns others keeps its own value, so its children can sit beside it. */
 const SELF_KEY = "(value)";
 
+/** What a capped collection says it left out, so silence never reads as "this is all of it". */
+const MORE_KEY = "…";
+
 /** The number the registry adds when one creation site made several stores: `$canUndo #2`. */
 const ORDINAL = / #\d+$/;
 
-/** What each owner holds, built for one snapshot only, because ownership can change under us. */
-type Owned = Map<Store, StoreEntry[]>;
+/** One thing the tree draws: a store's own slot, or a node holding others and no value at all. */
+type Held = { kind: "store"; entry: StoreEntry } | { kind: "node"; value: object; info: NodeInfo };
 
-/** One key in the tree pointing at a store: the key a child takes under its owner, and its entry. */
-type Placement = { key: string; entry: StoreEntry };
+/** One key in the tree, and what sits behind it. Built for one snapshot: ownership can change. */
+type Placement = { key: string; held: Held };
+
+/** What each owner holds, what each home holds at its own top level, and which nodes are in. */
+type Tree = { homes: Map<string, Held[]>; children: Map<object, Held[]>; placed: Set<object> };
 
 /**
  * `.value` is the whole read. `get()` mounts an unmounted store and a getter runs whatever the
  * developer put behind it, and either one would make watching a store change how the app behaves.
  */
 export function buildSnapshot(): Snapshot {
-  const homes = new Map<string, StoreEntry[]>();
-  const owned: Owned = new Map();
+  const tree: Tree = { homes: new Map(), children: new Map(), placed: new Set() };
 
   for (const entry of listEntries()) {
-    const owner = drawnOwner(entry);
+    const owner = drawnOwner(entry.store);
+    const held: Held = { kind: "store", entry };
 
     if (owner === undefined) {
-      collect(homes, entry.home, entry);
+      collect(tree.homes, entry.home, held);
     } else {
-      collect(owned, owner, entry);
+      collect(tree.children, owner, held);
+      attach(tree, owner);
     }
   }
 
   const snapshot: Snapshot = {};
 
-  for (const [home, entries] of sortHomes(homes)) {
-    const node: Record<string, unknown> = {};
-
-    for (const entry of entries.sort((left, right) => compare(left.name, right.name))) {
-      node[displayName(entry)] = drawEntry(entry, owned);
-    }
-
-    snapshot[home] = node;
+  for (const [home, held] of sortHomes(tree.homes)) {
+    snapshot[home] = drawAll(tree, rootPlacements(held));
   }
 
   return snapshot;
 }
 
 /**
- * The owner a store is drawn under, and only one the registry knows: an owner with no entry holds
- * no place in the tree, so a store under it would be drawn nowhere at all.
+ * The owner a store is drawn under. A store owner the registry lost holds no place in the tree, so
+ * a store under it would be drawn nowhere at all and is drawn at its own home instead.
  */
-function drawnOwner(entry: StoreEntry): Store | undefined {
-  const owner = ownerOf(entry.store);
+function drawnOwner(store: Store): object | undefined {
+  const owner = ownerOf(store);
 
-  return owner !== undefined && getEntry(owner) !== undefined ? owner : undefined;
+  return owner !== undefined && drawable(owner) ? owner : undefined;
 }
 
-function collect<TKey>(index: Map<TKey, StoreEntry[]>, key: TKey, entry: StoreEntry): void {
+function drawable(owner: object): boolean {
+  return isStore(owner) ? getEntry(owner) !== undefined : nodeInfoOf(owner) !== undefined;
+}
+
+/**
+ * A node holds no value of its own, so it reaches the tree only where a store puts it: inside the
+ * node or the store that holds it, or at the top level of the file its name was written in.
+ */
+function attach(tree: Tree, owner: object): void {
+  const info = isStore(owner) ? undefined : nodeInfoOf(owner);
+
+  if (info === undefined || tree.placed.has(owner)) {
+    return;
+  }
+
+  tree.placed.add(owner);
+
+  const parent = info.parent?.deref();
+  const held: Held = { kind: "node", value: owner, info };
+
+  if (parent === undefined || !drawable(parent)) {
+    collect(tree.homes, info.home, held);
+
+    return;
+  }
+
+  collect(tree.children, parent, held);
+  attach(tree, parent);
+}
+
+function collect<TKey>(index: Map<TKey, Held[]>, key: TKey, held: Held): void {
   const known = index.get(key);
 
   if (known) {
-    known.push(entry);
+    known.push(held);
   } else {
-    index.set(key, [entry]);
+    index.set(key, [held]);
   }
 }
 
@@ -88,20 +127,65 @@ function collect<TKey>(index: Map<TKey, StoreEntry[]>, key: TKey, entry: StoreEn
  * preview of what is inside, so wrapping a value the developer can already read turns it into one
  * click for nothing.
  */
-function drawEntry(entry: StoreEntry, owned: Owned): unknown {
-  const children = owned.get(entry.store);
+function draw(tree: Tree, held: Held): unknown {
+  if (held.kind === "store") {
+    const children = tree.children.get(held.entry.store);
 
-  if (children === undefined) {
-    return slotFor(entry);
+    return children === undefined
+      ? slotFor(held.entry)
+      : { [SELF_KEY]: slotFor(held.entry), ...drawAll(tree, childPlacements(children, undefined)) };
   }
 
-  const node: Record<string, unknown> = { [SELF_KEY]: slotFor(entry) };
+  const node = drawAll(tree, childPlacements(tree.children.get(held.value) ?? [], held.info));
 
-  for (const child of childPlacements(children)) {
-    node[child.key] = drawEntry(child.entry, owned);
+  if (held.info.skipped > 0) {
+    node[MORE_KEY] = mark(
+      `${held.info.skipped} more members past the ${MAX_MEMBERS} walked; their stores are ` +
+        `listed here without a node of their own`,
+      {},
+    );
+  }
+
+  /**
+   * The extension's own wrapper, which the panel's reviver drops before printing the type in front
+   * of the value, so what built a node costs no key and no nesting level of its own.
+   */
+  return held.info.type === undefined ? node : mark(held.info.type, node);
+}
+
+function drawAll(tree: Tree, placements: readonly Placement[]): Record<string, unknown> {
+  const node: Record<string, unknown> = {};
+
+  for (const placement of placements) {
+    node[placement.key] = draw(tree, placement.held);
   }
 
   return node;
+}
+
+/** A file level keeps every name whole: a store its registry name, a node the one written. */
+function rootPlacements(held: readonly Held[]): Placement[] {
+  const wanted = held.map((one) => ({
+    held: one,
+    key: one.kind === "store" ? displayName(one.entry) : one.info.name,
+  }));
+
+  return sorted(numberApart(wanted));
+}
+
+/**
+ * The keys one owner's children take. `inside` is the node they sit in, or nothing when a store
+ * holds them.
+ *
+ * Then the home, for the one clash a file level used to make impossible: ownership draws stores
+ * from two files in one node, and two files may each hold a `$history`. Both sides take the
+ * suffix, as a name clash inside one file does, because one bare `$history` beside
+ * `$history (vendor/withUndo.ts)` does not say which file the bare one came from.
+ */
+function childPlacements(held: readonly Held[], inside: NodeInfo | undefined): Placement[] {
+  const wanted = held.map((one) => ({ held: one, key: childKey(one, inside) }));
+
+  return sorted(numberApart(keepApart(keepApart(wanted, displayName), homed)));
 }
 
 /**
@@ -109,36 +193,83 @@ function drawEntry(entry: StoreEntry, owned: Owned): unknown {
  * the stripped keys stay apart: several stores from one creation site can land on one parent, and
  * stripping there would collapse them onto one key and lose all but the last.
  *
- * Then the home, for the one clash a file level used to make impossible: ownership draws stores
- * from two files in one node, and two files may each hold a `$history`. Both sides take the
- * suffix, as a name clash inside one file does, because one bare `$history` beside
- * `$history (vendor/withUndo.ts)` does not say which file the bare one came from.
+ * On a collection that left members out it keeps the number, because the member it came from has no
+ * node here to say which one that was, and the number is then all that says it.
  */
-function childPlacements(children: readonly StoreEntry[]): Placement[] {
-  const stripped = children.map((entry) => ({
-    entry,
-    key: noted(entry.name.replace(ORDINAL, ""), entry.type),
-  }));
-  const numbered = keepApart(stripped, (entry) => displayName(entry));
-  const homed = keepApart(numbered, (entry, key) => `${key} (${entry.home})`);
+function childKey(held: Held, inside: NodeInfo | undefined): string {
+  if (held.kind === "node") {
+    return held.info.name;
+  }
 
-  return homed.sort((left, right) => compare(left.entry.name, right.entry.name));
+  return inside !== undefined && inside.skipped > 0
+    ? displayName(held.entry)
+    : noted(held.entry.name.replace(ORDINAL, ""), held.entry.type);
 }
 
-/** A key only one child wants stays; a key two of them want is replaced on both sides. */
+function sorted(placements: readonly Placement[]): Placement[] {
+  return [...placements].sort((left, right) => compare(sortName(left), sortName(right)));
+}
+
+function homed(entry: StoreEntry, key: string): string {
+  return `${key} (${entry.home})`;
+}
+
+/** The name the source wrote, which orders the tree: a note or a suffix never moves a child. */
+function sortName(placement: Placement): string {
+  return placement.held.kind === "store" ? placement.held.entry.name : placement.held.info.name;
+}
+
+/**
+ * A key only one child wants stays; a key two of them want is replaced on both sides. A node keeps
+ * its key here whatever happens: the only name it has is the one the developer wrote, so a clash
+ * over it waits for a number instead.
+ */
 function keepApart(
   placements: readonly Placement[],
   rename: (entry: StoreEntry, key: string) => string,
 ): Placement[] {
+  const wanted = countKeys(placements);
+
+  return placements.map(({ held, key }) =>
+    wanted.get(key) === 1 || held.kind === "node"
+      ? { held, key }
+      : { held, key: rename(held.entry, key) },
+  );
+}
+
+/**
+ * A name two children still want is numbered, which is where a node's ordinal comes from. Both
+ * sides take a number, as both sides of a name clash take the place suffix, because one bare
+ * `panel` next to `panel #2` does not say which of the two the bare one is.
+ *
+ * Handed out as the tree is drawn, not when the node was made: until every child is in, no name is
+ * known to repeat at all.
+ */
+function numberApart(placements: readonly Placement[]): Placement[] {
+  const wanted = countKeys(placements);
+  const given = new Map<string, number>();
+
+  return placements.map(({ held, key }) => {
+    if (wanted.get(key) === 1) {
+      return { held, key };
+    }
+
+    const ordinal = (given.get(key) ?? 0) + 1;
+
+    given.set(key, ordinal);
+
+    return { held, key: `${key} #${ordinal}` };
+  });
+}
+
+function countKeys(placements: readonly Placement[]): Map<string, number> {
   const wanted = new Map<string, number>();
 
   for (const { key } of placements) {
     wanted.set(key, (wanted.get(key) ?? 0) + 1);
   }
 
-  return placements.map(({ entry, key }) =>
-    wanted.get(key) === 1 ? { entry, key } : { entry, key: rename(entry, key) },
-  );
+  return wanted;
 }
 
 /**
@@ -181,7 +312,7 @@ function slotFor(entry: StoreEntry): unknown {
  * they keep their own top-level nodes, because a wrapper node holding them all would cost a click
  * to reach anything inside and say nothing itself.
  */
-function sortHomes(homes: Map<string, StoreEntry[]>): [string, StoreEntry[]][] {
+function sortHomes(homes: Map<string, Held[]>): [string, Held[]][] {
   return [...homes].sort(([leftHome, left], [rightHome, right]) => {
     const byKind = rank(left) - rank(right);
 
@@ -189,13 +320,15 @@ function sortHomes(homes: Map<string, StoreEntry[]>): [string, StoreEntry[]][] {
   });
 }
 
-/** A home is external only if every store in it is: one file of the developer's own lifts it. */
-function rank(entries: StoreEntry[]): number {
-  if (entries.some((entry) => entry.origin === "explicit")) {
+/** A home is external only if everything in it is: one file of the developer's own lifts it. */
+function rank(held: Held[]): number {
+  if (held.some((one) => one.kind === "store" && one.entry.origin === "explicit")) {
     return 0;
   }
 
-  return entries.every((entry) => entry.external) ? 2 : 1;
+  return held.every((one) => (one.kind === "store" ? one.entry.external : one.info.external))
+    ? 2
+    : 1;
 }
 
 /** Code unit order, not `localeCompare`, so the tree reads the same under every locale. */

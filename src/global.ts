@@ -31,10 +31,37 @@ export type ModuleScope = {
 };
 
 /**
- * Which store each store is drawn under. Weak on both sides: the map holds no store held, and the
- * reference to an owner holds none either, so devtools keeps nothing alive that the app has let go.
+ * What each store is drawn under: another store, or a node holding it. Weak on both sides: the map
+ * holds no store held, and the reference to an owner holds none either, so devtools keeps nothing
+ * alive that the app has let go.
  */
-export type Owners = WeakMap<Store, WeakRef<Store>>;
+export type Owners = WeakMap<Store, WeakRef<object>>;
+
+/**
+ * A thing in the tree that holds others and has no value of its own: a class instance, an object a
+ * factory returned, an array, a `Map` or a `Set`. The value itself is the node, so a node is looked
+ * up by identity and never by the name it carried when a store was placed under it.
+ */
+export type NodeInfo = {
+  /** The file the binding that named it was written in, and whether that file is somebody else's. */
+  home: string;
+  external: boolean;
+  /** As the developer wrote it: a binding, a property key, an array index, a `Map` key. */
+  name: string;
+  /**
+   * What built the value, `Editor` or `Array`. Its own field rather than part of the name, because
+   * the tree draws the two apart: the name is the key, and this is the label behind it. `Object`
+   * says nothing a plain object node does not already say, so it is left out.
+   */
+  type: string | undefined;
+  /** What holds the node, a store or another node, so a collection's member nests under it. */
+  parent: WeakRef<object> | undefined;
+  /** How many members of a collection the walk left out past its cap. */
+  skipped: number;
+};
+
+/** What each walked value stands for in the tree. Weak, so devtools keeps no instance alive. */
+export type Nodes = WeakMap<object, NodeInfo>;
 
 export type DevtoolsGlobal = {
   entries: Map<Store, StoreEntry>;
@@ -47,6 +74,8 @@ export type DevtoolsGlobal = {
   creations: WeakMap<Store, StoreType>;
   /** What each store is drawn under, which the registry knows nothing about. */
   owners: Owners;
+  /** The nodes drawing has made, which hold stores the registry keeps no place for. */
+  nodes: Nodes;
   bridge?: Bridge | undefined;
 };
 
@@ -78,6 +107,7 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     scopes: new Map(),
     creations: new WeakMap(),
     owners: new WeakMap(),
+    nodes: new WeakMap(),
   };
 
   holder()[GLOBAL_KEY] = created;
