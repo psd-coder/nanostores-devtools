@@ -1,5 +1,4 @@
 import {
-  EXTENSION_SOURCE,
   type ExtensionAction,
   type ExtensionConfig,
   type ExtensionConnection,
@@ -7,6 +6,13 @@ import {
   type ExtensionMessage,
   type ReduxDevtoolsExtension,
 } from "../extension.ts";
+
+/**
+ * Written out here rather than imported from `extension.ts`: a fake that reads the value under
+ * test agrees with it whatever it says, and the one thing this fake is for is speaking what the
+ * extension speaks. This is the `source` its content script stamps on every message it relays.
+ */
+const WIRE_SOURCE = "@devtools-extension";
 
 export type InitCall = { state: unknown; liftedData: unknown };
 
@@ -104,10 +110,9 @@ export function installFakeExtension(): FakeExtension {
       initFailure = message;
     },
     deliver,
-    start: () =>
-      deliver({ type: "START", state: undefined, id: undefined, source: EXTENSION_SOURCE }),
+    start: () => deliver({ type: "START", state: undefined, id: undefined, source: WIRE_SOURCE }),
     stop: (failed) =>
-      deliver({ type: "STOP", state: undefined, id: undefined, source: EXTENSION_SOURCE, failed }),
+      deliver({ type: "STOP", state: undefined, id: undefined, source: WIRE_SOURCE, failed }),
     uninstall: () => {
       listeners.clear();
       globalThis.__REDUX_DEVTOOLS_EXTENSION__ = replaced;

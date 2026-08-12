@@ -81,5 +81,8 @@ declare global {
   var __REDUX_DEVTOOLS_EXTENSION__: ReduxDevtoolsExtension | undefined;
 }
 
-/** The `source` every message from the extension's content script carries. */
-export const EXTENSION_SOURCE = "@devtools-page";
+/**
+ * The `source` every message from the extension's content script carries. The other direction
+ * has its own value, `@devtools-page`, which is what a page stamps on a message it sends out.
+ */
+export const EXTENSION_SOURCE = "@devtools-extension";

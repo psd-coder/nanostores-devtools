@@ -256,6 +256,17 @@ describe("connectDevtools", () => {
       expect(fake.inits[2]?.state).toEqual({ cart: { $count: stale(2) } });
     });
 
+    it("ignores a START whose source is not the extension", async () => {
+      connectDevtools();
+
+      await endOfTurn();
+      fake.deliver({ type: "START", state: undefined, id: undefined, source: "@devtools-page" });
+      trackStores("cart", { $count: atom(0) });
+
+      expect(fake.inits).toHaveLength(1);
+      expect(fake.sends).toHaveLength(0);
+    });
+
     it("stops listening after disconnect", async () => {
       const handle = connectDevtools();
 

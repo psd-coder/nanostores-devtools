@@ -94,9 +94,15 @@ describe("installFakeExtension", () => {
     extension.stop(true);
 
     expect(seen).toEqual([
-      { type: "START", state: undefined, id: undefined, source: "@devtools-page" },
-      { type: "STOP", state: undefined, id: undefined, source: "@devtools-page" },
-      { type: "STOP", state: undefined, id: undefined, source: "@devtools-page", failed: true },
+      { type: "START", state: undefined, id: undefined, source: "@devtools-extension" },
+      { type: "STOP", state: undefined, id: undefined, source: "@devtools-extension" },
+      {
+        type: "STOP",
+        state: undefined,
+        id: undefined,
+        source: "@devtools-extension",
+        failed: true,
+      },
     ]);
   });
 
