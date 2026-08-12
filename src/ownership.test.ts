@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { peekDevtoolsGlobal, resetDevtoolsGlobal } from "./global.ts";
 import {
   beginFrame,
+  enclosingNode,
   endFrame,
   MAX_MEMBERS,
   nodeInfoOf,
@@ -25,7 +26,15 @@ function holder(value: unknown, held: Record<string, Store>): Store {
 }
 
 function track(store: Store, name: string): void {
-  registerStore({ store, name, home: HOME, type: "atom", origin: "plugin", external: false });
+  registerStore({
+    store,
+    name,
+    home: HOME,
+    type: "atom",
+    origin: "plugin",
+    external: false,
+    fn: null,
+  });
 }
 
 describe("ownBindings", () => {
@@ -437,14 +446,19 @@ describe("ownField", () => {
     ownField(FROM, editorOne.$value, editorOne);
 
     expect(ownerOf(editorOne.$value)).toBe(editorOne);
-    expect(nodeInfoOf(editorOne)).toMatchObject({ name: "ref", ours: true, type: "Editor" });
+    expect(nodeInfoOf(editorOne)).toMatchObject({
+      name: "ref",
+      ours: true,
+      numbered: true,
+      type: "Editor",
+    });
   });
 
   it("keys a static field's node by the class name and labels it with nothing", () => {
     ownField(FROM, Editor.$opened, Editor);
 
     expect(ownerOf(Editor.$opened)).toBe(Editor);
-    expect(nodeInfoOf(Editor)).toMatchObject({ name: "Editor", ours: false });
+    expect(nodeInfoOf(Editor)).toMatchObject({ name: "Editor", ours: false, numbered: false });
     expect(nodeInfoOf(Editor)?.type).toBeUndefined();
   });
 
@@ -762,5 +776,41 @@ describe("the creation frame", () => {
     expect(book).toHaveBeenCalledTimes(1);
 
     book.mockRestore();
+  });
+});
+
+describe("enclosingNode", () => {
+  beforeEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  afterEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  it("keys the node by the function name with parentheses after it, and labels it with nothing", () => {
+    const node = enclosingNode(FROM, "track");
+
+    expect(nodeInfoOf(node)).toEqual({
+      home: HOME,
+      external: false,
+      name: "track()",
+      ours: true,
+      numbered: false,
+      type: undefined,
+      parent: undefined,
+      skipped: 0,
+    });
+  });
+
+  it("hands one function in one file the same node every time", () => {
+    expect(enclosingNode(FROM, "track")).toBe(enclosingNode(FROM, "track"));
+  });
+
+  it("keeps two functions apart, and two files of one function name apart", () => {
+    const node = enclosingNode(FROM, "track");
+
+    expect(enclosingNode(FROM, "sample")).not.toBe(node);
+    expect(enclosingNode({ home: "src/other.ts", external: false }, "track")).not.toBe(node);
   });
 });

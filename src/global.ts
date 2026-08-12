@@ -69,6 +69,12 @@ export type NodeInfo = {
    */
   ours: boolean;
   /**
+   * Whether the key always takes an ordinal, even where no other node wants the same name. A node
+   * we found no name at all for needs it (`ref#1` says which one it is and nothing else does), and
+   * a node named after something written does not, so it waits for a real clash like every other.
+   */
+  numbered: boolean;
+  /**
    * What built the value, `Editor` or `Array`. Its own field rather than part of the name, because
    * the tree draws the two apart: the name is the key, and this is the label behind it. `Object`
    * says nothing a plain object node does not already say, so it is left out.
@@ -96,6 +102,12 @@ export type DevtoolsGlobal = {
   owners: Owners;
   /** The nodes drawing has made, which hold stores the registry keeps no place for. */
   nodes: Nodes;
+  /**
+   * The node standing for one enclosing function, keyed by its home and its name, so every store
+   * that function made and nothing else placed lands in one node. Held strongly: a marker object
+   * is what the node is, so nothing else keeps it alive.
+   */
+  functions: Map<string, object>;
   /** The creation frames open right now, the innermost last. Empty between two ticks. */
   frames: OpenFrame[];
   bridge?: Bridge | undefined;
@@ -130,6 +142,7 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     creations: new WeakMap(),
     owners: new WeakMap(),
     nodes: new WeakMap(),
+    functions: new Map(),
     frames: [],
   };
 

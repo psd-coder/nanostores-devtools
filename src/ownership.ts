@@ -156,12 +156,52 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
     external: module.external,
     name: written ?? UNNAMED,
     ours: written === undefined,
+    numbered: written === undefined,
     type: statics ? undefined : typeNameOf(owner),
     parent: undefined,
     skipped: 0,
   });
 
   recordOwner(store, owner, "field");
+}
+
+/**
+ * The last resort, for a store no other mechanism placed: the function it was made inside holds it.
+ * Ask for it when the tree is drawn and not when the store is made, because only by then has every
+ * other mechanism had its turn.
+ *
+ * The parentheses are the one part of the key that is ours. `track` is written in the source and
+ * only the decision to make a node out of it is ours, which is why the key is not the one a node
+ * with no name at all takes.
+ *
+ * One node per function name per home, so every store that function made lands in the same one.
+ * Two functions of one name in one file share it: a name is all the creation site records.
+ */
+export function enclosingNode(module: ModuleHome, fn: string): object {
+  const { functions } = getDevtoolsGlobal();
+  /** A NUL fits in neither a path nor a function name, so no two pairs can share one key. */
+  const key = [module.home, fn].join("\u0000");
+  const known = functions.get(key);
+
+  if (known !== undefined) {
+    return known;
+  }
+
+  const node = {};
+
+  functions.set(key, node);
+  makeNode(node, {
+    home: module.home,
+    external: module.external,
+    name: `${fn}()`,
+    ours: true,
+    numbered: false,
+    type: undefined,
+    parent: undefined,
+    skipped: 0,
+  });
+
+  return node;
 }
 
 /** An owner the app has let go reads as none, and the store it held is drawn flat again. */
@@ -200,6 +240,7 @@ function walk(
       external: scan.module.external,
       name,
       ours: false,
+      numbered: false,
       type: typeNameOf(value),
       parent: owner === undefined ? undefined : new WeakRef(owner),
       skipped: members.past.length,
@@ -259,6 +300,7 @@ function frameHolder(module: ModuleHome, value: unknown, name: string | null): o
       external: module.external,
       name: name ?? UNNAMED,
       ours: name === null,
+      numbered: name === null,
       type: typeNameOf(value),
       parent: undefined,
       skipped: membersOf(value).past.length,

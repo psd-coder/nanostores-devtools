@@ -79,6 +79,7 @@ export function fileScope(
       type,
       origin: "plugin",
       external,
+      fn: site.fn,
     });
 
     /** An explicit registration keeps the store, so this module neither owns nor drops it. */
@@ -219,6 +220,7 @@ function suffixSite(state: SiteState, home: string): void {
         type: entry.type,
         origin: "plugin",
         external: entry.external,
+        fn: state.fn,
       });
     }
   }

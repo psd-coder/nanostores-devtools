@@ -27,6 +27,11 @@ export type StoreEntry = {
   origin: StoreOrigin;
   /** Whether the home is a file of somebody else's, which sorts it after the developer's own. */
   external: boolean;
+  /**
+   * The function the store was made inside, from its creation site, and `null` for one made at
+   * module level.
+   */
+  fn: string | null;
   everMounted: boolean;
   unhook: (() => void)[];
 };
@@ -38,6 +43,7 @@ export type Registration = {
   type: StoreType;
   origin: StoreOrigin;
   external: boolean;
+  fn: string | null;
 };
 
 /**
@@ -86,6 +92,7 @@ export function registerStore(registration: Registration): StoreEntry {
     type: registration.type,
     origin: registration.origin,
     external: registration.external,
+    fn: registration.fn,
     everMounted: false,
     unhook: [],
   };
@@ -120,6 +127,7 @@ export function trackStores(group: string, stores: Readonly<Record<string, Store
       type: "unknown",
       origin: "explicit",
       external: false,
+      fn: null,
     });
   }
 }
@@ -213,6 +221,12 @@ function relabelEntry(
   if (registration.origin === "plugin" && entry.origin === "explicit") {
     return entry;
   }
+
+  /**
+   * The site that registered last says which function holds the store: one made inside a helper
+   * and then adopted at a top-level binding is no longer a store only that helper knows about.
+   */
+  entry.fn = registration.fn;
 
   if (label === entry.label) {
     entry.origin = registration.origin;

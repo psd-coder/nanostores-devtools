@@ -2,7 +2,7 @@ import type { Store } from "nanostores";
 
 import type { NodeInfo } from "./global.ts";
 import { box, mark } from "./marker.ts";
-import { MAX_MEMBERS, nodeInfoOf, ownerOf } from "./ownership.ts";
+import { enclosingNode, MAX_MEMBERS, nodeInfoOf, ownerOf } from "./ownership.ts";
 import {
   DERIVED,
   getEntry,
@@ -56,7 +56,7 @@ export function buildSnapshot(): Snapshot {
   const tree: Tree = { homes: new Map(), children: new Map(), placed: new Set() };
 
   for (const entry of listEntries()) {
-    const owner = drawnOwner(entry.store);
+    const owner = drawnOwner(entry.store) ?? enclosingOwner(entry);
     const held: Held = { kind: "store", entry };
 
     if (owner === undefined) {
@@ -86,6 +86,17 @@ function drawnOwner(store: Store): object | undefined {
   const owner = ownerOf(store);
 
   return owner !== undefined && drawable(owner) ? owner : undefined;
+}
+
+/**
+ * The last resort, reached only by a store every other mechanism left alone: the function it was
+ * made inside holds it. One made at module level has no enclosing function and stays flat, which is
+ * the right answer, because the file it was written in is already its only holding.
+ */
+function enclosingOwner(entry: StoreEntry): object | undefined {
+  return entry.fn === null
+    ? undefined
+    : enclosingNode({ home: entry.home, external: entry.external }, entry.fn);
 }
 
 function drawable(owner: object): boolean {
@@ -226,16 +237,16 @@ function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string 
 }
 
 /**
- * The name a node is drawn under. A name the developer wrote stands as it is; one of ours is always
- * numbered, because there is nothing to put parentheses around and borrowing the class name would
- * only repeat the type label.
+ * The name a node is drawn under. A node we found no name for at all is always numbered, because
+ * there is nothing to put parentheses around and borrowing the class name would only repeat the type
+ * label. Every other node waits for a real clash, as a store's name does.
  *
  * The number is handed out here rather than when the node was made, because a binding may rename a
  * node afterwards and numbering at creation time would leave gaps. It sits tight against the name:
  * `ORDINAL` strips ` #2` off a nested store's key, and a space here would put a node key in its way.
  */
 function nodeKey(pass: Pass, info: NodeInfo): string {
-  if (!info.ours) {
+  if (!info.numbered) {
     return info.name;
   }
 

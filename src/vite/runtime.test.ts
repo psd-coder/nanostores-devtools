@@ -73,6 +73,28 @@ describe("store", () => {
     });
   });
 
+  it("carries the enclosing function of the site, which drawing falls back to", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $hits = atom(0);
+    const $items = atom<string[]>([]);
+
+    scope.store($hits, site({ name: "$hits", fn: "track" }));
+    scope.store($items, site());
+
+    expect(getEntry($hits)?.fn).toBe("track");
+    expect(getEntry($items)?.fn).toBeNull();
+  });
+
+  it("keeps the enclosing function through the rename a name clash forces", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $hits = atom(0);
+
+    scope.store($hits, site({ name: "$hits", fn: "track", line: 3 }));
+    scope.store(atom(0), site({ name: "$hits", fn: "sample", line: 9 }));
+
+    expect(getEntry($hits)).toMatchObject({ name: "$hits (track, line 3)", fn: "track" });
+  });
+
   it("carries where the file sits, so a store from somebody else's file says so", () => {
     const vendor = fileScope(
       "/repo/packages/nanobots/src/withUndo.ts",

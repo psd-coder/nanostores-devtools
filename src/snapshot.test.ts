@@ -115,6 +115,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     registerStore({
       store: atom(2),
@@ -123,6 +124,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     trackStores("shop", { $total: atom(3) });
     trackStores("auth", { $user: atom("me"), $session: atom("id") });
@@ -146,6 +148,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: true,
+      fn: null,
     });
     registerStore({
       store: atom(2),
@@ -154,6 +157,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: true,
+      fn: null,
     });
     registerStore({
       store: atom(3),
@@ -162,6 +166,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     trackStores("shop", { $total: atom(4) });
 
@@ -181,6 +186,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: true,
+      fn: null,
     });
     registerStore({
       store: atom(2),
@@ -189,6 +195,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: true,
+      fn: null,
     });
 
     expect(buildSnapshot()).toEqual({
@@ -207,6 +214,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     registerStore({
       store: atom(2),
@@ -215,6 +223,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     trackStores("src/stores/cart.ts", { $hand: atom(3) });
 
@@ -232,6 +241,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     trackStores("src/stores/cart.ts", { $hand });
 
@@ -262,6 +272,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     registerStore({
       store: computed(atom(1), (count) => count + 1),
@@ -270,6 +281,7 @@ describe("buildSnapshot", () => {
       type: "computed",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     trackStores("cart", { $unknown: atom(2) });
 
@@ -291,6 +303,7 @@ describe("buildSnapshot", () => {
         type: "atom",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       trackStores("cart", { $adopted: atom(2) });
 
@@ -305,6 +318,7 @@ describe("buildSnapshot", () => {
         type: "map",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       registerStore({
         store: deepMap({}),
@@ -313,6 +327,7 @@ describe("buildSnapshot", () => {
         type: "deepMap",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       registerStore({
         store: computed(atom(1), (count) => count + 1),
@@ -321,6 +336,7 @@ describe("buildSnapshot", () => {
         type: "computed",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       registerStore({
         store: computed(atom(1), (count) => count + 1),
@@ -329,6 +345,7 @@ describe("buildSnapshot", () => {
         type: "batched",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual([
@@ -347,6 +364,7 @@ describe("buildSnapshot", () => {
         type: "atom",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       registerStore({
         store: map({}),
@@ -355,6 +373,7 @@ describe("buildSnapshot", () => {
         type: "map",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$a [map]", "$b"]);
@@ -368,6 +387,7 @@ describe("buildSnapshot", () => {
         type: "computed",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$total (line 20) [computed]"]);
@@ -389,6 +409,7 @@ describe("buildSnapshot", () => {
         type: "computed",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       trackStores("cart", { $unknown });
 
@@ -406,6 +427,7 @@ describe("buildSnapshot", () => {
         type: "atom",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       registerStore({
         store: map({ total: 2 }),
@@ -414,6 +436,7 @@ describe("buildSnapshot", () => {
         type: "map",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       registerStore({
         store: deepMap({ deep: { total: 3 } }),
@@ -422,6 +445,7 @@ describe("buildSnapshot", () => {
         type: "deepMap",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       expect(buildSnapshot()).toEqual({
@@ -443,6 +467,7 @@ describe("buildSnapshot", () => {
         type: "atom",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       const before = buildSnapshot();
@@ -462,6 +487,7 @@ describe("buildSnapshot", () => {
         type: "computed",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       const total = slot(buildSnapshot(), "cart", "$total [computed]");
@@ -478,6 +504,7 @@ describe("buildSnapshot", () => {
         type: "batched",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       expect(slot(buildSnapshot(), "cart", "$batched [batched]")).toStrictEqual({
@@ -496,6 +523,7 @@ describe("buildSnapshot", () => {
         type: "computed",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       const unbind = $total.listen(() => {});
 
@@ -515,6 +543,7 @@ describe("buildSnapshot", () => {
         type: "batched",
         origin: "plugin",
         external: false,
+        fn: null,
       });
       const unbind = $total.listen(() => {});
 
@@ -532,6 +561,7 @@ describe("buildSnapshot", () => {
         type: "computed",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       entry.everMounted = true;
@@ -583,6 +613,7 @@ describe("buildSnapshot", () => {
         type: "computed",
         origin: "plugin",
         external: false,
+        fn: null,
       });
 
       expect(buildSnapshot()).toEqual({ cart: { "$total [computed]": stale(2) } });
@@ -594,7 +625,15 @@ describe("buildSnapshot", () => {
     const FROM = { home: HOME, external: false };
 
     function track(store: Store, name: string, home = HOME, type: StoreType = "atom"): StoreEntry {
-      return registerStore({ store, name, home, type, origin: "plugin", external: false });
+      return registerStore({
+        store,
+        name,
+        home,
+        type,
+        origin: "plugin",
+        external: false,
+        fn: null,
+      });
     }
 
     /** A store holding other stores beside its own value, which is what `Object.assign` builds. */
@@ -1178,6 +1217,105 @@ describe("buildSnapshot", () => {
         ]);
       });
     });
+
+    describe("the enclosing function", () => {
+      /** A store the plugin registered from a creation site inside a function of the app's own. */
+      function madeIn(fn: string, store: Store, name: string, home = HOME): void {
+        registerStore({ store, name, home, type: "atom", origin: "plugin", external: false, fn });
+      }
+
+      it("draws a store nothing else placed under the function that built it", () => {
+        const $hits = atom(0);
+
+        madeIn("track", $hits, "$hits");
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { "track()": { $hits: 0 } } });
+      });
+
+      it("keeps a store made at module level flat at the file level", () => {
+        const $hits = atom(0);
+
+        track($hits, "$hits");
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { $hits: 0 } });
+      });
+
+      it("holds everything one function made in one node", () => {
+        madeIn("track", atom(0), "$hits");
+        madeIn("track", atom(1), "$misses");
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { "track()": { $hits: 0, $misses: 1 } } });
+      });
+
+      it("gives each file its own node for a function of the same name", () => {
+        madeIn("track", atom(0), "$hits");
+        madeIn("track", atom(1), "$rate", "src/other.ts");
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { "track()": { $hits: 0 } },
+          "src/other.ts": { "track()": { $rate: 1 } },
+        });
+      });
+
+      it("numbers a function node only where the name repeats", () => {
+        madeIn("track", atom(0), "$hits");
+        madeIn("sample", atom(1), "$rate");
+
+        expect(Object.keys(buildSnapshot()[HOME] ?? {})).toEqual(["sample()", "track()"]);
+      });
+
+      it("leaves a store the frame placed where the frame put it", () => {
+        const $canUndo = atom(false);
+        const $draft = atom("");
+
+        beginFrame();
+        noteBirth($canUndo);
+        madeIn("withUndo", $canUndo, "$canUndo");
+        endFrame(FROM, $draft, "$draft");
+        track($draft, "$draft");
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { $draft: { "(value)": "", $canUndo: false } },
+        });
+      });
+
+      it("leaves a store a class field placed where the field put it", () => {
+        class Editor {
+          $value = atom("draft");
+        }
+
+        const editorOne = new Editor();
+
+        madeIn("makeEditor", editorOne.$value, "$value");
+        ownField(FROM, editorOne.$value, editorOne);
+        ownBindings(FROM, [["editorOne", editorOne]]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { editorOne: { __serializedType__: "Editor", data: { $value: "draft" } } },
+        });
+      });
+
+      it("leaves a store the binding scan placed where the scan put it", () => {
+        const $canUndo = atom(false);
+        const $draft = holder("", { $canUndo });
+
+        madeIn("withUndo", $canUndo, "$canUndo");
+        track($draft, "$draft");
+        ownBindings(FROM, [["$draft", $draft]]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { $draft: { "(value)": "", $canUndo: false } },
+        });
+      });
+
+      it("draws every registry entry exactly once, a function's own included", () => {
+        madeIn("track", atom(0), "$hits");
+        madeIn("track", atom(1), "$hits #2");
+        track(atom(2), "$typed");
+
+        expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([0, 1, 2]);
+      });
+    });
   });
 
   it("never mounts a store while building", () => {
@@ -1191,6 +1329,7 @@ describe("buildSnapshot", () => {
       type: "atom",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     registerStore({
       store: $total,
@@ -1199,6 +1338,7 @@ describe("buildSnapshot", () => {
       type: "computed",
       origin: "plugin",
       external: false,
+      fn: null,
     });
     buildSnapshot();
 
