@@ -30,6 +30,12 @@ export type ModuleScope = {
   claims: Map<string, SiteState>;
 };
 
+/**
+ * Which store each store is drawn under. Weak on both sides: the map holds no store held, and the
+ * reference to an owner holds none either, so devtools keeps nothing alive that the app has let go.
+ */
+export type Owners = WeakMap<Store, WeakRef<Store>>;
+
 export type DevtoolsGlobal = {
   entries: Map<Store, StoreEntry>;
   byLabel: Map<string, Store>;
@@ -39,6 +45,8 @@ export type DevtoolsGlobal = {
   scopes: Map<string, ModuleScope>;
   /** The type of a store made at a creation site with no name, until an adopt call names it. */
   creations: WeakMap<Store, StoreType>;
+  /** What each store is drawn under, which the registry knows nothing about. */
+  owners: Owners;
   bridge?: Bridge | undefined;
 };
 
@@ -69,6 +77,7 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     warned: new Set(),
     scopes: new Map(),
     creations: new WeakMap(),
+    owners: new WeakMap(),
   };
 
   holder()[GLOBAL_KEY] = created;

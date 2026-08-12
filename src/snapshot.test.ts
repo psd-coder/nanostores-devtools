@@ -2,7 +2,14 @@ import { atom, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "./global.ts";
-import { registerStore, trackStores } from "./registry.ts";
+import { ownBindings } from "./ownership.ts";
+import {
+  listEntries,
+  registerStore,
+  type StoreEntry,
+  type StoreType,
+  trackStores,
+} from "./registry.ts";
 import { buildSnapshot, type Snapshot } from "./snapshot.ts";
 
 /** A real store keeping its own `value` and `lc` fields, over a prototype that throws. */
@@ -556,6 +563,220 @@ describe("buildSnapshot", () => {
       });
 
       expect(buildSnapshot()).toEqual({ cart: { "$total [computed]": stale(2) } });
+    });
+  });
+
+  describe("the ownership tree", () => {
+    const HOME = "src/model.ts";
+
+    function track(store: Store, name: string, home = HOME, type: StoreType = "atom"): StoreEntry {
+      return registerStore({ store, name, home, type, origin: "plugin", external: false });
+    }
+
+    /** A store holding other stores beside its own value, which is what `Object.assign` builds. */
+    function holder(value: unknown, held: Record<string, Store>): Store {
+      return Object.assign(atom<unknown>(value), held);
+    }
+
+    function keysOf(home: string, name: string): string[] {
+      const node = slot(buildSnapshot(), home, name);
+
+      return node !== null && typeof node === "object" ? Object.keys(node) : [];
+    }
+
+    /** Every key is one store's place, `(value)` apart: it is the owner's own slot, not a store. */
+    function countSlots(node: object): number {
+      let count = 0;
+
+      for (const [key, value] of Object.entries(node)) {
+        if (key === "(value)") {
+          continue;
+        }
+
+        count += 1;
+
+        if (isNode(value)) {
+          count += countSlots(value);
+        }
+      }
+
+      return count;
+    }
+
+    function isNode(value: unknown): value is object {
+      return typeof value === "object" && value !== null && "(value)" in value;
+    }
+
+    it("draws a store that owns others with its own value under (value)", () => {
+      const $canUndo = atom(false);
+      const $draft = holder("the quick brown fox ", { $canUndo });
+
+      track($draft, "$draft");
+      track($canUndo, "$canUndo");
+      track(atom(""), "$typed");
+      ownBindings([["$draft", $draft]]);
+
+      expect(buildSnapshot()).toEqual({
+        [HOME]: {
+          $draft: { "(value)": "the quick brown fox ", $canUndo: false },
+          $typed: "",
+        },
+      });
+      expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$canUndo"]);
+    });
+
+    it("draws a store that owns nothing exactly as v1 draws it, with no wrapper", () => {
+      track(atom("x"), "$typed");
+
+      expect(buildSnapshot()).toEqual({ [HOME]: { $typed: "x" } });
+    });
+
+    it("nests a node inside a node", () => {
+      const $position = atom(3);
+      const $history = holder(["a"], { $position });
+      const $draft = holder("", { $history });
+
+      track($draft, "$draft");
+      track($history, "$history");
+      track($position, "$position");
+      ownBindings([["$draft", $draft]]);
+
+      expect(buildSnapshot()).toEqual({
+        [HOME]: {
+          $draft: { "(value)": "", $history: { "(value)": ["a"], $position: 3 } },
+        },
+      });
+    });
+
+    it("keeps the marker inside (value), so the node itself carries no label", () => {
+      const $child = atom(1);
+      const $total = Object.assign(
+        computed(atom(1), (count) => count + 1),
+        { $child },
+      );
+      const entry = track($total, "$total", HOME, "computed");
+      const unbind = $total.listen(() => {});
+
+      unbind();
+      entry.everMounted = true;
+      track($child, "$child");
+      ownBindings([["$total", $total]]);
+
+      expect(buildSnapshot()).toEqual({
+        [HOME]: { "$total [computed]": { "(value)": stale(2), $child: 1 } },
+      });
+    });
+
+    it("drops a nested store's ordinal, because the parent already says which one it is", () => {
+      const $canUndo = atom(false);
+      const $draft = holder("", { $canUndo });
+
+      track($draft, "$draft #2");
+      track($canUndo, "$canUndo #2");
+      ownBindings([["$draft", $draft]]);
+
+      expect(keysOf(HOME, "$draft #2")).toEqual(["(value)", "$canUndo"]);
+    });
+
+    it("keeps the ordinal where one creation site put two stores on one parent", () => {
+      const $first = atom(1);
+      const $second = atom(2);
+      const $draft = holder("", { $first, $second });
+
+      track($draft, "$draft");
+      track($first, "$row");
+      track($second, "$row #2");
+      ownBindings([["$draft", $draft]]);
+
+      expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$row", "$row #2"]);
+    });
+
+    it("keeps two children of one name apart by the file each came from", () => {
+      const $mine = atom(1);
+      const $theirs = atom(2);
+      const $draft = holder("", { $mine, $theirs });
+
+      track($draft, "$draft");
+      track($mine, "$history");
+      track($theirs, "$history", "vendor/withUndo.ts");
+      ownBindings([["$draft", $draft]]);
+
+      expect(keysOf(HOME, "$draft")).toEqual([
+        "(value)",
+        `$history (${HOME})`,
+        "$history (vendor/withUndo.ts)",
+      ]);
+    });
+
+    it("keeps the type note on a nested store's key", () => {
+      const $total = computed(atom(1), (count) => count + 1);
+      const $draft = holder("", { $total });
+
+      track($draft, "$draft");
+      track($total, "$total #2", HOME, "computed");
+      ownBindings([["$draft", $draft]]);
+
+      expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$total [computed]"]);
+    });
+
+    it("draws a child in its owner's node, whatever home registered it", () => {
+      const $canUndo = atom(false);
+      const $draft = holder("", { $canUndo });
+
+      track($draft, "$draft");
+      track($canUndo, "$canUndo", "vendor/withUndo.ts");
+      ownBindings([["$draft", $draft]]);
+
+      expect(buildSnapshot()).toEqual({ [HOME]: { $draft: { "(value)": "", $canUndo: false } } });
+    });
+
+    it("leaves a store flat when nothing registered its owner", () => {
+      const $canUndo = atom(false);
+
+      ownBindings([["$draft", holder("", { $canUndo })]]);
+      track($canUndo, "$canUndo");
+
+      expect(buildSnapshot()).toEqual({ [HOME]: { $canUndo: false } });
+    });
+
+    it("draws every registry entry exactly once", () => {
+      const $position = atom(3);
+      const $history = holder(["a"], { $position });
+      const $canUndo = atom(false);
+      const $twin = atom(true);
+      const $draft = holder("", { $canUndo, $history, $twin });
+      const $orphan = atom(0);
+
+      track($draft, "$draft");
+      track($canUndo, "$canUndo");
+      track($twin, "$canUndo", "vendor/withUndo.ts");
+      track($history, "$history", "vendor/withUndo.ts");
+      track($position, "$position", "vendor/withUndo.ts");
+      track($orphan, "$orphan", "src/other.ts");
+      trackStores("cart", { $items: atom([]) });
+      ownBindings([["$draft", $draft]]);
+
+      const drawn = Object.values(buildSnapshot()).reduce(
+        (total, node) => total + countSlots(node),
+        0,
+      );
+
+      expect(drawn).toBe(listEntries().length);
+    });
+
+    it("runs no getter and mounts nothing while drawing a node", () => {
+      const $canUndo = atom(false);
+      const $draft = Object.assign(hostileStore(7), { $canUndo });
+
+      track($draft, "$draft");
+      track($canUndo, "$canUndo");
+      ownBindings([["$draft", $draft]]);
+
+      expect(buildSnapshot()).toEqual({
+        [HOME]: { $draft: { "(value)": 7, $canUndo: false } },
+      });
+      expect($draft.lc).toBe(0);
+      expect($canUndo.lc).toBe(0);
     });
   });
 

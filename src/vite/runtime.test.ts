@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "../connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
+import { ownerOf } from "../ownership.ts";
 import { getEntry, listEntries, trackStores } from "../registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";
@@ -337,6 +338,20 @@ describe("adopt", () => {
     scope.adopt(atom(0), site({ name: "$row", type: "unknown" }));
 
     expect(names()).toEqual(["$row", "$row #2"]);
+  });
+});
+
+describe("own", () => {
+  it("places the stores a bound store holds, and registers nothing new", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $canUndo = atom(false);
+    const $draft = Object.assign(atom<unknown>(""), { $canUndo });
+
+    scope.store($draft, site({ name: "$draft" }));
+    scope.own([["$draft", $draft]]);
+
+    expect(ownerOf($canUndo)).toBe($draft);
+    expect(names()).toEqual(["$draft"]);
   });
 });
 

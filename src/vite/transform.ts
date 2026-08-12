@@ -5,6 +5,7 @@ import type {
   ImportDeclaration,
   ModuleExportName,
   PropertyKey as NodePropertyKey,
+  Program,
   VisitorObject,
 } from "oxc-parser";
 
@@ -67,6 +68,9 @@ type Keyed = { key: NodePropertyKey; computed: boolean };
 /** A key that also holds a value, so the value's own offset can carry the key's name. */
 type Valued = Keyed & { value: { start: number } | null };
 
+/** One statement standing at the top level of a module body, taken off the program that holds it. */
+type TopLevel = Program["body"][number];
+
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
 
@@ -91,6 +95,8 @@ export function transformStores(input: TransformInput): StoreTransform {
   const namedValues = new Map<number, string | null>();
   const open: number[] = [];
   const lines = lineStarts(input.code);
+  /** The module's top-level bindings, in source order, for the scan the runtime walks at load. */
+  const bound: string[] = [];
 
   function currentName(): string | null {
     const top = stack.at(-1);
@@ -197,10 +203,37 @@ export function transformStores(input: TransformInput): StoreTransform {
     }
   }
 
-  /** Every import is a top-level statement, and reading them all first frees the walk of order. */
+  /**
+   * A declaration standing in the module body, which is the only place a top-level binding is
+   * made. An ambient one is skipped: `declare const $a: Atom` is a normal declarator in the AST
+   * but binds nothing once the types are stripped, so listing it would throw a `ReferenceError`
+   * and take the module down. A destructured binding needs no case of its own, because its `id`
+   * is not an `Identifier`.
+   */
+  function readBindings(statement: TopLevel): void {
+    const declared =
+      statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
+
+    if (declared?.type !== "VariableDeclaration" || declared.declare === true) {
+      return;
+    }
+
+    for (const declarator of declared.declarations) {
+      if (declarator.id.type === "Identifier") {
+        bound.push(declarator.id.name);
+      }
+    }
+  }
+
+  /**
+   * Every import is a top-level statement, and reading them all first frees the walk of order. The
+   * module's own bindings come out of the same pass, because they stand at the same level.
+   */
   for (const statement of parsed.program.body) {
     if (statement.type === "ImportDeclaration") {
       readImport(statement);
+    } else {
+      readBindings(statement);
     }
   }
 
@@ -286,12 +319,25 @@ export function transformStores(input: TransformInput): StoreTransform {
 
   edited.prepend(header(input));
 
+  /**
+   * On its own line after the module's own body, so every original line keeps its place and a
+   * file whose last line is a comment still ends that comment before this call.
+   */
+  if (bound.length > 0) {
+    edited.append(`\n${SCOPE}.own([${bound.map(binding).join(", ")}]);\n`);
+  }
+
   return {
     changed: true,
     code: edited.toString(),
     map: edited.generateMap({ source: input.moduleKey, includeContent: true, hires: true }),
     warnings: [...warnings],
   };
+}
+
+/** The name as it is written in the source, beside the value it holds at the end of the body. */
+function binding(name: string): string {
+  return `[${JSON.stringify(name)}, ${name}]`;
 }
 
 /**

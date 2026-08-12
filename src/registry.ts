@@ -55,6 +55,18 @@ export function makeLabel(home: string, name: string): string {
   return `${home}/${name}`;
 }
 
+/** Shape, not `instanceof`: a store is a plain object, and two copies of nanostores make two. */
+export function isStore(value: unknown): value is Store {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "listen" in value &&
+    typeof value.listen === "function" &&
+    "lc" in value &&
+    typeof value.lc === "number"
+  );
+}
+
 export function registerStore(registration: Registration): StoreEntry {
   const devtools = getDevtoolsGlobal();
   const label = makeLabel(registration.home, registration.name);

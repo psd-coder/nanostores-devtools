@@ -7,9 +7,11 @@ import {
   type SiteState,
   type SiteStore,
 } from "../global.ts";
+import { type Binding, ownBindings } from "../ownership.ts";
 import {
   evictStore,
   getEntry,
+  isStore,
   makeLabel,
   registerStore,
   type StoreType,
@@ -30,6 +32,7 @@ export type CreationSite = {
 export type FileScope = {
   store: <TStore>(store: TStore, site: CreationSite) => TStore;
   adopt: <TValue>(value: TValue, site: CreationSite) => TValue;
+  own: (bindings: readonly Binding[]) => void;
   clear: () => void;
 };
 
@@ -94,6 +97,13 @@ export function fileScope(
 
       return value;
     },
+
+    /**
+     * The end of the module body, where every top-level binding holds its value. It places the
+     * stores a store holds and registers nothing, so where a store is drawn is the only thing
+     * this can change.
+     */
+    own: ownBindings,
 
     /**
      * The top of the module body runs this on every execution, so it is nothing on a first run
@@ -255,16 +265,4 @@ function siteState(scope: ModuleScope, site: CreationSite, name: string): SiteSt
   scope.sites.set(key, created);
 
   return created;
-}
-
-/** The wrapped expression is whatever the developer wrote, so a value that is no store passes. */
-function isStore(value: unknown): value is Store {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "listen" in value &&
-    typeof value.listen === "function" &&
-    "lc" in value &&
-    typeof value.lc === "number"
-  );
 }

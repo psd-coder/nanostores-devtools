@@ -50,6 +50,13 @@ function output(result: StoreTransform): string {
   return changed(result).code;
 }
 
+/** The one line the binding scan adds, which the transform appends after the module's own body. */
+function ownCall(result: StoreTransform): string | undefined {
+  return output(result)
+    .split("\n")
+    .find((line) => line.startsWith("__nsdt.own("));
+}
+
 describe("the pre-parse test", () => {
   it("never parses a file that imports no creator and binds no $ name", () => {
     const parseSync = vi.fn();
@@ -358,6 +365,81 @@ describe("adoption", () => {
     const result = transform(`const $theme = persistentAtom("theme", "dark");\n`);
 
     expect(output(result)).toContain("__nsdt.clear();");
+  });
+});
+
+describe("the binding scan", () => {
+  it("lists the module's top-level bindings at the end of its body", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `export const $draft = atom("");\n` +
+        `const model = makeModel();\n` +
+        `let pending;\n`,
+    );
+
+    expect(
+      output(result)
+        .trimEnd()
+        .endsWith(`__nsdt.own([["$draft", $draft], ["model", model], ["pending", pending]]);`),
+    ).toBe(true);
+  });
+
+  it("leaves the module's own last line where it was", () => {
+    const code = output(transform(`import { atom } from "nanostores";\nconst $c = atom(0);\n`));
+
+    expect(code.indexOf("__nsdt.own(")).toBeGreaterThan(code.indexOf("__nsdt.store("));
+    expect(code.split("\n")[1]).toContain(`import { atom } from "nanostores"`);
+  });
+
+  it("skips an ambient declaration, which binds nothing once the types are stripped", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `declare const $ambientOnly: Store<number>;\n` +
+        `export declare const $alsoAmbient: Store<number>;\n` +
+        `const $real = atom(0);\n`,
+    );
+
+    expect(ownCall(result)).toBe(`__nsdt.own([["$real", $real]]);`);
+  });
+
+  it("leaves a destructured binding out", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `const { $one, $two } = makePair();\n` +
+        `const [$first] = makeList();\n` +
+        `const $plain = atom(0);\n`,
+    );
+
+    expect(ownCall(result)).toBe(`__nsdt.own([["$plain", $plain]]);`);
+  });
+
+  it("leaves out an import, a class, a function and a binding inside a block", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `import { $shared } from "./other.ts";\n` +
+        `export class Editor {}\n` +
+        `export function makeEditor() {\n  const $inner = atom(0);\n  return $inner;\n}\n` +
+        `for (const key of keys) {\n  const $each = atom(key);\n}\n` +
+        `const $own = atom(0);\n`,
+    );
+
+    expect(ownCall(result)).toBe(`__nsdt.own([["$own", $own]]);`);
+  });
+
+  it("still parses when the module's last line is a comment that ends the file", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nconst $c = atom(0);\n// no newline after this`,
+    );
+
+    expect(parser.parseSync(MODULE_KEY, output(result)).errors).toEqual([]);
+  });
+
+  it("says nothing for a file with no top-level binding", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` + `export class Editor {\n  $value = atom("");\n}\n`,
+    );
+
+    expect(output(result)).not.toContain("__nsdt.own(");
   });
 });
 
