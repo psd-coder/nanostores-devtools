@@ -25,9 +25,11 @@ export function staleNote(store: Store, entry: StoreEntry | undefined): Note | u
     return undefined;
   }
 
-  if (DERIVED.has(type) && entry?.everMounted !== true && store.value === undefined) {
+  const { value } = store;
+
+  if (DERIVED.has(type) && !entry?.everMounted && value === undefined) {
     return { label: "not mounted, never computed", data: {} };
   }
 
-  return { label: "not mounted, may be stale", data: box(store.value) };
+  return { label: "not mounted, may be stale", data: box(value) };
 }

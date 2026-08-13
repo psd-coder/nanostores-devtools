@@ -497,7 +497,9 @@ while being converted puts `ConversionError` in that one slot and everything els
 
 **A store held inside another store's value is drawn as a store**, wherever it sits: in an array, in
 a plain object, in a `Map`, in a `Set`, in a class instance field, or on an error. You see the kind
-of store in front of its own value, and never the nanostores keys behind it:
+of store in front of its own value, and never the nanostores keys behind it. Inside a `Map` or a
+`Set` the label stays wrapped, as the bullet above says, so you read `{ data, __serializedType__ }`
+there, with the store's value under `data`.
 
 ```
 $rows

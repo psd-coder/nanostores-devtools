@@ -62,7 +62,7 @@ export function createReplacer(
           `ConversionError. ${message}`,
       );
 
-      /** Left out of the cache: whatever threw may be a primitive, and a weak key must not be. */
+      /** A plain mark: whatever threw may be a primitive, and a weak key has to be an object. */
       return mark("ConversionError", box(message));
     }
   };
@@ -94,8 +94,8 @@ function markOnce(wrappers: Wrappers, source: object, type: string, data: object
 function convertValue(value: unknown, wrappers: Wrappers): unknown {
   if (typeof value === "bigint") {
     /**
-     * jsan throws outright on a BigInt, so it has to be taken before jsan sees it. Left out of the
-     * cache for the same reason as a slot that threw: a weak key must be an object.
+     * jsan throws outright on a BigInt, so it has to be taken before jsan sees it. A plain mark: a
+     * weak key has to be an object, and this value is not one.
      */
     return mark("BigInt", box(String(value)));
   }
@@ -159,7 +159,7 @@ function markStore(wrappers: Wrappers, store: Store): Marked {
   const note = staleNote(store, entry);
 
   return note === undefined
-    ? markOnce(wrappers, store, storeWord(entry?.type), unwrappable(store.value))
+    ? markOnce(wrappers, store, storeWord(entry?.type), objectOrBoxed(store.value))
     : markOnce(wrappers, store, note.label, note.data);
 }
 
@@ -167,8 +167,6 @@ function markStore(wrappers: Wrappers, store: Store): Marked {
  * `unknown` is a type nothing worked out, and the object gives no way to work it out: `setKey`
  * separates a `map` and a `deepMap` from the rest but not from each other, and nothing at all
  * separates an `atom` from a `computed`. So a store the registry never saw says the plain word.
- * The tree writes no word for an `atom`, because a key naming a store already says what it is,
- * while a value has nothing else to say it.
  */
 function storeWord(type: StoreType | undefined): string {
   return type === undefined || type === "unknown" ? "store" : type;
@@ -178,7 +176,7 @@ function storeWord(type: StoreType | undefined): string {
  * The panel's reviver drops the wrapper only while `data` is an object, so anything else is boxed
  * first. `null` passes its `typeof` test and then breaks the write it makes, so it is boxed too.
  */
-function unwrappable(value: unknown): object {
+function objectOrBoxed(value: unknown): object {
   return typeof value === "object" && value !== null ? value : box(value);
 }
 
