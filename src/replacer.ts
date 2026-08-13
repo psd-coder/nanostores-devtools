@@ -104,25 +104,85 @@ function ownFields(value: object): Fields {
   const fields: Fields = {};
 
   for (const key of Object.keys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-
-    if (descriptor && "value" in descriptor) {
-      fields[key] = descriptor.value;
-    }
+    copyData(fields, key, Object.getOwnPropertyDescriptor(value, key));
   }
 
   return fields;
 }
 
-/** `message`, `stack` and `cause` are own but not enumerable, so each one is read by name. */
+/**
+ * `message`, `stack` and `cause` are own but not enumerable, so each one is read by name, and each
+ * one through a descriptor so a getter the app put on it never runs. `name` sits on the instance
+ * only when a constructor assigned it and two prototypes up for a subclass, hence the chain walk;
+ * `message` and `cause` are own on every engine we know, and the same walk costs nothing and covers
+ * an app that moved them. A field whose descriptor is refused is left out rather than shown empty.
+ */
 function errorFields(error: Error): Fields {
-  const fields: Fields = { name: error.name, message: error.message, stack: error.stack };
+  const fields: Fields = {};
 
+  copyData(fields, "name", chainDescriptor(error, "name"));
+  copyData(fields, "message", chainDescriptor(error, "message"));
+
+  /** Both keys being here means both held data, and that is what makes the stack safe to read. */
+  const headerIsSafe = "name" in fields && "message" in fields;
+
+  copyData(fields, "stack", stackDescriptor(error, headerIsSafe));
+
+  /** `in` walks the prototype chain without running a getter, so the presence test is safe. */
   if ("cause" in error) {
-    fields["cause"] = error.cause;
+    copyData(fields, "cause", chainDescriptor(error, "cause"));
   }
 
   return Object.assign(fields, ownFields(error));
+}
+
+/** An accessor is passed over rather than called, so its key never appears. */
+function copyData(fields: Fields, key: string, descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor && "value" in descriptor) {
+    fields[key] = descriptor.value;
+  }
+}
+
+/** The first descriptor for `key` on the value itself or anywhere up its prototype chain. */
+function chainDescriptor(value: object, key: string): PropertyDescriptor | undefined {
+  let holder: object | null = value;
+
+  while (holder !== null) {
+    const descriptor = Object.getOwnPropertyDescriptor(holder, key);
+
+    if (descriptor) {
+      return descriptor;
+    }
+
+    holder = Object.getPrototypeOf(holder);
+  }
+
+  return undefined;
+}
+
+/**
+ * V8 installs `stack` as an own accessor on the instance, so refusing every accessor would drop the
+ * stack from every error we draw. The position tells the two apart: an own accessor is the engine's
+ * and is read, while a `get stack()` the app wrote lands on a prototype and is refused.
+ *
+ * That getter builds the first stack line as `name: message` and reads both off the error, so a
+ * getter on either one would run through it. `headerIsSafe` says both were read as data, and
+ * without it the stack goes out with them. Even then the read can run app code through
+ * `Error.prepareStackTrace`, a V8 hook that formats the stack, and that is the one hole we take: it
+ * is rare in a browser, and a devtools with no stack traces is worth less than the risk.
+ */
+function stackDescriptor(error: Error, headerIsSafe: boolean): PropertyDescriptor | undefined {
+  const own = Object.getOwnPropertyDescriptor(error, "stack");
+
+  if (!own) {
+    return chainDescriptor(error, "stack");
+  }
+
+  if ("value" in own) {
+    return own;
+  }
+
+  return own.get && headerIsSafe ? { value: own.get.call(error) } : undefined;
 }
 
 /**

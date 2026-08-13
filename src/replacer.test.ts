@@ -143,6 +143,138 @@ describe("createReplacer", () => {
 
       expect(replacer("e", error)).toMatchObject({ __serializedType__: "Error" });
     });
+
+    it("keeps name, message and stack for every place name can sit", () => {
+      class HttpError extends Error {}
+      class Named extends Error {
+        constructor(message: string) {
+          super(message);
+          this.name = "Named";
+        }
+      }
+
+      const rows: [Error, string][] = [
+        [new Error("boom"), "Error"],
+        [new TypeError("boom"), "TypeError"],
+        [new HttpError("boom"), "Error"],
+        [new Named("boom"), "Named"],
+      ];
+
+      for (const [error, name] of rows) {
+        expect(markedData(replacer("e", error))).toMatchObject({
+          name,
+          message: "boom",
+          stack: expect.any(String),
+        });
+      }
+    });
+
+    it("keeps a cause the app set to undefined", () => {
+      const marked = replacer("e", new Error("boom", { cause: undefined }));
+
+      expect(markedKeys(marked)).toContain("cause");
+      expect(markedData(marked)).toMatchObject({ cause: undefined });
+    });
+
+    it.each(["name", "message", "cause"])("never calls an own %s getter", (key) => {
+      const error = new Error("boom");
+      const get = vi.fn(() => "app code ran");
+
+      Object.defineProperty(error, key, { get, configurable: true });
+
+      expect(markedKeys(replacer("e", error))).not.toContain(key);
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it.each(["name", "message"])("gives the stack up rather than run a %s getter", (key) => {
+      const error = new Error("boom");
+      const get = vi.fn(() => "app code ran");
+
+      /** The engine's stack getter builds its first line out of these two. */
+      Object.defineProperty(error, key, { get, configurable: true });
+
+      expect(markedKeys(replacer("e", error))).not.toContain("stack");
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("keeps the stack when only cause carries a getter", () => {
+      const error = new Error("boom");
+      const get = vi.fn(() => "app code ran");
+
+      Object.defineProperty(error, "cause", { get, configurable: true });
+
+      expect(markedData(replacer("e", error))).toMatchObject({ stack: expect.any(String) });
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("never calls a name getter the app put on a prototype", () => {
+      class Sneaky extends Error {}
+
+      const get = vi.fn(() => "app code ran");
+
+      Object.defineProperty(Sneaky.prototype, "name", { get, configurable: true });
+
+      expect(markedKeys(replacer("e", new Sneaky("boom")))).not.toContain("name");
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("never calls a message getter the app put on a prototype", () => {
+      class Sneaky extends Error {}
+
+      const get = vi.fn(() => "app code ran");
+
+      Object.defineProperty(Sneaky.prototype, "message", { get, configurable: true });
+
+      /** Built with no message, so the instance carries none and the prototype's is what we reach. */
+      expect(markedKeys(replacer("e", new Sneaky()))).not.toContain("message");
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("reads a message the app left as a data property on a prototype", () => {
+      class Written extends Error {}
+
+      Object.defineProperty(Written.prototype, "message", { value: "written message" });
+
+      expect(markedData(replacer("e", new Written()))).toMatchObject({
+        message: "written message",
+      });
+    });
+
+    it("refuses a stack getter the app wrote on a prototype", () => {
+      class Sneaky extends Error {}
+
+      const get = vi.fn(() => "app stack");
+
+      Object.defineProperty(Sneaky.prototype, "stack", { get, configurable: true });
+
+      const error = new Sneaky("boom");
+
+      /** The engine's own accessor shadows the prototype's, so the app's is only reachable here. */
+      delete error.stack;
+
+      expect(markedKeys(replacer("e", error))).not.toContain("stack");
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("reads a stack the app left as a data property on a prototype", () => {
+      class Written extends Error {}
+
+      Object.defineProperty(Written.prototype, "stack", { value: "written stack" });
+
+      const error = new Written("boom");
+
+      delete error.stack;
+
+      expect(markedData(replacer("e", error))).toMatchObject({ stack: "written stack" });
+    });
+
+    it("leaves stack out when the error has none at all", () => {
+      const error = new Error("boom");
+
+      delete error.stack;
+
+      expect(markedKeys(replacer("e", error))).not.toContain("stack");
+    });
   });
 
   describe("class instances", () => {
