@@ -1,8 +1,10 @@
 import { stringify } from "jsan";
+import { atom, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetDevtoolsGlobal } from "./global.ts";
 import { box, mark } from "./marker.ts";
+import { isStore, registerStore, type StoreType } from "./registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
 
 /**
@@ -67,6 +69,23 @@ function write(
   through: (key: string, value: unknown) => unknown = replacer,
 ): string {
   return stringify(value, through, null, EXTENSION_OPTIONS);
+}
+
+/** jsan writes a `Map` and a `Set` as one escaped string, so the quotes come back for reading. */
+function unescaped(written: string): string {
+  return written.replaceAll('\\"', '"');
+}
+
+function register(store: Store, type: StoreType, name = "$s"): void {
+  registerStore({
+    store,
+    name,
+    home: "src/stores.ts",
+    type,
+    origin: "plugin",
+    external: false,
+    fn: null,
+  });
 }
 
 function throwing(): unknown {
@@ -480,6 +499,185 @@ describe("createReplacer", () => {
       Object.defineProperty(value, "constructor", { value: Empty });
 
       expect(replacer("p", value)).toMatchObject({ __serializedType__: "Empty" });
+    });
+  });
+
+  describe("a store held inside a value", () => {
+    it("draws the store's own value under the type its registry entry carries", () => {
+      const $inner = atom({ id: 1, name: "city" });
+
+      register($inner, "atom");
+
+      expect(replacer("0", $inner)).toEqual({
+        data: { id: 1, name: "city" },
+        __serializedType__: "atom",
+      });
+    });
+
+    it("keeps every key a nanostores atom carries out of the snapshot", () => {
+      const $inner = atom("Berlin");
+
+      register($inner, "atom");
+      $inner.listen(() => {});
+
+      const written = write({ $rows: [$inner] });
+
+      for (const key of [
+        "get",
+        "init",
+        "lc",
+        "listen",
+        "notify",
+        "off",
+        "set",
+        "subscribe",
+        "events",
+        "starting",
+      ]) {
+        expect(written).not.toContain(`"${key}"`);
+      }
+    });
+
+    it("marks a store in every position a value can hold one", () => {
+      class Field {
+        $held: Store;
+
+        constructor(store: Store) {
+          this.$held = store;
+        }
+      }
+
+      const $inner = atom("Berlin");
+
+      register($inner, "atom");
+
+      const rows: [string, unknown][] = [
+        ["an array member", [$inner]],
+        ["a plain object property", { held: $inner }],
+        ["a Map value", new Map([["held", $inner]])],
+        ["a Map key", new Map([[$inner, "held"]])],
+        ["a Set member", new Set([$inner])],
+        ["a class instance field", new Field($inner)],
+        ["an Error's own field", Object.assign(new Error("boom"), { held: $inner })],
+      ];
+
+      for (const [where, holder] of rows) {
+        expect(unescaped(write(holder)), where).toContain(
+          '{"data":{"$$value":"Berlin"},"__serializedType__":"atom"}',
+        );
+      }
+    });
+
+    it("marks a store two levels deep at each level", () => {
+      const $leaf = atom("deep");
+      const $branch = atom({ $leaf });
+
+      register($leaf, "atom", "$leaf");
+      register($branch, "atom", "$branch");
+
+      expect(write({ $branch })).toBe(
+        '{"$branch":{"data":{"$leaf":{"data":{"$$value":"deep"},' +
+          '"__serializedType__":"atom"}},"__serializedType__":"atom"}}',
+      );
+    });
+
+    it("gives a computed, a map and a deepMap each their own type", () => {
+      const $source = atom(1);
+      const $computed = computed($source, (value) => value + 1);
+      const $map = map({ a: 1 });
+      const $deepMap = deepMap({ b: { c: 2 } });
+      const stop = $computed.listen(() => {});
+
+      register($computed, "computed", "$computed");
+      register($map, "map", "$map");
+      register($deepMap, "deepMap", "$deepMap");
+
+      expect(replacer("k", $computed)).toEqual({
+        data: { $$value: 2 },
+        __serializedType__: "computed",
+      });
+      expect(replacer("k", $map)).toEqual({ data: { a: 1 }, __serializedType__: "map" });
+      expect(replacer("k", $deepMap)).toEqual({
+        data: { b: { c: 2 } },
+        __serializedType__: "deepMap",
+      });
+
+      stop();
+    });
+
+    it("draws a store the registry never saw as a store rather than a plain object", () => {
+      const $loose = atom(1);
+
+      $loose.listen(() => {});
+
+      expect(replacer("k", $loose)).toEqual({
+        data: { $$value: 1 },
+        __serializedType__: "store",
+      });
+    });
+
+    it("boxes a value the panel's reviver would not unwrap", () => {
+      const $text = atom("Berlin");
+      const $nothing = atom<unknown>(null);
+
+      register($text, "atom", "$text");
+      register($nothing, "atom", "$nothing");
+
+      expect(replacer("k", $text)).toEqual({
+        data: { $$value: "Berlin" },
+        __serializedType__: "atom",
+      });
+      /** `typeof null` is `"object"`, so the reviver would take it and then fail to write to it. */
+      expect(replacer("k", $nothing)).toEqual({
+        data: { $$value: null },
+        __serializedType__: "atom",
+      });
+    });
+
+    it("keeps the note an unmounted store gets at the top level, over the type", () => {
+      const $unknown = atom(1);
+
+      register($unknown, "unknown");
+
+      expect(replacer("k", $unknown)).toEqual({
+        data: { $$value: 1 },
+        __serializedType__: "not mounted, may be stale",
+      });
+    });
+
+    it("terminates on a store whose value holds the store itself", () => {
+      const $self = atom<unknown>(null);
+
+      register($self, "atom");
+      $self.set($self);
+
+      expect(write($self)).toBe('{"data":{"$jsan":"$"},"__serializedType__":"atom"}');
+    });
+
+    it("lets a user serializer matching a store win", () => {
+      const custom = createReplacer([{ match: isStore, convert: () => "theirs" }]);
+      const $inner = atom(1);
+
+      register($inner, "atom");
+
+      expect(custom("k", $inner)).toBe("theirs");
+    });
+
+    it("draws the reported shape: one store holding an array of stores", () => {
+      const $first = atom({ id: 1, name: "city", value: "Berlin" });
+      const $second = atom({ id: 2, name: "street", value: "Unter den Linden" });
+      const $rows = atom([$first, $second]);
+
+      register($first, "atom", "$first");
+      register($second, "atom", "$second");
+      register($rows, "atom", "$rows");
+
+      expect(write({ $rows })).toBe(
+        '{"$rows":{"data":[' +
+          '{"data":{"id":1,"name":"city","value":"Berlin"},"__serializedType__":"atom"},' +
+          '{"data":{"id":2,"name":"street","value":"Unter den Linden"},"__serializedType__":"atom"}' +
+          '],"__serializedType__":"atom"}}',
+      );
     });
   });
 

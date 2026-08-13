@@ -1,7 +1,7 @@
 import type { Store } from "nanostores";
 
 import type { NodeInfo } from "./global.ts";
-import { box, mark } from "./marker.ts";
+import { mark } from "./marker.ts";
 import {
   enclosingNode,
   MAX_MEMBERS,
@@ -10,19 +10,10 @@ import {
   ownerKeyOf,
   ownerOf,
 } from "./ownership.ts";
-import {
-  DERIVED,
-  getEntry,
-  isStore,
-  listEntries,
-  type StoreEntry,
-  type StoreType,
-} from "./registry.ts";
+import { getEntry, isStore, listEntries, type StoreEntry, type StoreType } from "./registry.ts";
+import { staleNote } from "./slot.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
-
-/** `set` writes `value` with no check on `lc`, so an unmounted one still holds the true value. */
-const TRUSTED_UNMOUNTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "map", "deepMap"]);
 
 /**
  * The two types the tree writes no note for: an atom is the plain case that needs no word, and an
@@ -404,23 +395,10 @@ function noted(name: string, type: StoreType): string {
   return UNNOTED.has(type) ? name : `${name} [${type}]`;
 }
 
-/**
- * Only a value that cannot be trusted is marked, so the marker states the consequence and not the
- * mount state. An unknown type never gets `never computed`: it may be somebody's computed store,
- * and we cannot prove it never ran.
- */
 function slotFor(entry: StoreEntry): unknown {
-  const { value } = entry.store;
+  const note = staleNote(entry.store, entry);
 
-  if (entry.store.lc > 0 || TRUSTED_UNMOUNTED.has(entry.type)) {
-    return value;
-  }
-
-  if (DERIVED.has(entry.type) && !entry.everMounted && value === undefined) {
-    return mark("not mounted, never computed", {});
-  }
-
-  return mark("not mounted, may be stale", box(value));
+  return note === undefined ? entry.store.value : mark(note.label, note.data);
 }
 
 /**

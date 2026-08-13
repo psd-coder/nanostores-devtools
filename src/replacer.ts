@@ -1,5 +1,9 @@
+import type { Store } from "nanostores";
+
 import { chainDescriptor } from "./descriptor.ts";
 import { box, mark, type Marked } from "./marker.ts";
+import { getEntry, isStore, type StoreType } from "./registry.ts";
+import { staleNote } from "./slot.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /** Checked in array order, ahead of every rule of ours, and the first match wins. */
@@ -100,6 +104,15 @@ function convertValue(value: unknown, wrappers: Wrappers): unknown {
     return value;
   }
 
+  /**
+   * Ahead of every other rule of ours rather than wherever the branches happen to fall. A store is
+   * a plain object literal, so the plain-object branch would hand jsan the nanostores keys and the
+   * panel would draw `get, init, lc, listen, …` where a value belongs.
+   */
+  if (isStore(value)) {
+    return markStore(wrappers, value);
+  }
+
   if (value instanceof Error) {
     return markOnce(wrappers, value, constructorName(value, "Error"), errorFields(value));
   }
@@ -134,6 +147,39 @@ function convertValue(value: unknown, wrappers: Wrappers): unknown {
   const data = Object.keys(fields).length > 0 ? fields : box(String(value));
 
   return markOnce(wrappers, value, name, data);
+}
+
+/**
+ * A store held inside another store's value. `.value` is the whole read, the same read the tree
+ * does: `get()` mounts an unmounted store. A store that is not mounted says so instead of naming
+ * its type, because that note says more and a mark cannot sit inside another mark.
+ */
+function markStore(wrappers: Wrappers, store: Store): Marked {
+  const entry = getEntry(store);
+  const note = staleNote(store, entry);
+
+  return note === undefined
+    ? markOnce(wrappers, store, storeWord(entry?.type), unwrappable(store.value))
+    : markOnce(wrappers, store, note.label, note.data);
+}
+
+/**
+ * `unknown` is a type nothing worked out, and the object gives no way to work it out: `setKey`
+ * separates a `map` and a `deepMap` from the rest but not from each other, and nothing at all
+ * separates an `atom` from a `computed`. So a store the registry never saw says the plain word.
+ * The tree writes no word for an `atom`, because a key naming a store already says what it is,
+ * while a value has nothing else to say it.
+ */
+function storeWord(type: StoreType | undefined): string {
+  return type === undefined || type === "unknown" ? "store" : type;
+}
+
+/**
+ * The panel's reviver drops the wrapper only while `data` is an object, so anything else is boxed
+ * first. `null` passes its `typeof` test and then breaks the write it makes, so it is boxed too.
+ */
+function unwrappable(value: unknown): object {
+  return typeof value === "object" && value !== null ? value : box(value);
 }
 
 /**
