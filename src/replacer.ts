@@ -1,5 +1,5 @@
 import { chainDescriptor } from "./descriptor.ts";
-import { box, mark } from "./marker.ts";
+import { box, mark, type Marked } from "./marker.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /** Checked in array order, ahead of every rule of ours, and the first match wins. */
@@ -15,6 +15,9 @@ type NodeAttribute = { name: string; value: string };
 /** What a DOM node gives us for its opening tag. `attributes` is missing on a text node. */
 type TaggedNode = { nodeName: string; attributes?: ArrayLike<NodeAttribute> | undefined };
 
+/** The one wrapper each source object gets, for as long as the replacer lives. */
+type Wrappers = WeakMap<object, Marked>;
+
 /**
  * jsan calls this for every key of the tree and then walks whatever we hand back, so returning a
  * value untouched leaves it to jsan and returning a wrapper preempts jsan's own type handling.
@@ -22,6 +25,15 @@ type TaggedNode = { nodeName: string; attributes?: ArrayLike<NodeAttribute> | un
 export function createReplacer(
   serializers: Serializer[],
 ): (key: string, value: unknown) => unknown {
+  /**
+   * jsan spots a value it has already walked by holding what the replacer handed back and matching
+   * a second sighting by identity, so a fresh wrapper on every call means a value that refers to
+   * itself never comes round and the walk runs until the stack ends. One wrapper per source value
+   * is what lets jsan see the repeat, and it lives as long as the replacer, which is one
+   * connection.
+   */
+  const wrappers: Wrappers = new WeakMap();
+
   return (key, value) => {
     try {
       for (const serializer of serializers) {
@@ -31,7 +43,7 @@ export function createReplacer(
         }
       }
 
-      return convertValue(value);
+      return convertValue(value, wrappers);
     } catch (error) {
       const message = describeError(error);
 
@@ -46,15 +58,41 @@ export function createReplacer(
           `ConversionError. ${message}`,
       );
 
+      /** Left out of the cache: whatever threw may be a primitive, and a weak key must not be. */
       return mark("ConversionError", box(message));
     }
   };
 }
 
+/**
+ * The wrapper this value already has, holding what the value holds now, or a new one. Handing the
+ * same object back twice is what tells jsan a value has come round again, and refreshing it is what
+ * keeps a second walk from showing the first walk's values.
+ */
+function markOnce(wrappers: Wrappers, source: object, type: string, data: object): Marked {
+  const known = wrappers.get(source);
+
+  if (!known) {
+    const fresh = mark(type, data);
+
+    wrappers.set(source, fresh);
+
+    return fresh;
+  }
+
+  known.data = data;
+  known.__serializedType__ = type;
+
+  return known;
+}
+
 /** Named apart from a `Serializer.convert`, which is the user's rule and runs before this. */
-function convertValue(value: unknown): unknown {
+function convertValue(value: unknown, wrappers: Wrappers): unknown {
   if (typeof value === "bigint") {
-    /** jsan throws outright on a BigInt, so it has to be taken before jsan sees it. */
+    /**
+     * jsan throws outright on a BigInt, so it has to be taken before jsan sees it. Left out of the
+     * cache for the same reason as a slot that threw: a weak key must be an object.
+     */
     return mark("BigInt", box(String(value)));
   }
 
@@ -63,15 +101,15 @@ function convertValue(value: unknown): unknown {
   }
 
   if (value instanceof Error) {
-    return mark(constructorName(value, "Error"), errorFields(value));
+    return markOnce(wrappers, value, constructorName(value, "Error"), errorFields(value));
   }
 
   if (isTypedArray(value)) {
-    return mark(constructorName(value, "Object"), Array.from(value));
+    return markOnce(wrappers, value, constructorName(value, "Object"), Array.from(value));
   }
 
   if (isDomNode(value)) {
-    return mark(constructorName(value, "Object"), box(openingTag(value)));
+    return markOnce(wrappers, value, constructorName(value, "Object"), box(openingTag(value)));
   }
 
   /** Before the class instance rule, or jsan never gets to render these four natively. */
@@ -93,8 +131,9 @@ function convertValue(value: unknown): unknown {
 
   const name = constructorName(value, "Object");
   const fields = ownFields(value);
+  const data = Object.keys(fields).length > 0 ? fields : box(String(value));
 
-  return Object.keys(fields).length > 0 ? mark(name, fields) : mark(name, box(String(value)));
+  return markOnce(wrappers, value, name, data);
 }
 
 /**

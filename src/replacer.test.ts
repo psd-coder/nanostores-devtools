@@ -1,8 +1,28 @@
+import { stringify } from "jsan";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetDevtoolsGlobal } from "./global.ts";
 import { box, mark } from "./marker.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
+
+/**
+ * What `options: true` means to the extension. Its own bundle holds this object and hands it to
+ * jsan, so `refs: false` is what a repeated value meets. jsan's own boolean expansion leaves
+ * `refs` unset, which turns every repeat into a pointer, and that is not what runs in the panel.
+ */
+const EXTENSION_OPTIONS = {
+  refs: false,
+  date: true,
+  function: true,
+  regex: true,
+  undefined: true,
+  error: true,
+  symbol: true,
+  map: true,
+  set: true,
+  nan: true,
+  infinity: true,
+};
 
 class Point {
   x = 1;
@@ -39,6 +59,14 @@ function markedKeys(value: unknown): string[] {
   const data = markedData(value);
 
   return typeof data === "object" && data !== null ? Object.keys(data) : [];
+}
+
+/** The real encoder, run the way the extension runs it, so a loop fails here the way it fails there. */
+function write(
+  value: unknown,
+  through: (key: string, value: unknown) => unknown = replacer,
+): string {
+  return stringify(value, through, null, EXTENSION_OPTIONS);
 }
 
 function throwing(): unknown {
@@ -486,6 +514,93 @@ describe("createReplacer", () => {
         data: { x: 1, y: 2 },
         __serializedType__: "Point",
       });
+    });
+  });
+
+  describe("a marked value that comes round again", () => {
+    it("writes a class instance holding itself instead of taking the tree down", () => {
+      class Holder {
+        self: unknown = this;
+      }
+
+      expect(write(new Holder())).toBe(
+        '{"data":{"self":{"$jsan":"$"}},"__serializedType__":"Holder"}',
+      );
+    });
+
+    it("writes an error whose own field holds the error", () => {
+      const error: Error & { own?: unknown } = new Error("boom");
+
+      error.own = error;
+
+      expect(write(error)).toContain('"own":{"$jsan":"$"}');
+    });
+
+    it("terminates on a loop three objects long", () => {
+      class Ring {
+        next: unknown = null;
+      }
+
+      const first = new Ring();
+      const second = new Ring();
+      const third = new Ring();
+
+      first.next = second;
+      second.next = third;
+      third.next = first;
+
+      expect(write(first)).toContain('"next":{"$jsan":"$"}');
+    });
+
+    it("writes the same instance in two places twice, as it does with no cache at all", () => {
+      const twin = new Point();
+
+      expect(write({ left: twin, right: twin })).toBe(
+        '{"left":{"data":{"x":1,"y":2},"__serializedType__":"Point"},' +
+          '"right":{"data":{"x":1,"y":2},"__serializedType__":"Point"}}',
+      );
+    });
+
+    it("keeps writing a BigInt, which no cache can hold", () => {
+      expect(write({ n: 9007199254740993n })).toBe(
+        '{"n":{"data":{"$$value":"9007199254740993"},"__serializedType__":"BigInt"}}',
+      );
+    });
+
+    it("keeps writing a slot that threw, which no cache can hold either", () => {
+      expect(write({ k: throwing() })).toContain('"__serializedType__":"ConversionError"');
+    });
+
+    it("hands back one wrapper per value, carrying what the value holds now", () => {
+      const point = new Point();
+      const first = replacer("a", point);
+
+      point.x = 9;
+
+      const second = replacer("b", point);
+
+      expect(second).toBe(first);
+      expect(markedData(second)).toEqual({ x: 9, y: 2 });
+    });
+
+    it("shows the second walk's value rather than the first walk's", () => {
+      const once = createReplacer([]);
+      const point = new Point();
+      const first = write(point, once);
+
+      point.x = 9;
+
+      expect(first).toContain('"x":1');
+      expect(write(point, once)).toContain('"x":9');
+    });
+
+    it("leaves a custom serializer's result out of the cache", () => {
+      const custom = createReplacer([
+        { match: (value) => value instanceof Point, convert: () => ({ theirs: true }) },
+      ]);
+      const point = new Point();
+
+      expect(custom("a", point)).not.toBe(custom("b", point));
     });
   });
 
