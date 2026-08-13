@@ -242,6 +242,87 @@ describe("createReplacer", () => {
     });
   });
 
+  describe("the constructor name", () => {
+    it("keeps the label for every value the four callers pass", () => {
+      vi.stubGlobal("Node", FakeNode);
+
+      class HttpError extends Error {}
+
+      const rows: [unknown, string][] = [
+        [new Error("boom"), "Error"],
+        [new HttpError("nope"), "HttpError"],
+        [new Uint8Array([1, 2]), "Uint8Array"],
+        [new HTMLDivElement("DIV"), "HTMLDivElement"],
+        [new Point(), "Point"],
+      ];
+
+      for (const [value, type] of rows) {
+        expect(replacer("k", value)).toMatchObject({ __serializedType__: type });
+      }
+    });
+
+    it("never calls a getter the app put on constructor, and falls back", () => {
+      class Sneaky {
+        x = 1;
+      }
+
+      const get = vi.fn(() => Point);
+
+      Object.defineProperty(Sneaky.prototype, "constructor", { get });
+
+      expect(replacer("s", new Sneaky())).toEqual({
+        data: { x: 1 },
+        __serializedType__: "Object",
+      });
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("never calls a getter the app put on the constructor's name, and falls back", () => {
+      class NameOnly {
+        x = 1;
+      }
+
+      const get = vi.fn(() => "Sneaky");
+
+      Object.defineProperty(NameOnly, "name", { get });
+
+      expect(replacer("n", new NameOnly())).toEqual({
+        data: { x: 1 },
+        __serializedType__: "Object",
+      });
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("reads past an own constructor getter to the prototype, so the label survives", () => {
+      const value = new Point();
+      const get = vi.fn(() => Empty);
+
+      Object.defineProperty(value, "constructor", { get });
+
+      expect(replacer("p", value)).toEqual({
+        data: { x: 1, y: 2 },
+        __serializedType__: "Point",
+      });
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("falls back for a value with no prototype left to read a constructor off", () => {
+      const bytes = new Uint8Array([1, 2]);
+
+      Object.setPrototypeOf(bytes, null);
+
+      expect(replacer("b", bytes)).toMatchObject({ __serializedType__: "Object" });
+    });
+
+    it("takes an own constructor the developer set by hand over the prototype's", () => {
+      const value = new Point();
+
+      Object.defineProperty(value, "constructor", { value: Empty });
+
+      expect(replacer("p", value)).toMatchObject({ __serializedType__: "Empty" });
+    });
+  });
+
   describe("user serializers", () => {
     it("runs before every rule of ours and the first match wins", () => {
       const custom = createReplacer([

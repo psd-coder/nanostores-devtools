@@ -125,10 +125,25 @@ function errorFields(error: Error): Fields {
   return Object.assign(fields, ownFields(error));
 }
 
+/**
+ * What built the value, read through the descriptor so a getter the app put on `constructor` or on
+ * the function's own `name` never runs. The value's own `constructor` comes first, which keeps
+ * `this.constructor = Foo` written by hand working, and the prototype's is where a class puts it, so
+ * reading own properties alone would lose every label.
+ */
 function constructorName(value: object, fallback: string): string {
-  const name = value.constructor?.name;
+  const prototype: object | null = Object.getPrototypeOf(value);
+  const built: unknown =
+    ownValue(value, "constructor") ??
+    (prototype === null ? undefined : ownValue(prototype, "constructor"));
+  const name: unknown = typeof built === "function" ? ownValue(built, "name") : undefined;
 
   return typeof name === "string" && name.length > 0 ? name : fallback;
+}
+
+/** What an own data property holds. A getter is passed over rather than called. */
+function ownValue(value: object, key: string): unknown {
+  return Object.getOwnPropertyDescriptor(value, key)?.value;
 }
 
 /** Every view except a `DataView` is a typed array, and every typed array is array-like. */
