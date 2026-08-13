@@ -4,8 +4,22 @@ import { type Change, listeningBridge, openLifecycleRow, sendLifecycleRow } from
 
 type Membership = { kind: "register" | "unregister"; entry: StoreEntry };
 
-/** One module's worth of stores joining, or one module's worth of them leaving. */
+/** What one store did in a turn. A store that left and came back was rebuilt by a hot reload. */
+type MoveOp = Membership["kind"] | "hotReload";
+
+/** One module's worth of stores joining, leaving, or both, which is one row. */
 type Group = { type: string; changes: Change[] };
+
+/** What one module's stores did in a turn, collected while the turn's changes arrive. */
+type HomeMoves = {
+  home: string;
+  /** The first store's name, which names the row for as long as it is the only store in it. */
+  name: string;
+  joining: boolean;
+  leaving: boolean;
+  /** Keyed by label, so a store that leaves and comes back reads as one line, not two. */
+  ops: Map<string, MoveOp>;
+};
 
 export type LifecycleState = {
   enabled: boolean;
@@ -33,7 +47,8 @@ export function dropPendingRows(bridge: Bridge): void {
 
 /**
  * A hot reload clears a module and re-registers its stores in one synchronous run, which would
- * otherwise draw a burst of paired rows on every edit, so these wait for the end of the turn.
+ * otherwise draw a burst of paired rows on every edit, so these wait for the end of the turn. That
+ * is also where the two halves meet and become one hot-reload row.
  */
 export function noteRegistryChange(bridge: Bridge, change: RegistryChange): void {
   if (change.kind === "update" || drawingBridge() !== bridge) {
@@ -87,25 +102,55 @@ function flushPending(bridge: Bridge): void {
   }
 }
 
-/**
- * Keyed on the module as well as the kind, so a reload draws its leaves before its joins. A store
- * on its own keeps its own name, and the second one from a module renames the row after it.
- */
+/** Keyed on the module, so the two halves of a hot reload meet and draw one row together. */
 function groupPending(pending: Membership[]): Group[] {
-  const groups = new Map<string, Group>();
+  const homes = new Map<string, HomeMoves>();
 
   for (const { kind, entry } of pending) {
-    const key = `${kind} ${entry.home}`;
-    const change: Change = { label: entry.label, op: kind };
-    const known = groups.get(key);
+    const moves = homeMoves(homes, entry);
+    const seen = moves.ops.get(entry.label);
 
-    if (known) {
-      known.changes.push(change);
-      known.type = `${entry.home}/${kind}`;
-    } else {
-      groups.set(key, { type: `${entry.name}/${kind}`, changes: [change] });
-    }
+    moves.joining ||= kind === "register";
+    moves.leaving ||= kind === "unregister";
+    moves.ops.set(entry.label, seen === undefined || seen === kind ? kind : "hotReload");
   }
 
-  return [...groups.values()];
+  return [...homes.values()].map(toGroup);
+}
+
+function homeMoves(homes: Map<string, HomeMoves>, entry: StoreEntry): HomeMoves {
+  const known = homes.get(entry.home);
+
+  if (known) {
+    return known;
+  }
+
+  const created: HomeMoves = {
+    home: entry.home,
+    name: entry.name,
+    joining: false,
+    leaving: false,
+    ops: new Map(),
+  };
+
+  homes.set(entry.home, created);
+
+  return created;
+}
+
+/**
+ * A module that both loses and gains stores in one turn was hot reloaded, so one row says that,
+ * instead of a pair of registry rows the developer has to recognise as their own edit. Stores the
+ * reload only dropped, or only added, still carry their own word inside that row.
+ *
+ * A store on its own keeps its own name, and the second one from a module renames the row after it.
+ */
+function toGroup(moves: HomeMoves): Group {
+  const rowOp = moves.leaving ? (moves.joining ? "hotReload" : "unregister") : "register";
+  const subject = moves.ops.size === 1 ? moves.name : moves.home;
+
+  return {
+    type: `${subject}/${rowOp}`,
+    changes: [...moves.ops].map(([label, op]) => ({ label, op })),
+  };
 }

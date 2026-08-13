@@ -280,6 +280,53 @@ Two cases do warn, because neither can be a hot reload:
   one entry. The first name wins.
 - The same store in two groups moves to the second group.
 
+## What each row in the timeline means
+
+Every row is named after the store it is about and the kind of change. The name is built by us:
+nanostores has no actions, so there is nothing else to name a row after.
+
+| the row                              | what happened                                         |
+| ------------------------------------ | ----------------------------------------------------- |
+| `$counter/set`                       | an `atom` was written                                 |
+| `$user/setKey:name`                  | a `map` key was written                               |
+| `$settings/setKey:theme.color`       | a `deepMap` path was written                          |
+| `$total/computed`                    | a `computed` recomputed with no write of yours open   |
+| `$counter/mount`, `$counter/unmount` | the store gained its first listener, or lost its last |
+| `$late/register`                     | stores joined the tree                                |
+| `$late/unregister`                   | stores left it                                        |
+| `$count/hotReload`                   | a file ran again and its stores were rebuilt          |
+
+A row carries one write plus every recompute that write caused, which is why a `computed` usually
+has no row of its own. Mount, unmount, register, unregister and hot reload are the lifecycle rows,
+and [`lifecycleEvents`](#connectdevtoolsoptions) turns all five off together.
+
+### When stores join and leave
+
+**A register row never means startup.** Everything registered before the first snapshot is already
+inside it, so a register row is always a late arrival:
+
+- a code-split chunk loaded, and a file of yours ran for the first time;
+- a factory or a loop made another store, `$items #2`;
+- a `$`-named binding adopted a store some other code built;
+- `trackStores` ran after `connectDevtools`, which is the usual shape for a dependency's stores.
+
+An unregister row is the opposite: stores left the tree for good. `untrack("cart")` does it, and so
+does an edit that deletes the last store in a file. A store dropped by the
+[per-site cap](#nanostoresdevtoolsoptions) says nothing, because the store that pushed it out draws
+a row anyway.
+
+Renaming changes no rows. A store that gains a name from your binding, a kind from adoption or a
+group from `trackStores` keeps its entry, so it neither joins nor leaves.
+
+### A hot reload draws one row, not a pair
+
+A file that both loses stores and gains stores while it runs again was hot reloaded. The two halves
+become one row, `src/stores/cart.ts/hotReload`, or `$count/hotReload` when only one store moved.
+
+Inside the row each store carries its own word: `hotReload` for a store that came back, `register`
+for one your edit added, `unregister` for one it dropped. So the row tells you what the edit did,
+and a pair of registry rows never has to be recognised as your own save.
+
 ## Turning it off in a production build
 
 The main entry, `nanostores-devtools`, ships a `production` export condition. Under it the package
@@ -320,14 +367,14 @@ no-op, so each one costs a single function call.
 
 ### `connectDevtools(options?)`
 
-| option            | default        | what it does                                              |
-| ----------------- | -------------- | --------------------------------------------------------- |
-| `name`            | `"nanostores"` | the entry in the extension's dropdown                     |
-| `serializers`     | `[]`           | your own rules for converting values, checked before ours |
-| `trace`           | `true`         | capture a stack at each direct write                      |
-| `traceLimit`      | `10`           | how many stack frames to capture                          |
-| `maxAge`          | `500`          | how many rows the extension keeps                         |
-| `lifecycleEvents` | `true`         | draw rows for register, unregister, mount and unmount     |
+| option            | default        | what it does                                                    |
+| ----------------- | -------------- | --------------------------------------------------------------- |
+| `name`            | `"nanostores"` | the entry in the extension's dropdown                           |
+| `serializers`     | `[]`           | your own rules for converting values, checked before ours       |
+| `trace`           | `true`         | capture a stack at each direct write                            |
+| `traceLimit`      | `10`           | how many stack frames to capture                                |
+| `maxAge`          | `500`          | how many rows the extension keeps                               |
+| `lifecycleEvents` | `true`         | draw the [lifecycle rows](#what-each-row-in-the-timeline-means) |
 
 `name` is fixed at the first connect and cannot change later, because the panel builds its record
 for a connection once. It defaults to a fixed word rather than `document.title`, which changes per
@@ -541,6 +588,20 @@ draws its own `$total/computed` row.
 A store of unknown type is timed wrongly in the same way. The bridge treats it as a direct write.
 So if it really is a computed, its recompute opens a row of its own instead of joining the row that
 caused it. It also closes the open row while the cascade is still running.
+
+### A hot reload does not always draw one row
+
+A reload draws [one row](#a-hot-reload-draws-one-row-not-a-pair) only when both halves happen in
+the same run of the file. Two cases split them:
+
+- **A file with a top-level `await` above its stores.** The old stores go the moment the file
+  starts, the new ones arrive after the `await`, so you get an unregister row and a register row
+  again.
+- **A file whose stores are only made inside a factory.** The reload drops the old stores and
+  registers none, so it draws a lone unregister row. The register row comes later, when the factory
+  runs.
+
+Both draw the truth, only in two rows instead of one.
 
 ### What the ownership tree cannot reach
 

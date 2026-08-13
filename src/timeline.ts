@@ -10,7 +10,7 @@ export type Change =
   | { label: string; op: "set" }
   | { label: string; op: "setKey"; path: string }
   | { label: string; op: "computed"; from?: string | undefined }
-  | { label: string; op: "mount" | "unmount" | "register" | "unregister" };
+  | { label: string; op: "mount" | "unmount" | "register" | "unregister" | "hotReload" };
 
 export type Row = {
   type: string;

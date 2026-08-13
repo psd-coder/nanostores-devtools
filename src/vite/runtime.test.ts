@@ -638,4 +638,27 @@ describe("the rows a change draws", () => {
 
     expect(rowNames()).toEqual(["$items #2/register", "$items #2/unregister"]);
   });
+
+  it("draws one hot reload row for a module that clears and runs again in one turn", async () => {
+    const first = fileScope(MODULE_ID, HOME, CAP, false);
+
+    first.store(atom(0), site());
+    await listen();
+
+    const reloaded = fileScope(MODULE_ID, HOME, CAP, false);
+
+    reloaded.clear();
+    reloaded.store(atom(1), site());
+    reloaded.store(atom(2), site({ name: "$total", line: 8 }));
+
+    await endOfTurn();
+
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: `${HOME}/hotReload`,
+      changes: [
+        { label: `${HOME}/$items`, op: "hotReload" },
+        { label: `${HOME}/$total`, op: "register" },
+      ],
+    });
+  });
 });

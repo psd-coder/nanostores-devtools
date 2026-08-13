@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./connect.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
-import { getEntry, registerStore, type StoreType } from "./registry.ts";
+import { getEntry, registerStore, type StoreType, unregisterStore } from "./registry.ts";
 import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
 
 const HOME = "src/stores/cart.ts";
@@ -173,7 +173,7 @@ describe("everMounted", () => {
   });
 });
 
-describe("register and unregister rows", () => {
+describe("register, unregister and hot reload rows", () => {
   it("draws no row for a store that lands in the connect turn", async () => {
     const $early = atom(7);
 
@@ -247,7 +247,7 @@ describe("register and unregister rows", () => {
     expect(rowNames()).toEqual([`${HOME}/register`, "src/stores/user.ts/register"]);
   });
 
-  it("draws one unregister row and one register row for a module reloaded in one run", async () => {
+  it("draws one hot reload row for a module that leaves and comes back in one run", async () => {
     register("$count", atom(0));
     register("$total", atom(0));
     await listen();
@@ -257,20 +257,87 @@ describe("register and unregister rows", () => {
 
     await endOfTurn();
 
-    expect(rowNames()).toEqual([`${HOME}/unregister`, `${HOME}/register`]);
+    expect(rowNames()).toEqual([`${HOME}/hotReload`]);
     expect(fake.sends[0]?.action["action"]).toEqual({
-      type: `${HOME}/unregister`,
+      type: `${HOME}/hotReload`,
       changes: [
-        { label: `${HOME}/$count`, op: "unregister" },
-        { label: `${HOME}/$total`, op: "unregister" },
+        { label: `${HOME}/$count`, op: "hotReload" },
+        { label: `${HOME}/$total`, op: "hotReload" },
       ],
     });
-    expect(fake.sends[1]?.state).toEqual({ [HOME]: { $count: 1, $total: 2 } });
+    expect(fake.sends[0]?.state).toEqual({ [HOME]: { $count: 1, $total: 2 } });
+  });
+
+  it("names the hot reload row after the only store it moved", async () => {
+    register("$count", atom(0));
+    await listen();
+
+    register("$count", atom(1));
+
+    await endOfTurn();
+
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: "$count/hotReload",
+      changes: [{ label: `${HOME}/$count`, op: "hotReload" }],
+    });
+  });
+
+  it("says which stores a hot reload added and which it dropped", async () => {
+    const $gone = atom(0);
+
+    register("$count", atom(0));
+    register("$gone", $gone);
+    await listen();
+
+    unregisterStore($gone);
+    register("$count", atom(1));
+    register("$fresh", atom(2));
+
+    await endOfTurn();
+
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: `${HOME}/hotReload`,
+      changes: [
+        { label: `${HOME}/$gone`, op: "unregister" },
+        { label: `${HOME}/$count`, op: "hotReload" },
+        { label: `${HOME}/$fresh`, op: "register" },
+      ],
+    });
+  });
+
+  it("keeps the unregister row for a module that drops its last store", async () => {
+    const $count = atom(0);
+
+    register("$count", $count);
+    await listen();
+
+    unregisterStore($count);
+
+    await endOfTurn();
+
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: "$count/unregister",
+      changes: [{ label: `${HOME}/$count`, op: "unregister" }],
+    });
+  });
+
+  it("pairs per module, so one module reloading leaves another module's row alone", async () => {
+    const OTHER = "src/stores/user.ts";
+
+    register("$count", atom(0));
+    await listen();
+
+    register("$count", atom(1));
+    register("$other", atom(2), "atom", OTHER);
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["$count/hotReload", "$other/register"]);
   });
 });
 
 describe("lifecycleEvents off", () => {
-  it("draws none of the four rows and lets the tree lag until the next write", async () => {
+  it("draws none of the lifecycle rows and lets the tree lag until the next write", async () => {
     const $counter = atom(0);
     const $late = atom(0);
 
@@ -296,7 +363,7 @@ describe("lifecycleEvents off", () => {
 });
 
 describe("while not listening", () => {
-  it("sends none of the four rows", async () => {
+  it("sends none of the lifecycle rows", async () => {
     const $counter = atom(0);
 
     register("$counter", $counter);
