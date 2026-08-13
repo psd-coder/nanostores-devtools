@@ -101,6 +101,20 @@ describe("ownBindings", () => {
     }).not.toThrow();
   });
 
+  it("runs no getter while deciding whether a value is a store", () => {
+    const listen = vi.fn(() => () => {});
+    const lc = vi.fn(() => 0);
+    const decoy = {};
+
+    Object.defineProperty(decoy, "listen", { enumerable: true, get: listen });
+    Object.defineProperty(decoy, "lc", { enumerable: true, get: lc });
+
+    ownBindings(FROM, [["holder", { decoy }]]);
+
+    expect(listen).not.toHaveBeenCalled();
+    expect(lc).not.toHaveBeenCalled();
+  });
+
   it("mounts nothing it walks", () => {
     const $canUndo = atom(false);
     const $draft = holder("", { $canUndo });

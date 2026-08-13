@@ -1,5 +1,6 @@
 import type { Store } from "nanostores";
 
+import { chainValue } from "./descriptor.ts";
 import {
   type ChangeListener,
   type DevtoolsGlobal,
@@ -72,15 +73,21 @@ export function makeLabel(home: string, name: string): string {
   return `${home}/${name}`;
 }
 
-/** Shape, not `instanceof`: a store is a plain object, and two copies of nanostores make two. */
+/**
+ * Shape, not `instanceof`: a store is a plain object, and two copies of nanostores make two.
+ *
+ * Both keys are read through a descriptor, because this runs against every value the walk meets and
+ * a plain read would run a getter the app wrote. Every store nanostores builds keeps `listen` and
+ * `lc` as its own data properties, so refusing an accessor costs nothing there and only turns away
+ * an object that put its own code behind either name.
+ */
 export function isStore(value: unknown): value is Store {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
   return (
-    typeof value === "object" &&
-    value !== null &&
-    "listen" in value &&
-    typeof value.listen === "function" &&
-    "lc" in value &&
-    typeof value.lc === "number"
+    typeof chainValue(value, "listen") === "function" && typeof chainValue(value, "lc") === "number"
   );
 }
 

@@ -1,3 +1,4 @@
+import { chainDescriptor } from "./descriptor.ts";
 import { box, mark } from "./marker.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
@@ -141,23 +142,6 @@ function copyData(fields: Fields, key: string, descriptor: PropertyDescriptor | 
   if (descriptor && "value" in descriptor) {
     fields[key] = descriptor.value;
   }
-}
-
-/** The first descriptor for `key` on the value itself or anywhere up its prototype chain. */
-function chainDescriptor(value: object, key: string): PropertyDescriptor | undefined {
-  let holder: object | null = value;
-
-  while (holder !== null) {
-    const descriptor = Object.getOwnPropertyDescriptor(holder, key);
-
-    if (descriptor) {
-      return descriptor;
-    }
-
-    holder = Object.getPrototypeOf(holder);
-  }
-
-  return undefined;
 }
 
 /**

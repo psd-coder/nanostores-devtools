@@ -1,10 +1,11 @@
-import { atom } from "nanostores";
+import { atom, batched, computed, deepMap, map } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GLOBAL_KEY, resetDevtoolsGlobal } from "./global.ts";
 import {
   getEntry,
   getEntryByLabel,
+  isStore,
   listEntries,
   makeLabel,
   onRegistryChange,
@@ -43,6 +44,62 @@ describe("registry", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     resetDevtoolsGlobal();
+  });
+
+  describe("isStore", () => {
+    it("recognises every store type nanostores builds", () => {
+      expect(isStore(atom(1))).toBe(true);
+      expect(isStore(map({ a: 1 }))).toBe(true);
+      expect(isStore(deepMap({ a: { b: 1 } }))).toBe(true);
+      expect(isStore(computed(atom(1), (one) => one + 1))).toBe(true);
+      expect(isStore(batched(atom(1), (one) => one + 1))).toBe(true);
+    });
+
+    it.each(["listen", "lc"])("never calls a %s getter the app wrote", (key) => {
+      const get = vi.fn(() => {
+        throw new Error("app code ran");
+      });
+      const decoy = { listen: () => () => {}, lc: 0 };
+
+      Object.defineProperty(decoy, key, { get, configurable: true });
+
+      expect(isStore(decoy)).toBe(false);
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it.each(["listen", "lc"])("never calls a %s getter the app put on a prototype", (key) => {
+      const get = vi.fn(() => {
+        throw new Error("app code ran");
+      });
+      const prototype = {};
+
+      Object.defineProperty(prototype, key, { get, configurable: true });
+
+      expect(isStore(Object.create(prototype) as object)).toBe(false);
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("reads both keys off a prototype when they are data properties", () => {
+      const prototype = { listen: () => () => {}, lc: 0 };
+
+      expect(isStore(Object.create(prototype) as object)).toBe(true);
+    });
+
+    it("refuses an instance getter that shadows a data property further up", () => {
+      const get = vi.fn(() => () => {});
+      const store = Object.create({ listen: () => () => {}, lc: 0 }) as object;
+
+      Object.defineProperty(store, "listen", { get, configurable: true });
+
+      expect(isStore(store)).toBe(false);
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("turns away a value that is not an object", () => {
+      expect(isStore(null)).toBe(false);
+      expect(isStore(undefined)).toBe(false);
+      expect(isStore("listen")).toBe(false);
+    });
   });
 
   describe("trackStores", () => {
