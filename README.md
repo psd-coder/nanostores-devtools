@@ -485,10 +485,36 @@ Other things values do:
 - **A function arrives with its body stripped.**
 - **`-0` arrives as `0`.**
 - **A custom serializer has no reviver.** The bridge encodes only, and v1 never reads state back.
+- **A labelled value inside a `Map` or a `Set` keeps its wrapper**, so you read
+  `{ data, __serializedType__ }` there instead of a label in front of the value. The extension's
+  own encoder writes those two containers as one string and reads them back without its reviver, so
+  nothing inside them is ever unwrapped. It hits every labelled value: an `Error`, a class
+  instance, a typed array, a `BigInt`, a DOM node, a store, and a slot that failed to convert.
 
 An `Error` keeps its name, message, stack, cause and own fields. A class instance keeps its class
 name. A typed array, a `BigInt` and a DOM node each keep something readable. A value that throws
 while being converted puts `ConversionError` in that one slot and everything else still goes.
+
+**A store held inside another store's value is drawn as a store**, wherever it sits: in an array, in
+a plain object, in a `Map`, in a `Set`, in a class instance field, or on an error. You see the kind
+of store in front of its own value, and never the nanostores keys behind it:
+
+```
+$rows
+  0  atom { id: 1, name: "city", value: "Berlin" }
+  1  atom { id: 2, name: "street", value: "Unter den Linden" }
+```
+
+The word is the kind the bridge knows: `atom`, `map`, `deepMap`, `computed` or `batched`. A store
+whose kind the bridge never learned says the plain word `store`, because nothing on the object tells
+an `atom` from a `computed`, and any other word would be a guess. `.value` is the whole read, as it
+is everywhere else, so watching a store still never mounts it. An unmounted store keeps the note it
+gets at the top level, `not mounted, may be stale`, instead of its kind: the note says more, and
+only one of the two fits.
+
+**An `atom` gets its word here**, unlike in the tree, where the plain case is left bare. A tree key
+is the name you gave the store, and that name already says a store is a store; a value in an array
+has nothing else to say it.
 
 ### A follower can name the wrong source
 
