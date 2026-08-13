@@ -11,7 +11,7 @@ import {
   ownerOf,
 } from "./ownership.ts";
 import { getEntry, isStore, listEntries, type StoreEntry, type StoreType } from "./registry.ts";
-import { staleNote } from "./slot.ts";
+import { staleNote, storeValue } from "./slot.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
 
@@ -398,7 +398,7 @@ function noted(name: string, type: StoreType): string {
 function slotFor(entry: StoreEntry): unknown {
   const note = staleNote(entry.store, entry);
 
-  return note === undefined ? entry.store.value : mark(note.label, note.data);
+  return note === undefined ? storeValue(entry.store) : mark(note.label, note.data);
 }
 
 /**

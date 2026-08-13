@@ -262,6 +262,18 @@ describe("buildSnapshot", () => {
     expect($safe.lc).toBe(0);
   });
 
+  it("refuses an own value getter rather than run it, and draws the slot empty", () => {
+    const $trapped = atom(1);
+    const get = () => {
+      throw new Error("app code ran");
+    };
+
+    Object.defineProperty($trapped, "value", { get, configurable: true });
+    trackStores("cart", { $trapped });
+
+    expect(buildSnapshot()).toEqual({ cart: { $trapped: stale(undefined) } });
+  });
+
   it("keeps every registered store as a key, mounted or not", () => {
     const $mounted = atom(1);
     const unbind = $mounted.listen(() => {});

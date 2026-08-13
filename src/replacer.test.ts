@@ -634,6 +634,19 @@ describe("createReplacer", () => {
       });
     });
 
+    it("never calls a value getter on an object that only looks like a store", () => {
+      const get = vi.fn(() => "app code ran");
+      const lookalike = { listen: () => () => {}, lc: 1 };
+
+      Object.defineProperty(lookalike, "value", { get, enumerable: true });
+
+      expect(replacer("k", lookalike)).toEqual({
+        data: { $$value: undefined },
+        __serializedType__: "store",
+      });
+      expect(get).not.toHaveBeenCalled();
+    });
+
     it("keeps the note an unmounted store gets at the top level, over the type", () => {
       const $unknown = atom(1);
 

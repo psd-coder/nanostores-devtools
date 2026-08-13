@@ -3,7 +3,7 @@ import type { Store } from "nanostores";
 import { chainDescriptor } from "./descriptor.ts";
 import { box, mark, type Marked } from "./marker.ts";
 import { getEntry, isStore, type StoreType } from "./registry.ts";
-import { staleNote } from "./slot.ts";
+import { staleNote, storeValue } from "./slot.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /** Checked in array order, ahead of every rule of ours, and the first match wins. */
@@ -150,7 +150,7 @@ function convertValue(value: unknown, wrappers: Wrappers): unknown {
 }
 
 /**
- * A store held inside another store's value. `.value` is the whole read, the same read the tree
+ * A store held inside another store's value. `value` is the whole read, the same read the tree
  * does: `get()` mounts an unmounted store. A store that is not mounted says so instead of naming
  * its type, because that note says more and a mark cannot sit inside another mark.
  */
@@ -159,7 +159,7 @@ function markStore(wrappers: Wrappers, store: Store): Marked {
   const note = staleNote(store, entry);
 
   return note === undefined
-    ? markOnce(wrappers, store, storeWord(entry?.type), objectOrBoxed(store.value))
+    ? markOnce(wrappers, store, storeWord(entry?.type), objectOrBoxed(storeValue(store)))
     : markOnce(wrappers, store, note.label, note.data);
 }
 

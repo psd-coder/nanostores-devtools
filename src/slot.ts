@@ -1,5 +1,6 @@
 import type { Store } from "nanostores";
 
+import { chainValue } from "./descriptor.ts";
 import { box } from "./marker.ts";
 import { DERIVED, type StoreEntry, type StoreType } from "./registry.ts";
 
@@ -8,6 +9,17 @@ const TRUSTED_UNMOUNTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "m
 
 /** The label a marked slot carries, and what sits under it. */
 export type Note = { label: string; data: object };
+
+/**
+ * What a store holds, read through the descriptor so a getter behind `value` never runs. The tree
+ * reads a store the registry knows, while a value holds anything that looks like one, and one rule
+ * covers both rather than splitting by who vetted the object. Every store nanostores builds keeps
+ * `value` as its own data property, so refusing an accessor turns nothing real away, and one that
+ * puts its value behind a getter reads as holding `undefined`.
+ */
+export function storeValue(store: Store): unknown {
+  return chainValue(store, "value");
+}
 
 /**
  * What an unmounted store's value has to say about itself, or nothing when the value can be
@@ -25,7 +37,7 @@ export function staleNote(store: Store, entry: StoreEntry | undefined): Note | u
     return undefined;
   }
 
-  const { value } = store;
+  const value = storeValue(store);
 
   if (DERIVED.has(type) && !entry?.everMounted && value === undefined) {
     return { label: "not mounted, never computed", data: {} };
