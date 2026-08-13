@@ -476,8 +476,12 @@ Other things values do:
   places is written out twice, because the option that would collapse it is off in the extension's
   defaults. This is the price of letting a `Date`, a `Map` and a `Set` render as themselves in the
   panel.
-- **A getter is never read**, because a getter can run app code. An object whose data lives
-  entirely on its prototype, such as a `URL`, shows its `String()` form or nothing.
+- **A getter is never read**, with one exception, because a getter can run app code. An object whose
+  data lives entirely on its prototype, such as a `URL`, shows its `String()` form or nothing. The
+  exception is the `stack` accessor V8 puts on an error itself: refusing it would drop the stack from
+  every error, and a devtools with no stack traces is worth less than the risk. Reading it can run
+  `Error.prepareStackTrace` if the app installed one, and it makes V8 read `name` and `message` off
+  the error.
 - **A function arrives with its body stripped.**
 - **`-0` arrives as `0`.**
 - **A custom serializer has no reviver.** The bridge encodes only, and v1 never reads state back.

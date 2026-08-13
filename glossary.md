@@ -168,8 +168,11 @@ because a tree that changes without a row would drift into the next write's diff
 **The hard rule** — the bridge must not change how the app behaves. Above all, watching
 a store must not mount it.
 
-**The read-only rule** — the bridge reads `.value`, attaches lifecycle hooks, and runs no
-app code at all. Stronger than the hard rule and different in kind: the hard rule promises
+**The read-only rule** — the bridge reads `.value`, attaches lifecycle hooks, and calls no
+app code on purpose. Three holes are accepted and named in the source: a `Proxy` can trap a
+property read, `Error.prepareStackTrace` can run while a stack is read, and reading a stack
+makes V8 read `name` and `message` off the error. Stronger than the hard rule and different
+in kind: the hard rule promises
 an outcome and has to be argued case by case, while this promises a mechanism and can be
 checked by reading our own source. It is why the bridge never works out a `computed` value
 for itself.
