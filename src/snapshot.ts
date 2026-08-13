@@ -2,7 +2,14 @@ import type { Store } from "nanostores";
 
 import type { NodeInfo } from "./global.ts";
 import { box, mark } from "./marker.ts";
-import { enclosingNode, MAX_MEMBERS, namedByBinding, nodeInfoOf, ownerOf } from "./ownership.ts";
+import {
+  enclosingNode,
+  MAX_MEMBERS,
+  namedByBinding,
+  nodeInfoOf,
+  ownerKeyOf,
+  ownerOf,
+} from "./ownership.ts";
 import {
   DERIVED,
   getEntry,
@@ -34,9 +41,16 @@ const MORE_KEY = "…";
  * developer named themselves, or a node holding others and no value at all.
  */
 type Held =
-  | { kind: "store"; entry: StoreEntry }
-  | { kind: "second"; entry: StoreEntry }
+  | { kind: "store"; entry: StoreEntry; key?: string | undefined }
+  | { kind: "second"; entry: StoreEntry; key?: string | undefined }
   | { kind: "node"; value: object; info: NodeInfo };
+
+/**
+ * What a store is drawn under, and the key that owner knows it by. The key belongs to the owner and
+ * not to the store, so a store in an array is `[0]` there while keeping its own name everywhere
+ * else.
+ */
+type Drawn = { owner: object; key: string | undefined };
 
 /** One key in the tree, and what sits behind it. Built for one snapshot: ownership can change. */
 type Placement = { key: string; held: Held };
@@ -83,7 +97,8 @@ export function buildSnapshot(): Snapshot {
  */
 function place(tree: Tree, entry: StoreEntry): void {
   const named = namedByBinding(entry.store);
-  const owner = drawnOwner(entry.store) ?? (named ? undefined : enclosingOwner(entry));
+  const drawn = drawnOwner(entry.store);
+  const owner = drawn?.owner ?? (named ? undefined : enclosingOwner(entry));
 
   if (named || owner === undefined) {
     collect(tree.homes, entry.home, { kind: "store", entry });
@@ -93,18 +108,26 @@ function place(tree: Tree, entry: StoreEntry): void {
     return;
   }
 
-  collect(tree.children, owner, named ? { kind: "second", entry } : { kind: "store", entry });
+  /** The key belongs to the owner the link named, so the function fallback above takes none. */
+  const key = drawn?.key;
+
+  collect(
+    tree.children,
+    owner,
+    named ? { kind: "second", entry, key } : { kind: "store", entry, key },
+  );
   attach(tree, owner);
 }
 
 /**
- * The owner a store is drawn under. A store owner the registry lost holds no place in the tree, so
- * a store under it would be drawn nowhere at all and is drawn at its own home instead.
+ * The owner a store is drawn under, with the key that owner knows it by. A store owner the registry
+ * lost holds no place in the tree, so a store under it would be drawn nowhere at all and is drawn at
+ * its own home instead.
  */
-function drawnOwner(store: Store): object | undefined {
+function drawnOwner(store: Store): Drawn | undefined {
   const owner = ownerOf(store);
 
-  return owner !== undefined && drawable(owner) ? owner : undefined;
+  return owner !== undefined && drawable(owner) ? { owner, key: ownerKeyOf(store) } : undefined;
 }
 
 /**
@@ -250,13 +273,21 @@ function childPlacements(
  * already says which one this is. Where several stores from one creation site land on one parent,
  * `keepApart` and `numberApart` below tell them apart again.
  *
- * On a collection that left members out it takes the name it is registered under instead, because
- * the member it came from has no node here to say which one that was, and the number is then all
- * that says it.
+ * A member of a collection takes the key that collection holds it under, because a position or a map
+ * key is the only name that says which member it is: a tuple carries its meaning in the order, and
+ * the name a store was born with says nothing about where it sits.
+ *
+ * On a collection that left members out, a store no member of it names takes the name it is
+ * registered under instead, because the member it came from has no node here to say which one that
+ * was, and the number is then all that says it.
  */
 function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string {
   if (held.kind === "node") {
     return nodeKey(pass, held.info);
+  }
+
+  if (held.key !== undefined) {
+    return noted(held.key, held.entry.type);
   }
 
   return inside !== undefined && inside.skipped > 0
@@ -299,8 +330,11 @@ function sortName(placement: Placement): string {
     return held.info.name;
   }
 
-  /** A second placement sorts where its own key puts it, not where the developer's name would. */
-  return held.kind === "second" ? held.entry.ownerName : held.entry.name;
+  /**
+   * A member of a collection sorts by its position, and a second placement sorts where its own key
+   * puts it rather than where the developer's name would.
+   */
+  return held.key ?? (held.kind === "second" ? held.entry.ownerName : held.entry.name);
 }
 
 /**

@@ -279,6 +279,18 @@ describe("the fixture drawn by the shipped code", () => {
     expect(Object.keys(inside(homeOf(WORKSPACE_HOME), "pool"))).toEqual(["[0]", "[1]"]);
   });
 
+  it("keys a bare store in a collection by its position, and keeps its own flat name", () => {
+    const editor = homeOf(EDITOR_HOME);
+
+    expect(editor["bounds"]).toEqual(labelled("Array", { "[0]": 320, "[1]": 240 }));
+    expect(editor["byMode"]).toEqual(labelled("Map", { '["scratch"]': "" }));
+    expect(editor["watched"]).toEqual(labelled("Set", { "[0]": false, "[1]": true }));
+    expect(Object.keys(inside(editor, "watched"))).toEqual(["[0]", "[1]"]);
+    /** The name the developer wrote still holds the flat slot, and the collection the second one. */
+    expect(editor["$width"]).toBe(320);
+    expect(entryNamed("$width").ownerName).toBe("$width");
+  });
+
   it("gives an unenumerable holder its binding back, and numbers refs across the file", () => {
     expect(homeOf(EDITOR_HOME)["hidden"]).toEqual(
       labelled("WeakMap", {
@@ -385,27 +397,32 @@ describe("the draw-once invariant", () => {
   it("draws every store exactly once, plus one for each second placement", () => {
     /** One note, whatever else happens: silence would read as "this is all of it". */
     expect(JSON.stringify(buildSnapshot()).split('"…"').length - 1).toBe(1);
-    expect(listEntries()).toHaveLength(102);
+    expect(listEntries()).toHaveLength(107);
 
     const counts = countPlacements();
     const placements = [...counts.values()];
 
-    /** One label per entry, so a label two entries shared would drop the count below 102. */
-    expect(counts.size).toBe(102);
+    /** One label per entry, so a label two entries shared would drop the count below 107. */
+    expect(counts.size).toBe(107);
     /** Draw-once, the first form: no store is drawn twice over, and none is lost. */
-    expect(placements.filter((times) => times !== 1).length).toBe(4);
+    expect(placements.filter((times) => times !== 1).length).toBe(9);
     expect(placements.filter((times) => times === 0)).toEqual([]);
     /**
-     * Draw-once, the second form. The shipped code always draws a second placement, so 102 is the
-     * count with them off and 106 the count with them on.
+     * Draw-once, the second form. The shipped code always draws a second placement, so 107 is the
+     * count with them off and 116 the count with them on.
      */
-    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(106);
+    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(116);
     expect(
       [...counts]
         .filter(([, times]) => times === 2)
         .map(([label]) => label)
         .sort(),
     ).toEqual([
+      `${EDITOR_HOME}/$dirty`,
+      `${EDITOR_HOME}/$height`,
+      `${EDITOR_HOME}/$open`,
+      `${EDITOR_HOME}/$scratch`,
+      `${EDITOR_HOME}/$width`,
       `${MODEL_HOME}/$canRedo`,
       `${MODEL_HOME}/$canUndo`,
       `${MODEL_HOME}/$entries`,

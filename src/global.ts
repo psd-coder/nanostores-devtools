@@ -36,8 +36,17 @@ export type ModuleScope = {
  */
 export type OwnerSource = "frame" | "scan" | "field";
 
-/** What one store is drawn under, and what put it there. */
-export type OwnerLink = { owner: WeakRef<object>; source: OwnerSource };
+/** What one store is drawn under, what put it there, and the key that owner knows it by. */
+export type OwnerLink = {
+  owner: WeakRef<object>;
+  source: OwnerSource;
+  /**
+   * The key a collection knows the store by, `[0]` or `["scratch"]`. A position or a map key is the
+   * only name that says which member the store is, and the name it was born with cannot say it.
+   * Nothing for every other owner, where the store's own name is already the key.
+   */
+  key: string | undefined;
+};
 
 /**
  * What each store is drawn under: another store, or a node holding it. Weak on both sides: the map

@@ -11,6 +11,7 @@ import {
   nodeInfoOf,
   noteBirth,
   ownBindings,
+  ownerKeyOf,
   ownerOf,
   ownField,
 } from "./ownership.ts";
@@ -379,6 +380,20 @@ describe("a node", () => {
     expect(nodeInfoOf(pool)?.type).toBe("Set");
     expect(nameOf(first)).toBe("[0]");
     expect(nameOf(second)).toBe("[1]");
+  });
+
+  it("records the key a collection holds a store under, and none for a written property", () => {
+    const $width = atom(320);
+    const panel = { $open: atom(false) };
+
+    ownBindings(FROM, [
+      ["bounds", [$width]],
+      ["panel", panel],
+    ]);
+
+    expect(ownerKeyOf($width)).toBe("[0]");
+    /** A property the developer wrote is already the name the store is drawn under. */
+    expect(ownerKeyOf(panel.$open)).toBeUndefined();
   });
 
   it("iterates an array through the built-in forEach, so a subclass override never runs", () => {

@@ -305,6 +305,23 @@ export const drafts = [new Editor("draft a"), new Editor("draft b")];
 /** A \`Map\` with string keys reads like an object, so its entries are named by the key. */
 export const byId = new Map([["scratch", new Editor("scratch")]]);
 
+/**
+ * A bare store held in a collection. The position is the only name that says which member it is,
+ * so the key the collection knows it by has to beat the name the store was born with.
+ */
+export const $width = atom(320);
+export const $height = atom(240);
+export const bounds = [$width, $height];
+
+/** The same for a \`Map\`, where the key the developer wrote is what names the member. */
+export const $scratch = atom("");
+export const byMode = new Map([["scratch", $scratch]]);
+
+/** And for a \`Set\`, which has no keys at all, so insertion order is all there is. */
+export const $open = atom(false);
+export const $dirty = atom(true);
+export const watched = new Set([$open, $dirty]);
+
 /** A second class, so two instances nothing can name share one numbering run across the file. */
 export class Viewer {
   $zoom = atom(1);

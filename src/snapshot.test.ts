@@ -946,6 +946,18 @@ describe("buildSnapshot", () => {
         expect(Object.keys(heldBy("pool"))).toEqual(["[0]", "[1]"]);
       });
 
+      it("keys a bare store in a collection by its position, and keeps the type note", () => {
+        const $width = atom(320);
+        const $ratio = computed($width, (width) => width / 2);
+
+        track($width, "$width");
+        track($ratio, "$ratio", HOME, "computed");
+        ownBindings(FROM, [["bounds", [$width, $ratio]]]);
+
+        expect(Object.keys(heldBy("bounds"))).toEqual(["[0]", "[1] [computed]"]);
+        expect(heldBy("bounds")["[0]"]).toBe(320);
+      });
+
       it("draws a node the store that holds it keeps beside its own value", () => {
         const first = new Editor();
         const $draft = holder("", {});

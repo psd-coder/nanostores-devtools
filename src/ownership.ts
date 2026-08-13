@@ -50,7 +50,12 @@ export type Binding = readonly [string, unknown, boolean?];
 export type ModuleHome = Pick<NodeInfo, "home" | "external">;
 
 /** What one value holds: the members the tree draws, and the ones its cap left out. */
-type Members = { drawn: Binding[]; past: Binding[] };
+type Members = {
+  drawn: Binding[];
+  past: Binding[];
+  /** Whether a collection named these members itself, by a position or by a map key. */
+  collection: boolean;
+};
 
 /** One walk: the module it runs for, and what it has already been through, which ends a cycle. */
 type Scan = { module: ModuleHome; seen: Set<object> };
@@ -222,6 +227,14 @@ export function ownerOf(store: Store): object | undefined {
   return peekDevtoolsGlobal()?.owners.get(store)?.owner.deref();
 }
 
+/**
+ * The key the owner knows the store by, for a collection that reached it by a position or a map key.
+ * Nothing for every other owner, where the store's own name is already the key.
+ */
+export function ownerKeyOf(store: Store): string | undefined {
+  return peekDevtoolsGlobal()?.owners.get(store)?.key;
+}
+
 /** What the tree knows about a value it drew as a node, or nothing for a value it never walked. */
 export function nodeInfoOf(value: object): NodeInfo | undefined {
   return peekDevtoolsGlobal()?.nodes.get(value);
@@ -283,7 +296,7 @@ function walk(
 
   for (const [key, member] of members.drawn) {
     if (isStore(member)) {
-      recordOwner(member, value, "scan");
+      recordOwner(member, value, "scan", members.collection ? key : undefined);
     }
 
     if (canHold(member)) {
@@ -447,12 +460,19 @@ function membersOf(value: object): Members {
     return capped(walked((visit) => Set.prototype.forEach.call(value, visit), position));
   }
 
-  return { drawn: propertiesOf(value), past: [] };
+  return { drawn: propertiesOf(value), past: [], collection: false };
 }
 
-/** Only a collection is capped. A plain object's keys are as many as the developer wrote. */
+/**
+ * Only a collection is capped, and only a collection names its members itself. A plain object's keys
+ * are as many as the developer wrote, and each one already names the member it holds.
+ */
 function capped(members: Binding[]): Members {
-  return { drawn: members.slice(0, MAX_MEMBERS), past: members.slice(MAX_MEMBERS) };
+  return {
+    drawn: members.slice(0, MAX_MEMBERS),
+    past: members.slice(MAX_MEMBERS),
+    collection: true,
+  };
 }
 
 /**
@@ -529,7 +549,7 @@ function propertiesOf(value: object): Binding[] {
  * that loops would make the tree infinite. Every loop being refused is also why a chain can be
  * walked without a bound: no chain recorded here can hold one.
  */
-function recordOwner(store: Store, owner: object, source: OwnerSource): void {
+function recordOwner(store: Store, owner: object, source: OwnerSource, key?: string): void {
   const devtools = getDevtoolsGlobal();
   const known = devtools.owners.get(store);
 
@@ -537,7 +557,7 @@ function recordOwner(store: Store, owner: object, source: OwnerSource): void {
     return;
   }
 
-  devtools.owners.set(store, { owner: new WeakRef(owner), source });
+  devtools.owners.set(store, { owner: new WeakRef(owner), source, key });
 }
 
 /**
