@@ -1132,6 +1132,100 @@ describe("createReplacer", () => {
     });
   });
 
+  describe("the list jsan builds out of a Map and a Set", () => {
+    const arrays: Serializer[] = [{ match: Array.isArray, convert: () => "converted" }];
+    const points: Serializer[] = [
+      { match: (value) => value instanceof Point, convert: () => "theirs" },
+    ];
+
+    it("draws a Map and a Set with no serializer registered the way jsan alone draws them", () => {
+      expect(write(new Map([["a", 1]]))).toBe('{"$jsan":"m[[\\"a\\",1]]"}');
+      expect(write(new Set([1, 2]))).toBe('{"$jsan":"l[1,2]"}');
+    });
+
+    it("keeps a serializer matching arrays off the pairs of a Map", () => {
+      const value = new Map<string, unknown>([["a", 1]]);
+
+      expect(write(value, createReplacer(arrays))).toBe(write(value));
+    });
+
+    it("keeps a serializer matching arrays off the pairs of a Map a store holds", () => {
+      const $held = atom<unknown>(new Map([["a", 1]]));
+
+      register($held, "atom", "$held");
+
+      expect(write({ $held }, createReplacer(arrays))).toBe(write({ $held }));
+    });
+
+    it("keeps a serializer matching arrays off the list of a Set", () => {
+      const value = new Set([1, 2]);
+
+      expect(write(value, createReplacer(arrays))).toBe(write(value));
+    });
+
+    it("keeps them off both levels of a Map whose value is another Map", () => {
+      const value = new Map<string, unknown>([["outer", new Map([["inner", 1]])]]);
+
+      expect(write(value, createReplacer(arrays))).toBe(write(value));
+    });
+
+    it("runs a serializer on a value the app holds inside a Map", () => {
+      expect(unescaped(write(new Map([["p", new Point()]]), createReplacer(points)))).toContain(
+        '[["p","theirs"]]',
+      );
+    });
+
+    it("runs a serializer on a key the app holds inside a Map", () => {
+      expect(unescaped(write(new Map([[new Point(), 1]]), createReplacer(points)))).toContain(
+        '[["theirs",1]]',
+      );
+    });
+
+    it("runs a serializer on a member the app holds inside a Set", () => {
+      expect(unescaped(write(new Set([new Point()]), createReplacer(points)))).toContain(
+        '["theirs"]',
+      );
+    });
+
+    it("runs a serializer on an array the app holds inside a Map", () => {
+      expect(unescaped(write(new Map([["a", [1, 2]]]), createReplacer(arrays)))).toContain(
+        '[["a","converted"]]',
+      );
+    });
+
+    it("runs a serializer on an array the app holds inside a Set", () => {
+      expect(unescaped(write(new Set([[1, 2]]), createReplacer(arrays)))).toContain(
+        '["converted"]',
+      );
+    });
+
+    it("keeps them off the pairs of a Map a serializer's own result holds", () => {
+      const custom = createReplacer([
+        {
+          match: (value) => value instanceof Point,
+          convert: () => new Map<string, unknown>([["a", 1]]),
+        },
+        ...arrays,
+      ]);
+
+      expect(unescaped(write({ p: new Point() }, custom))).toContain('m[["a",1]]');
+    });
+
+    it("keeps drawing a Map after a serializer result the walk never came back for", async () => {
+      const custom = createReplacer([
+        { match: (value) => value === "gone", convert: () => ({ toJSON: () => "short" }) },
+        ...arrays,
+      ]);
+      const value = new Map<string, unknown>([["a", 1]]);
+
+      expect(write({ dropped: "gone", value }, custom)).toContain("short");
+
+      await Promise.resolve();
+
+      expect(write(value, custom)).toBe(write(value));
+    });
+  });
+
   describe("a marked value that comes round again", () => {
     it("writes a class instance holding itself instead of taking the tree down", () => {
       class Holder {

@@ -37,6 +37,9 @@ type Kept = {
 /** How many slots of a serializer's result hold this value, so how often jsan is yet to hand it back. */
 type ResultSlots = Map<unknown, number>;
 
+/** Which kind of collection jsan is about to write, which says what the list it walks next holds. */
+type Collection = "map" | "set";
+
 /**
  * How many times one object may go through a `convert` while one tree is written. A result that
  * reaches its own input through something the walk cannot follow, an own getter above all, converts
@@ -63,6 +66,22 @@ export function createReplacer(
   const kept: Kept = { wrappers: new WeakMap(), fields: new WeakMap(), indexes: new WeakMap() };
   const slots: ResultSlots = new Map();
   const converted: Map<object, number> = new Map();
+
+  /**
+   * A collection handed to jsan whose list has not come back yet. jsan writes a `Map` and a `Set`
+   * by walking a list it builds out of them, and that list is jsan's own, so no serializer of the
+   * developer's should be asked about it. The list cannot be held by identity: jsan builds it after
+   * we return. What can be held is the order: jsan starts that walk before it reads anything else,
+   * so the list is the very next call, and that call takes the entry off again.
+   */
+  const opened: Collection[] = [];
+
+  /**
+   * The `[key, value]` pairs of a list jsan built, which are jsan's too, one level further down.
+   * Each pair is built for one write and dies with it, so the set holds them weakly and empties
+   * itself rather than being cleared after a tree the way a count is.
+   */
+  const jsanPairs: WeakSet<object> = new WeakSet();
   let forgetQueued = false;
 
   /**
@@ -80,12 +99,49 @@ export function createReplacer(
     queueMicrotask(() => {
       slots.clear();
       converted.clear();
+      opened.length = 0;
       forgetQueued = false;
     });
   };
 
+  /**
+   * Hands the value on and, where that value is a collection, notes the list jsan walks next. A
+   * collection reaches jsan from three places: a value of the app's, a value inside a serializer's
+   * result, and a result itself, and jsan writes all three the same way.
+   */
+  const openList = (handed: unknown): unknown => {
+    if (handed instanceof Map || handed instanceof Set) {
+      forgetAfterTree();
+      opened.push(handed instanceof Map ? "map" : "set");
+    }
+
+    return handed;
+  };
+
   return (key, value) => {
+    const walked = opened.pop();
+
     try {
+      /**
+       * The list itself. Its members are the pairs of a `Map`, which are jsan's as well, or the
+       * members of a `Set`, which are the app's and go through the serializers like any value.
+       */
+      if (walked !== undefined && Array.isArray(value)) {
+        if (walked === "map") {
+          holdPairs(jsanPairs, value);
+        }
+
+        return convertValue(value, kept);
+      }
+
+      /**
+       * One pair, and the walk stops here: the key and the value inside it are the app's, and a
+       * serializer of the developer's is meant to see them.
+       */
+      if (isWalkable(value) && jsanPairs.has(value)) {
+        return convertValue(value, kept);
+      }
+
       const left = slots.get(value) ?? 0;
 
       /**
@@ -95,7 +151,7 @@ export function createReplacer(
       if (left > 0) {
         takeSlot(slots, value, left);
 
-        return fillSlots(slots, convertValue(value, kept));
+        return openList(fillSlots(slots, convertValue(value, kept)));
       }
 
       for (const serializer of serializers) {
@@ -105,11 +161,11 @@ export function createReplacer(
           countConvert(converted, value);
 
           /** jsan walks this result too, and holding its slots keeps that walk out of this loop. */
-          return fillSlots(slots, serializer.convert(value));
+          return openList(fillSlots(slots, serializer.convert(value)));
         }
       }
 
-      return convertValue(value, kept);
+      return openList(convertValue(value, kept));
     } catch (error) {
       const message = describeError(error);
 
@@ -128,6 +184,19 @@ export function createReplacer(
       return mark("ConversionError", box(message));
     }
   };
+}
+
+/**
+ * The pairs of a list jsan built out of a `Map`, held for the one call each of them gets. Two
+ * levels and no further: a pair is jsan's, while the key and the value it holds are the app's, so a
+ * walk down from here would take the whole collection out of the developer's reach.
+ */
+function holdPairs(jsanPairs: WeakSet<object>, list: readonly unknown[]): void {
+  for (const pair of list) {
+    if (isWalkable(pair)) {
+      jsanPairs.add(pair);
+    }
+  }
 }
 
 /** One slot fewer, and the value goes once its last slot has been walked. */
@@ -155,7 +224,8 @@ function fillSlots(slots: ResultSlots, result: unknown): unknown {
 /**
  * What jsan hands the replacer one level down. A `Map` and a `Set` go through a walk of their own,
  * over a list jsan builds out of them, so their keys and their values are held here while that list
- * and its pairs are not: those are jsan's own values and no serializer of the developer's made them.
+ * and its pairs are not: those two levels are jsan's and are held by `opened` and `jsanPairs`, which
+ * hold them for one call rather than counting them down like a slot.
  */
 function childValues(value: unknown): unknown[] {
   if (!isWalkable(value)) {
