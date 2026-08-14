@@ -300,10 +300,12 @@ describe("a node", () => {
 
   beforeEach(() => {
     resetDevtoolsGlobal();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     resetDevtoolsGlobal();
+    vi.restoreAllMocks();
   });
 
   it("keys a class instance by its binding and holds the constructor apart from that name", () => {
@@ -596,6 +598,121 @@ describe("a node", () => {
       ownBindings(FROM, [["drafts", drafts]]);
     }).not.toThrow();
     expect(created.$open.lc).toBe(0);
+  });
+});
+
+describe("a value that refuses to be read", () => {
+  /** A `Proxy` whose trap throws rather than answers, which no walk of ours can tell apart. */
+  function refusing(trap: "ownKeys" | "getOwnPropertyDescriptor"): object {
+    return new Proxy(
+      { $hidden: atom(false) },
+      {
+        [trap]: (): never => {
+          throw new Error(`the ${trap} trap ran`);
+        },
+      },
+    );
+  }
+
+  function panel(): { $open: Store } {
+    return { $open: atom(false) };
+  }
+
+  beforeEach(() => {
+    resetDevtoolsGlobal();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    resetDevtoolsGlobal();
+    vi.restoreAllMocks();
+  });
+
+  it.each(["ownKeys", "getOwnPropertyDescriptor"] as const)(
+    "leaves the module evaluating when a binding holds a Proxy whose %s trap throws",
+    (trap) => {
+      const created = panel();
+
+      expect(() => {
+        ownBindings(FROM, [
+          ["remote", refusing(trap)],
+          ["panel", created],
+        ]);
+      }).not.toThrow();
+      expect(ownerOf(created.$open)).toBe(created);
+    },
+  );
+
+  it.each([
+    ["an object", (held: object, created: object): unknown => ({ remote: held, panel: created })],
+    ["an array", (held: object, created: object): unknown => [held, created]],
+    [
+      "a Map",
+      (held: object, created: object): unknown =>
+        new Map([
+          ["remote", held],
+          ["panel", created],
+        ]),
+    ],
+    ["a Set", (held: object, created: object): unknown => new Set([held, created])],
+  ])("leaves the walk standing when %s holds the refusing Proxy", (_name, build) => {
+    const created = panel();
+
+    expect(() => {
+      ownBindings(FROM, [["drafts", build(refusing("getOwnPropertyDescriptor"), created)]]);
+    }).not.toThrow();
+    expect(ownerOf(created.$open)).toBe(created);
+  });
+
+  it("walks a Proxy that answers both traps exactly as the object under it", () => {
+    const created = panel();
+    const held = new Proxy(created, {});
+
+    ownBindings(FROM, [["panel", held]]);
+
+    expect(ownerOf(created.$open)).toBe(held);
+    expect(nodeInfoOf(held)).toMatchObject({ name: "panel" });
+  });
+
+  it("warns once per binding, not once per read", () => {
+    const held = refusing("ownKeys");
+
+    ownBindings(FROM, [["remote", held]]);
+    ownBindings(FROM, [["remote", held]]);
+
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain('"remote"');
+    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain(HOME);
+  });
+
+  it("warns for each binding that refuses, so no second one is hidden by the first", () => {
+    ownBindings(FROM, [
+      ["remote", { held: refusing("ownKeys") }],
+      ["other", { held: refusing("ownKeys") }],
+    ]);
+
+    expect(console.warn).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain('"held" under "remote"');
+    expect(vi.mocked(console.warn).mock.calls[1]?.[0]).toContain('"held" under "other"');
+  });
+
+  it("warns once for a binding holding two values that refuse, because one line is enough", () => {
+    ownBindings(FROM, [["remote", { first: refusing("ownKeys"), second: refusing("ownKeys") }]]);
+
+    expect(console.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns for a collection whose own read throws, the way a plain object does", () => {
+    const drafts = new Proxy([panel()], {
+      get(): never {
+        throw new Error("a read trap ran");
+      },
+    });
+
+    ownBindings(FROM, [["drafts", drafts]]);
+
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain('"drafts"');
   });
 });
 

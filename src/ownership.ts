@@ -9,7 +9,8 @@ import {
   peekDevtoolsGlobal,
 } from "./global.ts";
 import { claimBindingFile, type NameSource } from "./names.ts";
-import { getEntry, isStore, renameEntry } from "./registry.ts";
+import { getEntry, isStore, makeLabel, renameEntry } from "./registry.ts";
+import { describeError, warnOnce } from "./warn.ts";
 
 /**
  * What nanostores itself puts on a store. Skipped while walking, or an atom holding a store would
@@ -53,16 +54,26 @@ export type ModuleHome = Pick<NodeInfo, "home" | "external">;
 /** A module running its own body, which is the one thing that knows the file its bindings sit in. */
 export type BindingHome = ModuleHome & NameSource;
 
-/** What one value holds: the members the tree draws, and the ones its cap left out. */
-type Members = {
-  drawn: Binding[];
-  past: Binding[];
-  /** Whether a collection named these members itself, by a position or by a map key. */
-  collection: boolean;
-};
+/**
+ * What one value holds: the members the tree draws, and the ones its cap left out. A value read
+ * holds members; a value that threw at us holds a reason and nothing else, so the two never mix.
+ */
+type Members =
+  | {
+      read: true;
+      drawn: Binding[];
+      past: Binding[];
+      /** Whether a collection named these members itself, by a position or by a map key. */
+      collection: boolean;
+    }
+  | { read: false; reason: string };
 
-/** One walk: the module it runs for, and what it has already been through, which ends a cycle. */
-type Scan = { module: ModuleHome; seen: Set<object> };
+/**
+ * One walk: the module it runs for, the top-level binding it started at, and what it has already
+ * been through, which ends a cycle. The binding is the name the developer can look up, so it is
+ * what a warning about anything found below it says.
+ */
+type Scan = { module: ModuleHome; binding: string; seen: Set<object> };
 
 /**
  * The module's own top-level bindings, at the end of its body. A binding holding a store places
@@ -80,7 +91,7 @@ export function ownBindings(module: BindingHome, bindings: readonly Binding[]): 
     }
 
     if (canHold(value)) {
-      walk({ module, seen: new Set() }, value, name, undefined, 0);
+      walk({ module, binding: name, seen: new Set() }, value, name, undefined, 0);
     }
   }
 }
@@ -264,6 +275,12 @@ function walk(
 
   const members = membersOf(value);
 
+  if (!members.read) {
+    warnRefused(scan, name, members.reason);
+
+    return;
+  }
+
   /** A store already holds a place of its own, so only another kind of value becomes a node. */
   if (!isStore(value)) {
     makeNode(value, {
@@ -294,6 +311,22 @@ function walk(
 }
 
 /**
+ * One line for a value the walk could not read, or the developer sees a store missing from the
+ * tree with nothing to look at. Keyed by the binding the walk started at rather than by the member
+ * that threw, so a hostile value in a loop costs one line and a second binding still gets its own.
+ */
+function warnRefused(scan: Scan, name: string, reason: string): void {
+  const place = name === scan.binding ? `"${name}"` : `"${name}" under "${scan.binding}"`;
+
+  warnOnce(
+    "value-refused",
+    makeLabel(scan.module.home, scan.binding),
+    `${place} in "${scan.module.home}" refused to be read, so nothing it holds is in the tree. ` +
+      `${reason}`,
+  );
+}
+
+/**
  * A member past the cap gets no node of its own, so the stores it holds sit on the collection
  * itself, keeping the names the registry gave them. Dropping them would read as "this is all of
  * it", which is worse than a long list, because the developer stops looking.
@@ -309,7 +342,13 @@ function placeStores(value: unknown, owner: object, depth: number): void {
     return;
   }
 
-  for (const [, member] of membersOf(value).drawn) {
+  const members = membersOf(value);
+
+  if (!members.read) {
+    return;
+  }
+
+  for (const [, member] of members.drawn) {
     if (isStore(member)) {
       recordOwner(member, owner, "scan");
     }
@@ -334,11 +373,18 @@ function frameHolder(module: ModuleHome, value: unknown, name: string | null): o
       numbered: name === null,
       type: typeNameOf(value),
       parent: undefined,
-      skipped: membersOf(value).past.length,
+      skipped: skippedCount(value),
     });
   }
 
   return value;
+}
+
+/** How many members a cap left out, which a value that could not be read has none of. */
+function skippedCount(value: object): number {
+  const members = membersOf(value);
+
+  return members.read ? members.past.length : 0;
 }
 
 /**
@@ -432,21 +478,29 @@ function canHold(value: unknown): value is object {
  * only a data one, so a getter never runs: it is the developer's own code and running it would
  * change how the app behaves. A `Map` and a `Set` keep their members in an internal slot instead,
  * which no property of the app's sits in front of.
+ *
+ * Every read below is the app's own code on a `Proxy`, and a trap of theirs may throw rather than
+ * answer. One guard here covers all four shapes: the value gives up nothing at all, the walk keeps
+ * the bindings beside it, and the reason travels back so one warning can name what refused.
  */
 function membersOf(value: object): Members {
-  if (Array.isArray(value)) {
-    return capped(indexed(value));
-  }
+  try {
+    if (Array.isArray(value)) {
+      return capped(indexed(value));
+    }
 
-  if (value instanceof Map) {
-    return capped(walked((visit) => Map.prototype.forEach.call(value, visit), keyName));
-  }
+    if (value instanceof Map) {
+      return capped(walked((visit) => Map.prototype.forEach.call(value, visit), keyName));
+    }
 
-  if (value instanceof Set) {
-    return capped(walked((visit) => Set.prototype.forEach.call(value, visit), position));
-  }
+    if (value instanceof Set) {
+      return capped(walked((visit) => Set.prototype.forEach.call(value, visit), position));
+    }
 
-  return { drawn: propertiesOf(value), past: [], collection: false };
+    return { read: true, drawn: propertiesOf(value), past: [], collection: false };
+  } catch (error) {
+    return { read: false, reason: describeError(error) };
+  }
 }
 
 /**
@@ -455,6 +509,7 @@ function membersOf(value: object): Members {
  */
 function capped(members: Binding[]): Members {
   return {
+    read: true,
     drawn: members.slice(0, MAX_MEMBERS),
     past: members.slice(MAX_MEMBERS),
     collection: true,
@@ -464,22 +519,17 @@ function capped(members: Binding[]): Members {
 /**
  * Every index the array itself holds a data descriptor for, so no accessor of the app's runs and no
  * index the array only inherits is drawn. A member keeps the index it really sits at, so a hole
- * shifts nothing that follows it, and one index that is refused costs the others nothing. A read
- * that throws, which now takes a `Proxy` trap, leaves the array contributing nothing.
+ * shifts nothing that follows it, and one index that is refused costs the others nothing.
  */
 function indexed(value: readonly unknown[]): Binding[] {
   const found: Binding[] = [];
 
-  try {
-    for (let index = 0; index < value.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, index);
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, index);
 
-      if (descriptor !== undefined && "value" in descriptor) {
-        found.push([`[${index}]`, descriptor.value]);
-      }
+    if (descriptor !== undefined && "value" in descriptor) {
+      found.push([`[${index}]`, descriptor.value]);
     }
-  } catch {
-    return [];
   }
 
   return found;
@@ -487,8 +537,7 @@ function indexed(value: readonly unknown[]): Binding[] {
 
 /**
  * The built-in `forEach` called against the value, never a method of the value's own, so a subclass
- * that overrides iteration cannot run its code during a scan. A failure leaves the collection
- * contributing nothing.
+ * that overrides iteration cannot run its code during a scan.
  */
 function walked(
   iterate: (visit: (member: unknown, key: unknown) => void) => void,
@@ -497,19 +546,15 @@ function walked(
   const found: Binding[] = [];
   let index = 0;
 
-  try {
-    iterate((member, key) => {
-      const name = nameOf(key, index);
+  iterate((member, key) => {
+    const name = nameOf(key, index);
 
-      index += 1;
+    index += 1;
 
-      if (name !== undefined) {
-        found.push([name, member]);
-      }
-    });
-  } catch {
-    return [];
-  }
+    if (name !== undefined) {
+      found.push([name, member]);
+    }
+  });
 
   return found;
 }

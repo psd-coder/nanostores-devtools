@@ -572,6 +572,21 @@ describe("adopt", () => {
     expect(listEntries()).toEqual([]);
   });
 
+  it("hands back a value that refuses to be read, so the module keeps evaluating", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const remote = new Proxy(
+      { open: true },
+      {
+        getOwnPropertyDescriptor: (): never => {
+          throw new Error("a trap ran");
+        },
+      },
+    );
+
+    expect(scope.adopt(remote, site({ name: "$remote", type: "unknown" }))).toBe(remote);
+    expect(listEntries()).toEqual([]);
+  });
+
   it("moves an already registered store here under this name and keeps its type", () => {
     const factory = fileScope("/repo/src/stores/factory.ts", "src/stores/factory.ts", CAP, false);
     const scope = fileScope(MODULE_ID, HOME, CAP, false);

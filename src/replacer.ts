@@ -217,6 +217,17 @@ function markOnce(wrappers: Wrappers, source: object, type: string, data: object
   return known;
 }
 
+/**
+ * Throws on a value that will not let its keys be listed, before any rule below hands it to jsan.
+ * jsan lists the keys of whatever it walks, and it does that outside the `try` around this call, so
+ * a `Proxy` trap that throws there would take the whole write down. Asking here costs one listing
+ * and leaves the refusal where every other bad value lands: this one slot, drawn as a
+ * `ConversionError`.
+ */
+function refuseUnlistable(value: object): void {
+  Object.keys(value);
+}
+
 /** Named apart from a `Serializer.convert`, which is the user's rule and runs before this. */
 function convertValue(value: unknown, wrappers: Wrappers): unknown {
   if (typeof value === "bigint") {
@@ -230,6 +241,8 @@ function convertValue(value: unknown, wrappers: Wrappers): unknown {
   if (value === null || typeof value !== "object") {
     return value;
   }
+
+  refuseUnlistable(value);
 
   /**
    * Ahead of every other rule of ours rather than wherever the branches happen to fall. A store is

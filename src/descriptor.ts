@@ -3,12 +3,20 @@ export type Fields = Record<string, unknown>;
 /**
  * Own enumerable string keys that hold data. A getter can run app code, so it is skipped rather
  * than called, and a symbol key is skipped rather than walked.
+ *
+ * Listing the keys and reading each descriptor are both trapped on a `Proxy`, and a trap of the
+ * app's may throw instead of answering. A value that refuses gives up nothing at all, half an
+ * object being worse to read than none, and the caller keeps running.
  */
 export function ownFields(value: object): Fields {
   const fields: Fields = {};
 
-  for (const key of Object.keys(value)) {
-    copyData(fields, key, Object.getOwnPropertyDescriptor(value, key));
+  try {
+    for (const key of Object.keys(value)) {
+      copyData(fields, key, Object.getOwnPropertyDescriptor(value, key));
+    }
+  } catch {
+    return {};
   }
 
   return fields;
@@ -25,18 +33,26 @@ export function copyData(
   }
 }
 
-/** The first descriptor for `key` on the value itself or anywhere up its prototype chain. */
+/**
+ * The first descriptor for `key` on the value itself or anywhere up its prototype chain. Reading a
+ * descriptor and stepping up the chain are both trapped on a `Proxy`, so a trap that throws leaves
+ * the key answered with nothing rather than throwing into whoever asked.
+ */
 export function chainDescriptor(value: object, key: string): PropertyDescriptor | undefined {
   let holder: object | null = value;
 
-  while (holder !== null) {
-    const descriptor = Object.getOwnPropertyDescriptor(holder, key);
+  try {
+    while (holder !== null) {
+      const descriptor = Object.getOwnPropertyDescriptor(holder, key);
 
-    if (descriptor) {
-      return descriptor;
+      if (descriptor) {
+        return descriptor;
+      }
+
+      holder = Object.getPrototypeOf(holder);
     }
-
-    holder = Object.getPrototypeOf(holder);
+  } catch {
+    return undefined;
   }
 
   return undefined;

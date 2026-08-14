@@ -1,6 +1,6 @@
 import { stringify } from "jsan";
 import { atom, computed, deepMap, map, type Store, type WritableAtom } from "nanostores";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetDevtoolsGlobal } from "./global.ts";
 import {
@@ -306,6 +306,52 @@ describe("buildSnapshot", () => {
     trackStores("cart", { $trapped });
 
     expect(buildSnapshot()).toEqual({ cart: { "$trapped [store]": stale(undefined) } });
+  });
+
+  describe("a value inside a store that refuses to be read", () => {
+    /** A `Proxy` whose trap throws rather than answers, which no walk of ours can tell apart. */
+    function refusing(): object {
+      return new Proxy(
+        { open: true },
+        {
+          ownKeys: (): never => {
+            throw new Error("a trap ran");
+          },
+        },
+      );
+    }
+
+    beforeEach(() => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("leaves the tree standing, so every other store keeps its slot", () => {
+      const $safe = atom(1);
+
+      trackStores("cart", { $safe, $remote: atom({ remote: refusing() }) });
+
+      const snapshot = buildSnapshot();
+
+      expect(Object.keys(snapshot["cart"] ?? {})).toEqual(["$remote [store]", "$safe [store]"]);
+      expect(slot(snapshot, "cart", "$safe [store]")).toEqual(stale(1));
+    });
+
+    it("costs its own slot alone once the tree is written the way the panel reads it", () => {
+      const $safe = atom(1);
+
+      trackStores("cart", { $safe, $remote: atom({ remote: refusing() }) });
+
+      const cart = readNode(drawnTree(), "cart");
+      const held = readNode(cart, "$remote [store]");
+
+      expect(readNode(cart, "$safe [store]")["(value)"]).toBe(1);
+      expect(labelOf(held["remote"])).toBe("ConversionError");
+      expect(readNode(held, "remote")["(value)"]).toBe("a trap ran");
+    });
   });
 
   it("keeps every registered store as a key, mounted or not", () => {
