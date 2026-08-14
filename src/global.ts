@@ -158,6 +158,10 @@ export type DevtoolsGlobal = {
 /**
  * The marker is the shape of what sits behind the key, not the package version, so two
  * copies of the same major share one registry instead of drawing half a tree each.
+ *
+ * That promise is what keeps the shape here: everything two copies must agree on sits behind this
+ * one key, and this file states that shape in full, so one read shows the whole agreement. A type
+ * that is no part of that shared shape lives with the module that owns it.
  */
 export const GLOBAL_KEY: unique symbol = Symbol.for("nanostores-devtools/v1");
 
