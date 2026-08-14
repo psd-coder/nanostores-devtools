@@ -211,6 +211,10 @@ measured that cost about 11% more bytes.
 The flat placement owns the name for every other purpose, timeline rows included, so a store
 renamed by your own binding has its rows renamed too: `$undoable/set`, not `$canUndo/set`.
 
+**A store you passed to `trackStores` is drawn the same way**, at the group you named, with the
+owner keeping the second placement. The group is a home you chose by hand, so it beats any owner
+the walk found.
+
 Two bindings holding one store: the exported one wins, whichever is scanned first. Two of the same
 kind pick one arbitrarily. **A binding inside somebody else's file claims nothing**, because that
 is no name you chose.
@@ -246,7 +250,9 @@ and one added.
 This surprises people, so it is worth saying plainly. **With the plugin on, a store you also pass
 to `trackStores` leaves the file tree and appears under its group instead.** Writing a store into
 `trackStores` is a deliberate act and the group was chosen by hand, so the hand-written name wins.
-The type still comes from the plugin, because an explicit call has no type to give.
+The type still comes from the plugin, because an explicit call has no type to give. A store that
+something else owns leaves that owner a second placement, as [two placements](#two-placements)
+describes.
 
 **To keep the store where the plugin put it, name the group after the file:**
 
@@ -256,8 +262,10 @@ trackStores("src/stores/cart.ts", { $items });
 ```
 
 The tree is keyed by the home string, so this lands on the very node the plugin uses for that
-file. Nothing moves, and the store simply gains a hand-written name. **This is the recommended
-pattern for a project that uses the plugin and `trackStores` together.**
+file, and the store gains a hand-written name. A store that nothing owns stays exactly where it
+was. One that something owns rises to the top level of that file, and its owner keeps the second
+placement. **This is the recommended pattern for a project that uses the plugin and `trackStores`
+together.**
 
 ### The same name twice
 

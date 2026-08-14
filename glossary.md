@@ -23,8 +23,8 @@ inside the Vite root keeps its short path, `app/model.ts`. A file outside it is 
 the project root, `vendor/withUndo.ts`, instead of climbing out of the Vite root with `../`.
 
 **Group** — the name a developer must give when registering stores by hand. It takes a
-file's place in the tree for stores the plugin did not find, and it is also the unit that
-`untrack` removes.
+file's place in the tree for stores the plugin did not find, it holds a store the walk gave an
+owner as well, and it is also the unit that `untrack` removes.
 
 **Label** — home, a slash, then the store name: `src/stores/cart.ts/$counter` or
 `cart/$counter`. Internal. It decides which home holds a store, not how deep inside that home
@@ -147,8 +147,9 @@ v1 meaning, the name a developer passes to `trackStores()` and the unit `untrack
 **Owner** — what a store is drawn under. Either another store or a node.
 
 **Placement** — one key in the tree pointing at a store. A store has one entry and may have two
-placements: the name the developer bound it to, drawn flat, and the name its owner knows it by,
-drawn under the owner.
+placements: the home the developer chose for it, drawn flat, and the name its owner knows it by,
+drawn under the owner. They choose a home two ways, a top-level binding of their own and an
+explicit registration, and either one beats the owner the ownership walk recorded.
 
 **Written name** — a name that exists in the developer's source: a binding, a property key, an
 array index, a `Map` key. It beats any name we derive.

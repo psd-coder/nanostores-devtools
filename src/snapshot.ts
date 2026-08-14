@@ -29,7 +29,7 @@ const MORE_KEY = "…";
 
 /**
  * One thing the tree draws: a store's own slot, the second placement its owner keeps of a store the
- * developer named themselves, or a node holding others and no value at all.
+ * developer placed themselves, or a node holding others and no value at all.
  */
 type Held =
   | { kind: "store"; entry: StoreEntry; key?: string | undefined }
@@ -79,19 +79,22 @@ export function buildSnapshot(): Snapshot {
 }
 
 /**
- * Where one entry is drawn. A name the developer bound the store to takes its value, at the file
- * level, and its owner keeps a second placement of the same store under the name the owner knows it
+ * Where one entry is drawn. A home the developer chose takes its value, at the top level of that
+ * home, and its owner keeps a second placement of the same store under the name the owner knows it
  * by: without that the owner reads as incomplete, and it is also what a name of theirs is measured
  * against. One entry, one identity, two keys.
  *
- * A store they named is theirs to hold, so the function it was made inside no longer holds it.
+ * They choose it two ways: a group they registered the store into by hand, and a top-level name
+ * they bound it to in a file of their own. Either one beats the owner the ownership walk recorded,
+ * because both say where this store belongs and an owner only says where the walk reached it from.
+ * A store they placed is theirs to hold, so the function it was made inside no longer holds it.
  */
 function place(tree: Tree, entry: StoreEntry): void {
-  const named = namedByBinding(entry.store);
+  const placedByDeveloper = entry.origin === "explicit" || namedByBinding(entry.store);
   const drawn = drawnOwner(entry.store);
-  const owner = drawn?.owner ?? (named ? undefined : enclosingOwner(entry));
+  const owner = drawn?.owner ?? (placedByDeveloper ? undefined : enclosingOwner(entry));
 
-  if (named || owner === undefined) {
+  if (placedByDeveloper || owner === undefined) {
     collect(tree.homes, entry.home, { kind: "store", entry });
   }
 
@@ -105,7 +108,7 @@ function place(tree: Tree, entry: StoreEntry): void {
   collect(
     tree.children,
     owner,
-    named ? { kind: "second", entry, key } : { kind: "store", entry, key },
+    placedByDeveloper ? { kind: "second", entry, key } : { kind: "store", entry, key },
   );
   attach(tree, owner);
 }
@@ -181,8 +184,8 @@ function collect<TKey>(index: Map<TKey, Held[]>, key: TKey, held: Held): void {
  */
 function draw(pass: Pass, held: Held): unknown {
   /**
-   * A second placement is the store's value and nothing else. Its children sit under the name the
-   * developer gave it, which is where the store itself is drawn, and drawing them twice would say
+   * A second placement is the store's value and nothing else. Its children sit at the home the
+   * developer put it in, which is where the store itself is drawn, and drawing them twice would say
    * the app holds twice as many stores as it does.
    */
   if (held.kind === "second") {

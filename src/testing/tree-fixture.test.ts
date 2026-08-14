@@ -408,8 +408,9 @@ describe("the draw-once invariant", () => {
     expect(placements.filter((times) => times !== 1).length).toBe(9);
     expect(placements.filter((times) => times === 0)).toEqual([]);
     /**
-     * Draw-once, the second form. The shipped code always draws a second placement, so 107 is the
-     * count with them off and 116 the count with them on.
+     * Draw-once, the second form. A store the developer bound to a top-level name of their own is
+     * drawn once at that name and once more under its owner, so 107 is the count without those
+     * second placements and 116 with them.
      */
     expect(placements.reduce((sum, times) => sum + times, 0)).toBe(116);
     expect(

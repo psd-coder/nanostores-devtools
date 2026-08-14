@@ -705,6 +705,10 @@ describe("buildSnapshot", () => {
       return typeof value === "object" && value !== null && "(value)" in value;
     }
 
+    function drawnSlots(): number {
+      return Object.values(buildSnapshot()).reduce((total, node) => total + countSlots(node), 0);
+    }
+
     it("draws a store that owns others with its own value under (value)", () => {
       const $canUndo = atom(false);
       const $draft = holder("the quick brown fox ", { $canUndo });
@@ -854,12 +858,7 @@ describe("buildSnapshot", () => {
       trackStores("cart", { $items: atom([]) });
       ownBindings(FROM, [["$draft", $draft]]);
 
-      const drawn = Object.values(buildSnapshot()).reduce(
-        (total, node) => total + countSlots(node),
-        0,
-      );
-
-      expect(drawn).toBe(listEntries().length);
+      expect(drawnSlots()).toBe(listEntries().length);
     });
 
     it("runs no getter and mounts nothing while drawing a node", () => {
@@ -1515,15 +1514,57 @@ describe("buildSnapshot", () => {
           ["$entries", $history, true],
         ]);
 
-        const drawn = Object.values(buildSnapshot()).reduce(
-          (total, node) => total + countSlots(node),
-          0,
-        );
-
-        expect(drawn).toBe(listEntries().length + 2);
+        expect(drawnSlots()).toBe(listEntries().length + 2);
         expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
           1, 1, 2, 2, 3, 4,
         ]);
+      });
+    });
+
+    describe("a group written by hand", () => {
+      it("draws the store at its group, whatever owner the walk recorded", () => {
+        const $route = atom("/");
+        const router = holder("", { $route });
+
+        track(router, "router");
+        track($route, "$route", "node_modules/@nanostores/router/index.js");
+        trackStores("debug", { $route });
+        ownBindings(FROM, [["router", router, true]]);
+
+        expect(buildSnapshot()).toEqual({
+          debug: { $route: "/" },
+          [HOME]: { router: { "(value)": "", $route: "/" } },
+        });
+      });
+
+      it("keeps the stores it owns under it, at the group it was given", () => {
+        const $params = atom({ id: "1" });
+        const $route = holder("/", { $params });
+        const router = holder("", { $route });
+
+        track(router, "router");
+        track($route, "$route");
+        track($params, "$params");
+        trackStores("debug", { $route });
+        ownBindings(FROM, [["router", router, true]]);
+
+        expect(buildSnapshot()).toEqual({
+          debug: { $route: { "(value)": "/", $params: { id: "1" } } },
+          [HOME]: { router: { "(value)": "", $route: "/" } },
+        });
+      });
+
+      it("draws one slot per entry, plus one for the second placement its owner keeps", () => {
+        const $canUndo = atom(1);
+        const $draft = holder(2, { $canUndo });
+
+        track($draft, "$draft");
+        track($canUndo, "$canUndo", "vendor/withUndo.ts");
+        trackStores("debug", { $canUndo });
+        ownBindings(FROM, [["$draft", $draft, true]]);
+
+        expect(drawnSlots()).toBe(listEntries().length + 1);
+        expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([1, 1, 2]);
       });
     });
   });
