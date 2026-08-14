@@ -1,6 +1,6 @@
 import type { Store } from "nanostores";
 
-import { chainValue, ownFields } from "./descriptor.ts";
+import { chainValue, ownFields, ownIndexes } from "./descriptor.ts";
 import { box } from "./marker.ts";
 import { DERIVED, isStore, type StoreEntry, type StoreType } from "./registry.ts";
 
@@ -116,7 +116,7 @@ function reachesStore(value: object, store: Store): boolean {
 
     seen.add(held);
 
-    for (const child of heldValues(held)) {
+    for (const child of heldValues(held, budget)) {
       if (budget === 0) {
         return true;
       }
@@ -129,10 +129,14 @@ function reachesStore(value: object, store: Store): boolean {
   return false;
 }
 
-/** What jsan walks into, one level down, once every rule of ours has had the value. */
-function heldValues(value: object): unknown[] {
+/**
+ * What jsan walks into, one level down, once every rule of ours has had the value. An array is read
+ * one index past what `budget` still allows, which is enough to line up everything the walk may
+ * look at and one more to say it did not reach the end.
+ */
+function heldValues(value: object, budget: number): unknown[] {
   if (Array.isArray(value)) {
-    return value;
+    return ownIndexes(value, budget + 1);
   }
 
   if (value instanceof Map) {

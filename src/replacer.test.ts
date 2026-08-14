@@ -109,9 +109,6 @@ describe("createReplacer", () => {
         function add(a: number, b: number): number {
           return a + b;
         },
-        [1, 2],
-        { a: 1 },
-        Object.create(null),
         null,
         "text",
         7,
@@ -123,11 +120,109 @@ describe("createReplacer", () => {
       }
     });
 
-    it("leaves a wrapper the snapshot builder already made alone", () => {
+    it("leaves a wrapper the snapshot builder already made unmarked", () => {
       const wrapper = mark("Unmounted", box(1));
 
-      expect(replacer("k", wrapper)).toBe(wrapper);
-      expect(replacer("data", wrapper.data)).toBe(wrapper.data);
+      expect(replacer("k", wrapper)).toEqual(wrapper);
+      expect(replacer("data", wrapper.data)).toEqual(wrapper.data);
+    });
+  });
+
+  describe("a plain object and an array", () => {
+    it("hands jsan a copy rather than the value the app holds", () => {
+      const rows: unknown[] = [{ a: 1 }, Object.create(null), [1, 2]];
+
+      for (const value of rows) {
+        const handed = replacer("k", value);
+
+        expect(handed).not.toBe(value);
+        expect(handed).toEqual(value);
+      }
+    });
+
+    it("leaves out an own getter of a plain object without running it", () => {
+      const read = vi.fn(() => "ran");
+      const value = { a: 1 };
+
+      Object.defineProperty(value, "later", { get: read, enumerable: true });
+
+      expect(write(value)).toBe('{"a":1}');
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("leaves out an own accessor index of an array without running it", () => {
+      const read = vi.fn(() => "ran");
+      const value = [1, 2, 3];
+
+      Object.defineProperty(value, 1, { get: read, enumerable: true, configurable: true });
+
+      expect(write(value)).toBe('[1,{"$jsan":"u"},3]');
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("keeps a key order the developer would read, and every key jsan sent before", () => {
+      expect(write({ b: 1, a: { c: [2, 3] } })).toBe('{"b":1,"a":{"c":[2,3]}}');
+    });
+
+    it("shows what the value holds now on a second write", () => {
+      const value: Record<string, unknown> = { a: 1, gone: 2 };
+
+      expect(write(value)).toBe('{"a":1,"gone":2}');
+
+      value["a"] = 9;
+      delete value["gone"];
+
+      expect(write(value)).toBe('{"a":9}');
+    });
+
+    it("shows what an array holds now on a second write", () => {
+      const value = [1, 2, 3];
+
+      expect(write(value)).toBe("[1,2,3]");
+
+      value.length = 1;
+
+      expect(write(value)).toBe("[1]");
+    });
+
+    it("terminates on a value that holds itself, and keeps every key around it", () => {
+      const object: Record<string, unknown> = { a: 1 };
+
+      object["self"] = object;
+      object["b"] = 2;
+
+      expect(write(object)).toBe('{"a":1,"self":{"$jsan":"$"},"b":2}');
+      expect(write(object)).toBe('{"a":1,"self":{"$jsan":"$"},"b":2}');
+    });
+
+    it("writes a value the app holds in two places out twice", () => {
+      const shared = { x: 1 };
+
+      expect(write({ a: shared, b: shared })).toBe('{"a":{"x":1},"b":{"x":1}}');
+    });
+
+    it("never runs an array accessor while looking for the store its value holds", () => {
+      const read = vi.fn(() => "ran");
+      const list: unknown[] = [1, 2];
+
+      Object.defineProperty(list, 1, { get: read, enumerable: true, configurable: true });
+
+      const $list = atom<unknown>(list);
+
+      register($list, "atom", "$list");
+
+      expect(write($list)).toBe('{"data":[1,{"$jsan":"u"}],"__serializedType__":"store"}');
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("marks a store the copy holds", () => {
+      const $inner = atom(1);
+
+      register($inner, "atom", "$inner");
+
+      expect(write({ inner: $inner })).toBe(
+        '{"inner":{"data":{"(value)":1},"__serializedType__":"store"}}',
+      );
     });
   });
 
@@ -694,6 +789,28 @@ describe("createReplacer", () => {
       register($wide, "atom");
 
       expect(markedKeys(replacer("k", $wide))).toEqual(["(value)"]);
+    });
+
+    it("reads no more of a wide array than the walk may look at", () => {
+      const wide = Array.from({ length: MAX_WALKED_NODES * 3 }, () => 0);
+      let indexReads = 0;
+      const counted = new Proxy(wide, {
+        getOwnPropertyDescriptor(target, key): PropertyDescriptor | undefined {
+          if (String(Number(key)) === key) {
+            indexReads += 1;
+          }
+
+          return Object.getOwnPropertyDescriptor(target, key);
+        },
+      });
+      const $wide = atom<unknown>(counted);
+
+      register($wide, "atom");
+
+      expect(markedKeys(replacer("k", $wide))).toEqual(["(value)"]);
+
+      /** One past the budget: enough to line up all it may look at, and one more to say it stopped. */
+      expect(indexReads).toBe(MAX_WALKED_NODES + 1);
     });
 
     it("runs no getter the app put on a value while it looks for the store", () => {

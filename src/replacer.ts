@@ -1,6 +1,6 @@
 import type { Store } from "nanostores";
 
-import { chainDescriptor, copyData, type Fields, ownFields } from "./descriptor.ts";
+import { chainDescriptor, copyData, type Fields, ownFields, ownIndexes } from "./descriptor.ts";
 import { box, mark, type Marked } from "./marker.ts";
 import { getEntry, isStore, storeWord } from "./registry.ts";
 import { dataForMark, staleNote, storeValue } from "./slot.ts";
@@ -24,6 +24,16 @@ type TaggedNode = { nodeName: string; attributes?: ArrayLike<NodeAttribute> | un
 /** The one wrapper each source object gets, for as long as the replacer lives. */
 type Wrappers = WeakMap<object, Marked>;
 
+/**
+ * The one object each source value is handed to jsan as, for as long as the replacer lives. Each
+ * shape keeps its own map, because a source that is an array is one every time we meet it.
+ */
+type Kept = {
+  wrappers: Wrappers;
+  fields: WeakMap<object, Fields>;
+  indexes: WeakMap<object, unknown[]>;
+};
+
 /** How many slots of a serializer's result hold this value, so how often jsan is yet to hand it back. */
 type ResultSlots = Map<unknown, number>;
 
@@ -45,12 +55,12 @@ export function createReplacer(
 ): (key: string, value: unknown) => unknown {
   /**
    * jsan spots a value it has already walked by holding what the replacer handed back and matching
-   * a second sighting by identity, so a fresh wrapper on every call means a value that refers to
-   * itself never comes round and the walk runs until the stack ends. One wrapper per source value
-   * is what lets jsan see the repeat, and it lives as long as the replacer, which is one
+   * a second sighting by identity, so a fresh object on every call means a value that refers to
+   * itself never comes round and the walk runs until the stack ends. One object per source value
+   * is what lets jsan see the repeat, and they live as long as the replacer, which is one
    * connection.
    */
-  const wrappers: Wrappers = new WeakMap();
+  const kept: Kept = { wrappers: new WeakMap(), fields: new WeakMap(), indexes: new WeakMap() };
   const slots: ResultSlots = new Map();
   const converted: Map<object, number> = new Map();
   let forgetQueued = false;
@@ -85,7 +95,7 @@ export function createReplacer(
       if (left > 0) {
         takeSlot(slots, value, left);
 
-        return fillSlots(slots, convertValue(value, wrappers));
+        return fillSlots(slots, convertValue(value, kept));
       }
 
       for (const serializer of serializers) {
@@ -99,7 +109,7 @@ export function createReplacer(
         }
       }
 
-      return convertValue(value, wrappers);
+      return convertValue(value, kept);
     } catch (error) {
       const message = describeError(error);
 
@@ -219,8 +229,10 @@ function markOnce(wrappers: Wrappers, source: object, type: string, data: object
 
 /**
  * Throws on a value that will not let its keys be listed, before any rule below hands it to jsan.
- * jsan lists the keys of whatever it walks, and it does that outside the `try` around this call, so
- * a `Proxy` trap that throws there would take the whole write down. Asking here costs one listing
+ * Two reads sit behind it. jsan lists the keys of whatever it walks, and it does that outside the
+ * `try` around this call, so a `Proxy` trap that throws there would take the whole write down. And
+ * the copy a plain object and an array go out as answers a refusal with nothing at all, so without
+ * this call a value that refused would draw as one that held nothing. Asking here costs one listing
  * and leaves the refusal where every other bad value lands: this one slot, drawn as a
  * `ConversionError`.
  */
@@ -228,8 +240,56 @@ function refuseUnlistable(value: object): void {
   Object.keys(value);
 }
 
+/**
+ * The copy this plain object already has, refilled with what it holds now, or a new one. jsan reads
+ * every member of what we hand back with a plain read, so handing back the app's own object is what
+ * runs an own getter of theirs, and a copy taken from the descriptors is the only read we control.
+ *
+ * Identity is how jsan spots a value that has come round again, so a fresh copy on every sighting
+ * would let a value holding itself recurse until the stack ends. One copy per source is what lets
+ * jsan see the repeat, and refilling it is what keeps a second tree from showing the first tree's
+ * members. The keys go back in the order the value lists them, because the panel draws them in the
+ * order they arrive.
+ */
+function copyFields(kept: Kept, source: object): Fields {
+  const fields = ownFields(source);
+  const known = kept.fields.get(source);
+
+  if (known === undefined) {
+    kept.fields.set(source, fields);
+
+    return fields;
+  }
+
+  for (const key of Object.keys(known)) {
+    delete known[key];
+  }
+
+  return Object.assign(known, fields);
+}
+
+/** The same rule for an array, whose members jsan reads by index. A hole stays where it sits. */
+function copyIndexes(kept: Kept, source: readonly unknown[]): unknown[] {
+  const indexes = ownIndexes(source);
+  const known = kept.indexes.get(source);
+
+  if (known === undefined) {
+    kept.indexes.set(source, indexes);
+
+    return indexes;
+  }
+
+  known.length = 0;
+  Object.assign(known, indexes);
+
+  /** `Object.assign` copies no hole, so the length says where the members it did copy end. */
+  known.length = indexes.length;
+
+  return known;
+}
+
 /** Named apart from a `Serializer.convert`, which is the user's rule and runs before this. */
-function convertValue(value: unknown, wrappers: Wrappers): unknown {
+function convertValue(value: unknown, kept: Kept): unknown {
   if (typeof value === "bigint") {
     /**
      * jsan throws outright on a BigInt, so it has to be taken before jsan sees it. A plain mark: a
@@ -250,19 +310,23 @@ function convertValue(value: unknown, wrappers: Wrappers): unknown {
    * panel would draw `get, init, lc, listen, …` where a value belongs.
    */
   if (isStore(value)) {
-    return markStore(wrappers, value);
+    return markStore(kept.wrappers, value);
   }
 
   if (value instanceof Error) {
-    return markOnce(wrappers, value, constructorName(value, "Error"), errorFields(value));
+    return markOnce(kept.wrappers, value, constructorName(value, "Error"), errorFields(value));
   }
 
   if (isTypedArray(value)) {
-    return markOnce(wrappers, value, constructorName(value, "Object"), Array.from(value));
+    return markOnce(kept.wrappers, value, constructorName(value, "Object"), Array.from(value));
   }
 
   if (isDomNode(value)) {
-    return markOnce(wrappers, value, constructorName(value, "Object"), box(openingTag(value)));
+    return markOnce(kept.wrappers, value, constructorName(value, "Object"), box(openingTag(value)));
+  }
+
+  if (Array.isArray(value)) {
+    return copyIndexes(kept, value);
   }
 
   /** Before the class instance rule, or jsan never gets to render these four natively. */
@@ -270,8 +334,7 @@ function convertValue(value: unknown, wrappers: Wrappers): unknown {
     value instanceof Date ||
     value instanceof Map ||
     value instanceof Set ||
-    value instanceof RegExp ||
-    Array.isArray(value)
+    value instanceof RegExp
   ) {
     return value;
   }
@@ -279,14 +342,14 @@ function convertValue(value: unknown, wrappers: Wrappers): unknown {
   const prototype: unknown = Object.getPrototypeOf(value);
 
   if (prototype === Object.prototype || prototype === null) {
-    return value;
+    return copyFields(kept, value);
   }
 
   const name = constructorName(value, "Object");
   const fields = ownFields(value);
   const data = Object.keys(fields).length > 0 ? fields : box(String(value));
 
-  return markOnce(wrappers, value, name, data);
+  return markOnce(kept.wrappers, value, name, data);
 }
 
 /**
