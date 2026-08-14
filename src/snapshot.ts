@@ -1,7 +1,7 @@
 import type { Store } from "nanostores";
 
 import type { NodeInfo } from "./global.ts";
-import { mark } from "./marker.ts";
+import { mark, VALUE_KEY } from "./marker.ts";
 import { enclosingNode, MAX_MEMBERS } from "./ownership.ts";
 import { namedByBinding, nodeInfoOf, ownerKeyOf, ownerOf } from "./placement.ts";
 import { getEntry, isStore, listEntries, type StoreEntry, type StoreType } from "./registry.ts";
@@ -14,9 +14,6 @@ export type Snapshot = Record<string, Record<string, unknown>>;
  * unknown type would state a guess. Every other type names itself.
  */
 const UNNOTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "unknown"]);
-
-/** Where a store that owns others keeps its own value, so its children can sit beside it. */
-const SELF_KEY = "(value)";
 
 /** What a capped collection says it left out, so silence never reads as "this is all of it". */
 const MORE_KEY = "…";
@@ -192,7 +189,7 @@ function draw(pass: Pass, held: Held): unknown {
     return children === undefined
       ? slotFor(held.entry)
       : {
-          [SELF_KEY]: slotFor(held.entry),
+          [VALUE_KEY]: slotFor(held.entry),
           ...drawAll(pass, childPlacements(pass, children, undefined)),
         };
   }

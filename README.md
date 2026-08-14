@@ -526,6 +526,16 @@ markers:
 A store whose type we never learned takes the second marker too, because it could be somebody's
 computed store and we cannot prove otherwise.
 
+The marker prints in front of the value. A plain object and an array are drawn as they are;
+everything else sits under `(value)`, the same key a store that owns others keeps its own value
+under, because the panel loses the marker text otherwise.
+
+```
+$cart [computed]:  not mounted, may be stale { total: 12 }
+$count [computed]: not mounted, may be stale { (value): 12 }
+$empty [computed]: not mounted, never computed {}
+```
+
 An unmounted `atom`, `map` or `deepMap` is **not** marked. `set` writes the value with no check on
 the listener count, so an unmounted one holds a perfectly correct value and there is no
 consequence to state.

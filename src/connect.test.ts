@@ -16,7 +16,7 @@ function endOfTurn(): Promise<void> {
 
 /** `trackStores` records every store as `unknown`, so an unmounted one reaches the panel marked. */
 function stale(value: unknown): unknown {
-  return { data: { $$value: value }, __serializedType__: "not mounted, may be stale" };
+  return { data: { "(value)": value }, __serializedType__: "not mounted, may be stale" };
 }
 
 function hooked(store: Store): boolean {
@@ -140,7 +140,7 @@ describe("connectDevtools", () => {
 
       expect(replacer?.("n", 7)).toBe("seven");
       expect(replacer?.("n", 9007199254740993n)).toEqual({
-        data: { $$value: "9007199254740993" },
+        data: { "(value)": "9007199254740993" },
         __serializedType__: "BigInt",
       });
     });

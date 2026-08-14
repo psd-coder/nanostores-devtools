@@ -6,25 +6,7 @@ import { resetDevtoolsGlobal } from "./global.ts";
 import { box, mark } from "./marker.ts";
 import { isStore, registerStore, type StoreType } from "./registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
-
-/**
- * What `options: true` means to the extension. Its own bundle holds this object and hands it to
- * jsan, so `refs: false` is what a repeated value meets. jsan's own boolean expansion leaves
- * `refs` unset, which turns every repeat into a pointer, and that is not what runs in the panel.
- */
-const EXTENSION_OPTIONS = {
-  refs: false,
-  date: true,
-  function: true,
-  regex: true,
-  undefined: true,
-  error: true,
-  symbol: true,
-  map: true,
-  set: true,
-  nan: true,
-  infinity: true,
-};
+import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
 
 class Point {
   x = 1;
@@ -334,14 +316,14 @@ describe("createReplacer", () => {
 
     it("falls back to String(value) when there are no own fields", () => {
       expect(replacer("e", new Empty())).toEqual({
-        data: { $$value: "[object Object]" },
+        data: { "(value)": "[object Object]" },
         __serializedType__: "Empty",
       });
     });
 
     it("reads no getter, so a URL takes the String(value) rescue", () => {
       expect(replacer("u", new URL("https://example.com/a?b=1"))).toEqual({
-        data: { $$value: "https://example.com/a?b=1" },
+        data: { "(value)": "https://example.com/a?b=1" },
         __serializedType__: "URL",
       });
     });
@@ -381,16 +363,16 @@ describe("createReplacer", () => {
 
     it("leaves a DataView to the class instance rule, because it has no elements", () => {
       expect(replacer("v", new DataView(new ArrayBuffer(2)))).toEqual({
-        data: { $$value: "[object DataView]" },
+        data: { "(value)": "[object DataView]" },
         __serializedType__: "DataView",
       });
     });
   });
 
   describe("BigInt", () => {
-    it("becomes a decimal string under $$value and does not throw", () => {
+    it("becomes a decimal string under (value) and does not throw", () => {
       expect(replacer("n", 9007199254740993n)).toEqual({
-        data: { $$value: "9007199254740993" },
+        data: { "(value)": "9007199254740993" },
         __serializedType__: "BigInt",
       });
     });
@@ -408,14 +390,14 @@ describe("createReplacer", () => {
       ]);
 
       expect(replacer("el", node)).toEqual({
-        data: { $$value: '<div id="app" class="root">' },
+        data: { "(value)": '<div id="app" class="root">' },
         __serializedType__: "HTMLDivElement",
       });
     });
 
     it("shows a bare tag for a node with no attributes", () => {
       expect(replacer("el", new FakeNode("SPAN"))).toEqual({
-        data: { $$value: "<span>" },
+        data: { "(value)": "<span>" },
         __serializedType__: "FakeNode",
       });
     });
@@ -563,7 +545,7 @@ describe("createReplacer", () => {
 
       for (const [where, holder] of rows) {
         expect(unescaped(write(holder)), where).toContain(
-          '{"data":{"$$value":"Berlin"},"__serializedType__":"atom"}',
+          '{"data":{"(value)":"Berlin"},"__serializedType__":"atom"}',
         );
       }
     });
@@ -576,7 +558,7 @@ describe("createReplacer", () => {
       register($branch, "atom", "$branch");
 
       expect(write({ $branch })).toBe(
-        '{"$branch":{"data":{"$leaf":{"data":{"$$value":"deep"},' +
+        '{"$branch":{"data":{"$leaf":{"data":{"(value)":"deep"},' +
           '"__serializedType__":"atom"}},"__serializedType__":"atom"}}',
       );
     });
@@ -593,7 +575,7 @@ describe("createReplacer", () => {
       register($deepMap, "deepMap", "$deepMap");
 
       expect(replacer("k", $computed)).toEqual({
-        data: { $$value: 2 },
+        data: { "(value)": 2 },
         __serializedType__: "computed",
       });
       expect(replacer("k", $map)).toEqual({ data: { a: 1 }, __serializedType__: "map" });
@@ -611,7 +593,7 @@ describe("createReplacer", () => {
       $loose.listen(() => {});
 
       expect(replacer("k", $loose)).toEqual({
-        data: { $$value: 1 },
+        data: { "(value)": 1 },
         __serializedType__: "store",
       });
     });
@@ -624,12 +606,12 @@ describe("createReplacer", () => {
       register($nothing, "atom", "$nothing");
 
       expect(replacer("k", $text)).toEqual({
-        data: { $$value: "Berlin" },
+        data: { "(value)": "Berlin" },
         __serializedType__: "atom",
       });
       /** `typeof null` is `"object"`, so the reviver would take it and then fail to write to it. */
       expect(replacer("k", $nothing)).toEqual({
-        data: { $$value: null },
+        data: { "(value)": null },
         __serializedType__: "atom",
       });
     });
@@ -641,7 +623,7 @@ describe("createReplacer", () => {
       Object.defineProperty(lookalike, "value", { get, enumerable: true });
 
       expect(replacer("k", lookalike)).toEqual({
-        data: { $$value: undefined },
+        data: { "(value)": undefined },
         __serializedType__: "store",
       });
       expect(get).not.toHaveBeenCalled();
@@ -653,7 +635,7 @@ describe("createReplacer", () => {
       register($unknown, "unknown");
 
       expect(replacer("k", $unknown)).toEqual({
-        data: { $$value: 1 },
+        data: { "(value)": 1 },
         __serializedType__: "not mounted, may be stale",
       });
     });
@@ -664,7 +646,7 @@ describe("createReplacer", () => {
       register($self, "atom");
       $self.set($self);
 
-      expect(write($self)).toBe('{"data":{"$jsan":"$"},"__serializedType__":"atom"}');
+      expect(write($self)).toBe('{"data":{"(value)":{"$jsan":"$"}},"__serializedType__":"atom"}');
     });
 
     it("lets a user serializer matching a store win", () => {
@@ -691,6 +673,97 @@ describe("createReplacer", () => {
           '{"data":{"id":2,"name":"street","value":"Unter den Linden"},"__serializedType__":"atom"}' +
           '],"__serializedType__":"atom"}}',
       );
+    });
+  });
+
+  describe("what the panel ends up with", () => {
+    beforeEach(() => {
+      vi.stubGlobal("Node", FakeNode);
+    });
+
+    /**
+     * The label lives on the object the reviver writes it onto, so a wire shape can be right while
+     * the label the developer reads is gone. Only a round trip catches that.
+     */
+    function drawn(value: unknown): unknown {
+      const tree = parsePanel(write({ k: value }));
+
+      return typeof tree === "object" && tree !== null ? Reflect.get(tree, "k") : undefined;
+    }
+
+    /** The keys the panel shows, which tell a boxed value from a bare one. */
+    function drawnKeys(value: unknown): string[] {
+      return typeof value === "object" && value !== null ? Object.keys(value) : [];
+    }
+
+    function held(value: unknown): unknown {
+      const $held = atom<unknown>(value);
+
+      register($held, "atom", "$held");
+
+      return drawn($held);
+    }
+
+    it("boxes every value that would otherwise arrive with the store's label gone", () => {
+      const rows: [string, unknown][] = [
+        ["a Date", new Date(0)],
+        ["a Map", new Map([["a", 1]])],
+        ["a Set", new Set([1])],
+        ["a RegExp", /a/],
+        ["a typed array", new Uint8Array([1])],
+        ["a DOM node", new HTMLDivElement("DIV")],
+        ["an Error", new Error("boom")],
+        ["a class instance", new Point()],
+        ["a store", atom(1)],
+        ["a primitive", 12],
+        ["null", null],
+      ];
+
+      for (const [where, value] of rows) {
+        const slot = held(value);
+
+        expect(labelOf(slot), where).toBe("atom");
+        expect(drawnKeys(slot), where).toEqual(["(value)"]);
+      }
+    });
+
+    it("keeps the inner label too, where the boxed value carries one of its own", () => {
+      const rows: [unknown, string][] = [
+        [new Uint8Array([1]), "Uint8Array"],
+        [new HTMLDivElement("DIV"), "HTMLDivElement"],
+        [new Error("boom"), "Error"],
+        [new Point(), "Point"],
+        [atom(1), "not mounted, may be stale"],
+      ];
+
+      for (const [value, type] of rows) {
+        const inside = Reflect.get(Object(held(value)), "(value)");
+
+        expect(labelOf(inside), type).toBe(type);
+      }
+    });
+
+    it("lets a plain object and an array in bare, with the label in front", () => {
+      const cart = held({ total: 12 });
+      const items = held(["milk"]);
+
+      expect(labelOf(cart)).toBe("atom");
+      expect(drawnKeys(cart)).toEqual(["total"]);
+      expect(labelOf(items)).toBe("atom");
+      expect(drawnKeys(items)).toEqual(["0"]);
+    });
+
+    it("gives a Date, a Map, a Set and a RegExp back as themselves inside the box", () => {
+      const rows: [unknown, (drawn: unknown) => boolean][] = [
+        [new Date(0), (value) => value instanceof Date],
+        [new Map([["a", 1]]), (value) => value instanceof Map],
+        [new Set([1]), (value) => value instanceof Set],
+        [/a/, (value) => value instanceof RegExp],
+      ];
+
+      for (const [value, isItself] of rows) {
+        expect(isItself(Reflect.get(Object(held(value)), "(value)")), String(value)).toBe(true);
+      }
     });
   });
 
@@ -914,7 +987,7 @@ describe("createReplacer", () => {
 
     it("keeps writing a BigInt, which no cache can hold", () => {
       expect(write({ n: 9007199254740993n })).toBe(
-        '{"n":{"data":{"$$value":"9007199254740993"},"__serializedType__":"BigInt"}}',
+        '{"n":{"data":{"(value)":"9007199254740993"},"__serializedType__":"BigInt"}}',
       );
     });
 
@@ -958,7 +1031,7 @@ describe("createReplacer", () => {
   describe("ConversionError", () => {
     it("fills the one slot when our own conversion throws", () => {
       expect(replacer("k", throwing())).toEqual({
-        data: { $$value: "nope" },
+        data: { "(value)": "nope" },
         __serializedType__: "ConversionError",
       });
       expect(console.warn).toHaveBeenCalledTimes(1);
@@ -975,7 +1048,7 @@ describe("createReplacer", () => {
       ]);
 
       expect(custom("k", 1)).toEqual({
-        data: { $$value: "bad match" },
+        data: { "(value)": "bad match" },
         __serializedType__: "ConversionError",
       });
     });
@@ -991,7 +1064,7 @@ describe("createReplacer", () => {
       ]);
 
       expect(custom("k", 1)).toEqual({
-        data: { $$value: "plain string" },
+        data: { "(value)": "plain string" },
         __serializedType__: "ConversionError",
       });
     });

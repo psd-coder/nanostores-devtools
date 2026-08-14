@@ -118,7 +118,7 @@ describe("direct write rows", () => {
       /** An unknown type is never trusted while unmounted, so the fresh write still arrives marked. */
       expect(fake.sends[0]?.state).toEqual({
         cart: {
-          $counter: { data: { $$value: 1 }, __serializedType__: "not mounted, may be stale" },
+          $counter: { data: { "(value)": 1 }, __serializedType__: "not mounted, may be stale" },
         },
       });
     });

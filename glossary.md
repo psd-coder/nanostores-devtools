@@ -131,12 +131,13 @@ sit beside it.
 **Marker** — what a slot carries when its store's value cannot be trusted, which is not the same
 as "not mounted". An unmounted `atom`, `map` or `deepMap` holds a correct value and is left bare.
 Only a `computed`, a `batched` or an unknown-type store is marked, as
-`{ data: { $$value: … }, __serializedType__: "not mounted, may be stale" }`. A `computed` or a
+`{ data: <the value>, __serializedType__: "not mounted, may be stale" }`. A `computed` or a
 `batched` that holds `undefined` and never mounted takes `not mounted, never computed` instead,
-which carries `{}` with no `$$value` key at all. The store's value always sits under **`$$value`**,
-whatever its type; that is the one invented key name in the design, and the `$$` prefix marks it as
-ours. The marker states the consequence, not the mount state, so where there is no consequence
-there is no marker. Nothing is ever hidden, so a marker is how an untrustworthy store appears,
+which carries `{}` with no value key at all. A plain object and an array sit in `data` bare; every
+other value is **boxed** under **`(value)`** first, or the panel drops the label. That is the one
+invented key name in the design, the same key a store that owns others keeps its own value under,
+and parentheses cannot spell a name a developer could have written. The marker states the
+consequence, not the mount state, so where there is no consequence there is no marker. Nothing is ever hidden, so a marker is how an untrustworthy store appears,
 never a replacement for a missing key.
 
 **Node** — a thing in the tree that holds others and has no value of its own: a class instance,

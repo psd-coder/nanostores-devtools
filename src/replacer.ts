@@ -1,7 +1,7 @@
 import type { Store } from "nanostores";
 
 import { chainDescriptor } from "./descriptor.ts";
-import { box, mark, type Marked } from "./marker.ts";
+import { box, boxUnlessPlain, mark, type Marked } from "./marker.ts";
 import { getEntry, isStore, type StoreType } from "./registry.ts";
 import { staleNote, storeValue } from "./slot.ts";
 import { describeError, warnOnce } from "./warn.ts";
@@ -288,7 +288,7 @@ function markStore(wrappers: Wrappers, store: Store): Marked {
   const note = staleNote(store, entry);
 
   return note === undefined
-    ? markOnce(wrappers, store, storeWord(entry?.type), objectOrBoxed(storeValue(store)))
+    ? markOnce(wrappers, store, storeWord(entry?.type), boxUnlessPlain(storeValue(store)))
     : markOnce(wrappers, store, note.label, note.data);
 }
 
@@ -299,14 +299,6 @@ function markStore(wrappers: Wrappers, store: Store): Marked {
  */
 function storeWord(type: StoreType | undefined): string {
   return type === undefined || type === "unknown" ? "store" : type;
-}
-
-/**
- * The panel's reviver drops the wrapper only while `data` is an object, so anything else is boxed
- * first. `null` passes its `typeof` test and then breaks the write it makes, so it is boxed too.
- */
-function objectOrBoxed(value: unknown): object {
-  return typeof value === "object" && value !== null ? value : box(value);
 }
 
 /**

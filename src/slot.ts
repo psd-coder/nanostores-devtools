@@ -1,7 +1,7 @@
 import type { Store } from "nanostores";
 
 import { chainValue } from "./descriptor.ts";
-import { box } from "./marker.ts";
+import { boxUnlessPlain } from "./marker.ts";
 import { DERIVED, type StoreEntry, type StoreType } from "./registry.ts";
 
 /** `set` writes `value` with no check on `lc`, so an unmounted one still holds the true value. */
@@ -43,5 +43,5 @@ export function staleNote(store: Store, entry: StoreEntry | undefined): Note | u
     return { label: "not mounted, never computed", data: {} };
   }
 
-  return { label: "not mounted, may be stale", data: box(value) };
+  return { label: "not mounted, may be stale", data: boxUnlessPlain(value) };
 }

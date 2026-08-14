@@ -1,3 +1,4 @@
+import { stringify } from "jsan";
 import { atom, computed, deepMap, map, type Store, type WritableAtom } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -18,7 +19,14 @@ import {
   trackStores,
   untrack,
 } from "./registry.ts";
+import { createReplacer } from "./replacer.ts";
 import { buildSnapshot, type Snapshot } from "./snapshot.ts";
+import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
+
+/** A class instance, which the replacer marks, so a store holding one carries two labels. */
+class Point {
+  x = 1;
+}
 
 /** A real store keeping its own `value` and `lc` fields, over a prototype that throws. */
 function hostileStore(value: unknown): Store {
@@ -42,11 +50,31 @@ function hostileStore(value: unknown): Store {
 
 /** The marked shape spelled out, so these tests pin the shape the panel receives. */
 function stale(value: unknown): unknown {
-  return { data: { $$value: value }, __serializedType__: "not mounted, may be stale" };
+  return { data: { "(value)": value }, __serializedType__: "not mounted, may be stale" };
+}
+
+/** The same marker over a value that goes in with no box at all: a plain object or an array. */
+function staleBare(value: object): unknown {
+  return { data: value, __serializedType__: "not mounted, may be stale" };
 }
 
 function slot(snapshot: Snapshot, home: string, name: string): unknown {
   return snapshot[home]?.[name];
+}
+
+/** One level of a tree the panel's reviver has already been over, so its labels sit on symbols. */
+function readNode(value: unknown, key: string): Record<string, unknown> {
+  const node = isRecord(value) ? value[key] : undefined;
+
+  if (!isRecord(node)) {
+    throw new Error(`"${key}" holds no node`);
+  }
+
+  return node;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 /**
@@ -104,7 +132,7 @@ describe("buildSnapshot", () => {
     trackStores("cart", { $items: atom(["milk"]), $count: atom(1) });
 
     expect(buildSnapshot()).toEqual({
-      cart: { $items: stale(["milk"]), $count: stale(1) },
+      cart: { $items: staleBare(["milk"]), $count: stale(1) },
     });
   });
 
@@ -594,23 +622,66 @@ describe("buildSnapshot", () => {
       const empty = slot(buildSnapshot(), "cart", "$empty");
 
       expect(empty).toStrictEqual(stale(undefined));
-      expect(boxedKeys(empty)).toEqual(["$$value"]);
+      expect(boxedKeys(empty)).toEqual(["(value)"]);
     });
   });
 
   describe("the marked shape", () => {
-    it("boxes a primitive and an object the same way", () => {
-      trackStores("cart", { $count: atom(12), $cart: atom({ total: 12 }) });
+    it("boxes a primitive and lets a plain object and an array in bare", () => {
+      trackStores("cart", {
+        $count: atom(12),
+        $cart: atom({ total: 12 }),
+        $items: atom(["milk"]),
+      });
 
       expect(buildSnapshot()).toEqual({
         cart: {
-          $count: { data: { $$value: 12 }, __serializedType__: "not mounted, may be stale" },
-          $cart: {
-            data: { $$value: { total: 12 } },
-            __serializedType__: "not mounted, may be stale",
-          },
+          $count: stale(12),
+          $cart: staleBare({ total: 12 }),
+          $items: staleBare(["milk"]),
         },
       });
+    });
+
+    it("boxes every value that would otherwise reach the panel with no label", () => {
+      trackStores("cart", {
+        $when: atom(new Date(0)),
+        $pairs: atom(new Map([["a", 1]])),
+        $members: atom(new Set([1])),
+        $pattern: atom(/a/),
+        $bytes: atom(new Uint8Array([1])),
+        $failed: atom(new Error("boom")),
+        $point: atom(new Point()),
+        $nothing: atom<unknown>(null),
+        $held: atom(atom(1)),
+      });
+
+      const tree = buildSnapshot();
+      const names = Object.keys(tree["cart"] ?? {});
+
+      expect(names).toHaveLength(9);
+
+      for (const name of names) {
+        expect(boxedKeys(slot(tree, "cart", name)), name).toEqual(["(value)"]);
+      }
+    });
+
+    it("keeps every label through the panel's own reviver, over a whole tree", () => {
+      trackStores("cart", {
+        $count: atom(12),
+        $cart: atom({ total: 12 }),
+        $when: atom(new Date(0)),
+        $point: atom(new Point()),
+        $nothing: atom<unknown>(null),
+      });
+
+      const written = stringify(buildSnapshot(), createReplacer([]), null, EXTENSION_OPTIONS);
+      const drawn = parsePanel(written);
+      const cart = readNode(drawn, "cart");
+
+      for (const name of ["$count", "$cart", "$when", "$point", "$nothing"]) {
+        expect(labelOf(cart[name]), name).toBe("not mounted, may be stale");
+      }
     });
 
     it("marks a store that mounted and unmounted before connect as may be stale", () => {
@@ -766,6 +837,25 @@ describe("buildSnapshot", () => {
 
       expect(buildSnapshot()).toEqual({
         [HOME]: { "$total [computed]": { "(value)": stale(2), $child: 1 } },
+      });
+    });
+
+    it("costs one level and not two where the marked value is an object", () => {
+      const $child = atom(1);
+      const $total = Object.assign(
+        computed(atom(1), () => ({ total: 12 })),
+        { $child },
+      );
+      const entry = track($total, "$total", HOME, "computed");
+      const unbind = $total.listen(() => {});
+
+      unbind();
+      entry.everMounted = true;
+      track($child, "$child");
+      ownBindings(FROM, [["$total", $total]]);
+
+      expect(buildSnapshot()).toEqual({
+        [HOME]: { "$total [computed]": { "(value)": staleBare({ total: 12 }), $child: 1 } },
       });
     });
 
