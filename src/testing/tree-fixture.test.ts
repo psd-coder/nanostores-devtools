@@ -5,6 +5,7 @@ import { resetDevtoolsGlobal } from "../global.ts";
 import { listEntries, type StoreEntry } from "../registry.ts";
 import { buildSnapshot } from "../snapshot.ts";
 import { nanostoresDevtools, type VitePluginOptions } from "../vite/plugin.ts";
+import { labelled, panelNode } from "./shapes.ts";
 import {
   EDITOR,
   EDITOR_HOME,
@@ -49,20 +50,12 @@ const HISTORY = [
   "the quick brown fox jumps ",
 ];
 
-/**
- * A node the panel draws with its type in front of it. Written out rather than built with the
- * package's own `mark`, so a broken wrapper fails these tests instead of moving with them.
- */
-function labelled(type: string, children: Record<string, unknown>): unknown {
-  return { data: children, __serializedType__: type };
-}
-
 /** What the tree draws for a computed store nobody has mounted, which holds no value to show. */
 const NEVER_COMPUTED = labelled("not mounted, never computed", {});
 
 const EDITOR_NODE = { "$count [store]": 0, "$value [store]": "" };
 
-const PANEL_NODE = { "open [store]": false, "width [store]": 320 };
+const PANEL_NODE = panelNode(320);
 
 async function serve(options: VitePluginOptions = {}): Promise<ViteDevServer> {
   resetDevtoolsGlobal();

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDevtoolsGlobal } from "../global.ts";
 import { listEntries, type StoreEntry } from "../registry.ts";
 import { buildSnapshot } from "../snapshot.ts";
+import { labelled, panelNode } from "../testing/shapes.ts";
 import {
   fileHome,
   type ModuleRoots,
@@ -319,11 +320,6 @@ const GATE_FILES: Record<string, string> = {
     `export const hidden = new WeakMap([[{}, new Editor()]]);\n`,
 };
 
-/** A node the panel draws with its type in front of it, which is what the wrapper carries. */
-function labelled(type: string, children: Record<string, unknown>): unknown {
-  return { data: children, __serializedType__: type };
-}
-
 describe("a file the narrow parse gate never sees", () => {
   let server: ViteDevServer;
 
@@ -350,8 +346,8 @@ describe("a file the narrow parse gate never sees", () => {
 
     expect(buildSnapshot()).toEqual({
       [WORKSPACE_HOME]: {
-        panel: { "open [store]": false, "width [store]": 320 },
-        sidebar: { "open [store]": false, "width [store]": 240 },
+        panel: panelNode(320),
+        sidebar: panelNode(240),
         hidden: labelled("WeakMap", { "ref#1": labelled("Editor", { "$value [store]": "draft" }) }),
       },
     });

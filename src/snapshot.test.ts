@@ -22,6 +22,7 @@ import {
 import { createReplacer } from "./replacer.ts";
 import { buildSnapshot, type Snapshot } from "./snapshot.ts";
 import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
+import { labelled } from "./testing/shapes.ts";
 
 /** A class instance, which the replacer marks, so a store holding one carries two labels. */
 class Point {
@@ -1054,11 +1055,6 @@ describe("buildSnapshot", () => {
     describe("a node", () => {
       class Editor {
         $value = atom("draft");
-      }
-
-      /** The type label as the extension carries it: a wrapper its reviver drops before drawing. */
-      function labelled(type: string, children: Record<string, unknown>): unknown {
-        return { data: children, __serializedType__: type };
       }
 
       /** What one node holds, out from behind the type label, so a key list reads plainly. */
