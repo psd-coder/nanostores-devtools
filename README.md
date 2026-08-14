@@ -398,8 +398,20 @@ then carries that change in its diff. Turn it off when a route change mounting m
 is too slow, and know what you are paying for it.
 
 A custom serializer is `{ match: (value) => boolean, convert: (value) => unknown }`. Serializers
-run in array order, first match wins, ahead of every rule of ours. Whatever `convert` returns is
-handed straight on, never back through your serializers, so an endless loop cannot start.
+run in array order, first match wins, ahead of every rule of ours.
+
+**What `convert` returns may hold its own input.** The encoder walks that result too, and none of
+your serializers runs again on a value inside it, so a `convert` returning `{ point: value }` draws
+your wrapper with the `Point` inside it drawn by our rules, and the walk ends. Your rule already ran
+over the whole tree it built, which is also what it costs: a result that a later serializer's
+`match` would match does not reach that serializer either.
+
+**Put the values of a result in plain properties, not behind getters.** We read a result through
+property descriptors and never call a getter, so a value behind one is a value we cannot keep out
+of your serializers. A getter handing back the input converts it over and over; that one slot then
+shows `ConversionError` and the rest of the tree still reaches the panel. A `Map` or a `Set` in a
+result is the one other gap: the encoder rebuilds it as a list of pairs of its own, and a
+serializer of yours matching arrays sees those pairs.
 
 ### `nanostoresDevtools(options?)`
 

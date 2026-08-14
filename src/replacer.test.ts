@@ -710,7 +710,7 @@ describe("createReplacer", () => {
       expect(custom("n", 7)).toBe("seven");
     });
 
-    it("hands what convert returned straight to jsan, never back through our rules", () => {
+    it("hands what convert returned to jsan as it is, with no rule of ours on top", () => {
       const custom = createReplacer([
         { match: (value) => value === "big", convert: () => 9007199254740993n },
       ]);
@@ -725,6 +725,146 @@ describe("createReplacer", () => {
         data: { x: 1, y: 2 },
         __serializedType__: "Point",
       });
+    });
+  });
+
+  describe("a serializer result jsan walks back into", () => {
+    it("draws a result holding its own input instead of taking the tree down", () => {
+      const custom = createReplacer([
+        { match: (value) => value instanceof Point, convert: (value) => ({ point: value }) },
+      ]);
+
+      expect(write({ p: new Point() }, custom)).toBe(
+        '{"p":{"point":{"data":{"x":1,"y":2},"__serializedType__":"Point"}}}',
+      );
+    });
+
+    it("draws a result holding its own input two levels down", () => {
+      const custom = createReplacer([
+        {
+          match: (value) => value instanceof Point,
+          convert: (value) => ({ outer: { inner: value } }),
+        },
+      ]);
+
+      expect(write({ p: new Point() }, custom)).toBe(
+        '{"p":{"outer":{"inner":{"data":{"x":1,"y":2},"__serializedType__":"Point"}}}}',
+      );
+    });
+
+    it("draws a result holding its own input inside an array", () => {
+      const custom = createReplacer([
+        { match: (value) => value instanceof Point, convert: (value) => [value] },
+      ]);
+
+      expect(write({ p: new Point() }, custom)).toBe(
+        '{"p":[{"data":{"x":1,"y":2},"__serializedType__":"Point"}]}',
+      );
+    });
+
+    it("draws a result holding its own input inside a Map", () => {
+      const custom = createReplacer([
+        {
+          match: (value) => value instanceof Point,
+          convert: (value) => new Map([["point", value]]),
+        },
+      ]);
+
+      expect(unescaped(write({ p: new Point() }, custom))).toContain(
+        '{"data":{"x":1,"y":2},"__serializedType__":"Point"}',
+      );
+    });
+
+    it("draws a result with none of its input inside exactly as it did before", () => {
+      const custom = createReplacer([
+        { match: (value) => value instanceof Point, convert: () => ({ theirs: [1, "two"] }) },
+      ]);
+
+      expect(write({ p: new Point() }, custom)).toBe('{"p":{"theirs":[1,"two"]}}');
+    });
+
+    it("leaves the values inside a result to our rules, not to a later serializer", () => {
+      const custom = createReplacer([
+        { match: (value) => value instanceof Point, convert: (value) => ({ point: value }) },
+        { match: (value) => value instanceof Point, convert: () => "second" },
+      ]);
+
+      expect(write({ p: new Point() }, custom)).toBe(
+        '{"p":{"point":{"data":{"x":1,"y":2},"__serializedType__":"Point"}}}',
+      );
+    });
+
+    it("converts the same value again where the app holds it a second time", () => {
+      const custom = createReplacer([
+        { match: (value) => value instanceof Point, convert: (value) => ({ point: value }) },
+      ]);
+      const twin = new Point();
+      const drawn = '{"point":{"data":{"x":1,"y":2},"__serializedType__":"Point"}}';
+
+      expect(write({ left: twin, right: twin }, custom)).toBe(`{"left":${drawn},"right":${drawn}}`);
+    });
+
+    it("keeps a serializer running on a value the next row holds again", () => {
+      const custom = createReplacer([
+        { match: (value) => value instanceof Point, convert: (value) => ({ point: value }) },
+      ]);
+      const point = new Point();
+      const drawn = '{"p":{"point":{"data":{"x":1,"y":2},"__serializedType__":"Point"}}}';
+
+      expect(write({ p: point }, custom)).toBe(drawn);
+      expect(write({ p: point }, custom)).toBe(drawn);
+    });
+
+    it("draws the next tree the same way after a result the walk never came back for", async () => {
+      const custom = createReplacer([
+        {
+          match: (value) => value instanceof Point,
+          convert: (value) => ({ point: value, toJSON: () => "short" }),
+        },
+      ]);
+      const point = new Point();
+
+      expect(write({ p: point }, custom)).toBe('{"p":"short"}');
+
+      await Promise.resolve();
+
+      expect(write({ p: point }, custom)).toBe('{"p":"short"}');
+    });
+
+    it("costs one slot a ConversionError when a result reaches its input through a getter", () => {
+      const custom = createReplacer([
+        {
+          match: (value) => value instanceof Point,
+          convert: (value) => ({
+            get point(): unknown {
+              return value;
+            },
+          }),
+        },
+      ]);
+      const written = write({ p: new Point(), other: "kept" }, custom);
+
+      expect(written).toContain('"__serializedType__":"ConversionError"');
+      expect(written).toContain('"other":"kept"');
+      expect(console.warn).toHaveBeenCalled();
+    });
+
+    it("costs one slot a ConversionError when such a result also carries a Map", () => {
+      const custom = createReplacer([
+        {
+          match: (value) => value instanceof Point,
+          convert: (value) => ({
+            seen: new Map([["a", 1]]),
+            get point(): unknown {
+              return value;
+            },
+          }),
+        },
+      ]);
+      const written = write({ p: new Point(), other: "kept" }, custom);
+
+      expect(written).toContain('"__serializedType__":"ConversionError"');
+      expect(written).toContain('"other":"kept"');
     });
   });
 

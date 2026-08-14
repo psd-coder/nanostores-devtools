@@ -6,7 +6,11 @@ import { getEntry, isStore, type StoreType } from "./registry.ts";
 import { staleNote, storeValue } from "./slot.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
-/** Checked in array order, ahead of every rule of ours, and the first match wins. */
+/**
+ * Checked in array order, ahead of every rule of ours, and the first match wins. What a `convert`
+ * returns goes to jsan, and no serializer runs again on a value inside that result, so a result may
+ * hold its own input.
+ */
 export type Serializer = {
   match: (value: unknown) => boolean;
   convert: (value: unknown) => unknown;
@@ -21,6 +25,18 @@ type TaggedNode = { nodeName: string; attributes?: ArrayLike<NodeAttribute> | un
 
 /** The one wrapper each source object gets, for as long as the replacer lives. */
 type Wrappers = WeakMap<object, Marked>;
+
+/** How many slots of a serializer's result hold this value, so how often jsan is yet to hand it back. */
+type ResultSlots = Map<unknown, number>;
+
+/**
+ * How many times one object may go through a `convert` while one tree is written. A result that
+ * reaches its own input through something the walk cannot follow, an own getter above all, converts
+ * that input again one level deeper every time and never stops. Nothing a real tree does comes near
+ * this many, and jsan's own recursion outlives this depth, so the count stops such a walk while
+ * there is still stack left to fill the slot with a `ConversionError`.
+ */
+const CONVERT_LIMIT = 1000;
 
 /**
  * jsan calls this for every key of the tree and then walks whatever we hand back, so returning a
@@ -37,13 +53,51 @@ export function createReplacer(
    * connection.
    */
   const wrappers: Wrappers = new WeakMap();
+  const slots: ResultSlots = new Map();
+  const converted: Map<object, number> = new Map();
+  let forgetQueued = false;
+
+  /**
+   * Both counts belong to one tree, and jsan writes a tree in one synchronous run, so a microtask
+   * is the first moment after that tree. A count kept past it would hold an app object alive for
+   * the session and would let a slot this walk never came back for change what the next tree draws.
+   */
+  const forgetAfterTree = (): void => {
+    if (forgetQueued) {
+      return;
+    }
+
+    forgetQueued = true;
+
+    queueMicrotask(() => {
+      slots.clear();
+      converted.clear();
+      forgetQueued = false;
+    });
+  };
 
   return (key, value) => {
     try {
+      const left = slots.get(value) ?? 0;
+
+      /**
+       * A value jsan reached inside a result the serializers already built. Their rule already ran
+       * over that whole tree, so running the serializers again on the way down is what loops.
+       */
+      if (left > 0) {
+        takeSlot(slots, value, left);
+
+        return fillSlots(slots, convertValue(value, wrappers));
+      }
+
       for (const serializer of serializers) {
         if (serializer.match(value)) {
-          /** Straight out, never back through the serializers, so an endless loop cannot start. */
-          return serializer.convert(value);
+          /** Before the count, so a `convert` that throws leaves nothing behind for the next tree. */
+          forgetAfterTree();
+          countConvert(converted, value);
+
+          /** jsan walks this result too, and holding its slots keeps that walk out of this loop. */
+          return fillSlots(slots, serializer.convert(value));
         }
       }
 
@@ -66,6 +120,81 @@ export function createReplacer(
       return mark("ConversionError", box(message));
     }
   };
+}
+
+/** One slot fewer, and the value goes once its last slot has been walked. */
+function takeSlot(slots: ResultSlots, value: unknown, left: number): void {
+  if (left > 1) {
+    slots.set(value, left - 1);
+  } else {
+    slots.delete(value);
+  }
+}
+
+/**
+ * The values jsan walks next inside a result, one level at a time: each of them comes back to the
+ * replacer, and that call holds the level below it. A getter is passed over rather than called, so
+ * a result that keeps its input behind one is what `CONVERT_LIMIT` is for.
+ */
+function fillSlots(slots: ResultSlots, result: unknown): unknown {
+  for (const child of childValues(result)) {
+    slots.set(child, (slots.get(child) ?? 0) + 1);
+  }
+
+  return result;
+}
+
+/**
+ * What jsan hands the replacer one level down. A `Map` and a `Set` go through a walk of their own,
+ * over a list jsan builds out of them, so their keys and their values are held here while that list
+ * and its pairs are not: those are jsan's own values and no serializer of the developer's made them.
+ */
+function childValues(value: unknown): unknown[] {
+  if (!isWalkable(value)) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (value instanceof Map) {
+    return [...value.keys(), ...value.values()];
+  }
+
+  if (value instanceof Set) {
+    return [...value];
+  }
+
+  return Object.values(ownFields(value));
+}
+
+/**
+ * Throws rather than returns, so a walk that cannot end costs the one slot a `ConversionError`
+ * through the same `catch` every other failure goes through. Only an object is counted: a primitive
+ * the app holds in a thousand slots is a tree a serializer may well meet, and it converts fine.
+ */
+function countConvert(converted: Map<object, number>, value: unknown): void {
+  if (!isWalkable(value)) {
+    return;
+  }
+
+  const seen = (converted.get(value) ?? 0) + 1;
+
+  converted.set(value, seen);
+
+  if (seen > CONVERT_LIMIT) {
+    throw new Error(
+      `A serializer converted the same value ${CONVERT_LIMIT} times while one tree was written, ` +
+        `so its result reaches its own input through something the walk cannot follow, such as a ` +
+        `getter.`,
+    );
+  }
+}
+
+/** What jsan walks into. A function is not one: with `options` on it goes out as a `$jsan` string. */
+function isWalkable(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
 }
 
 /**
