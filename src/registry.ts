@@ -13,6 +13,18 @@ import { warnOnce } from "./warn.ts";
 export type StoreType = "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
 
 /**
+ * The word the panel prints for a type, in the tree key and in `__serializedType__` alike, so the
+ * two can never drift apart.
+ *
+ * An `atom` and a type nothing worked out share the plain word: the two say how much we learned
+ * rather than anything about the store, and the reader can do nothing with the difference. The
+ * type itself keeps them apart, because the marker rules and the timeline still need it.
+ */
+export function storeWord(type: StoreType | undefined): string {
+  return type === undefined || type === "unknown" || type === "atom" ? "store" : type;
+}
+
+/**
  * The types that work their value out from other stores instead of taking a write. They follow
  * the row that caused them, and an unmounted one holds a value nothing keeps up to date.
  */

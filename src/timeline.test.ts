@@ -98,9 +98,9 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends.map((call) => call.state)).toEqual([
-        { cart: { $counter: 1 } },
-        { cart: { $counter: 2 } },
-        { cart: { $counter: 3 } },
+        { cart: { "$counter [store]": 1 } },
+        { cart: { "$counter [store]": 2 } },
+        { cart: { "$counter [store]": 3 } },
       ]);
     });
 
@@ -118,7 +118,10 @@ describe("direct write rows", () => {
       /** An unknown type is never trusted while unmounted, so the fresh write still arrives marked. */
       expect(fake.sends[0]?.state).toEqual({
         cart: {
-          $counter: { data: { "(value)": 1 }, __serializedType__: "not mounted, may be stale" },
+          "$counter [store]": {
+            data: { "(value)": 1 },
+            __serializedType__: "not mounted, may be stale",
+          },
         },
       });
     });
@@ -187,7 +190,7 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends[0]?.action["type"]).toBe("$undoable/set");
-      expect(fake.sends[0]?.state).toEqual({ cart: { $undoable: true } });
+      expect(fake.sends[0]?.state).toEqual({ cart: { "$undoable [store]": true } });
     });
 
     it("names a deepMap write after the dotted path", async () => {
@@ -221,8 +224,8 @@ describe("direct write rows", () => {
 
       await endOfTurn();
 
-      expect(fake.sends[0]?.state).toEqual({ cart: { $first: 1, $second: 0 } });
-      expect(fake.sends[1]?.state).toEqual({ cart: { $first: 1, $second: 2 } });
+      expect(fake.sends[0]?.state).toEqual({ cart: { "$first [store]": 1, "$second [store]": 0 } });
+      expect(fake.sends[1]?.state).toEqual({ cart: { "$first [store]": 1, "$second [store]": 2 } });
     });
   });
 
@@ -241,7 +244,7 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends).toHaveLength(1);
-      expect(fake.sends[0]?.state).toEqual({ cart: { $counter: 1 } });
+      expect(fake.sends[0]?.state).toEqual({ cart: { "$counter [store]": 1 } });
     });
 
     it("flushes the open row early when the app aborts a write", async () => {
@@ -417,7 +420,9 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends.at(-1)?.action["type"]).toBe("$other/set");
-      expect(fake.sends.at(-1)?.state).toEqual({ cart: { $counter: 3, $other: 1 } });
+      expect(fake.sends.at(-1)?.state).toEqual({
+        cart: { "$counter [store]": 3, "$other [store]": 1 },
+      });
     });
 
     it("names the store whose row failed, not the store that triggered the flush", async () => {
@@ -490,7 +495,7 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends.map((call) => call.action["type"])).toEqual(["$counter/set"]);
-      expect(fake.sends[0]?.state).toEqual({ cart: { $counter: 2 } });
+      expect(fake.sends[0]?.state).toEqual({ cart: { "$counter [store]": 2 } });
     });
   });
 });
@@ -535,7 +540,9 @@ describe("computed follower rows", () => {
     await endOfTurn();
 
     expect(fake.sends).toHaveLength(1);
-    expect(fake.sends[0]?.state).toEqual({ cart: { "$count [computed]": 3, $items: [1, 2, 3] } });
+    expect(fake.sends[0]?.state).toEqual({
+      cart: { "$count [computed]": 3, "$items [store]": [1, 2, 3] },
+    });
   });
 
   it("keeps a three level chain in one row, each follower naming the one before it", async () => {

@@ -492,7 +492,7 @@ describe("createReplacer", () => {
 
       expect(replacer("0", $inner)).toEqual({
         data: { id: 1, name: "city" },
-        __serializedType__: "atom",
+        __serializedType__: "store",
       });
     });
 
@@ -545,7 +545,7 @@ describe("createReplacer", () => {
 
       for (const [where, holder] of rows) {
         expect(unescaped(write(holder)), where).toContain(
-          '{"data":{"(value)":"Berlin"},"__serializedType__":"atom"}',
+          '{"data":{"(value)":"Berlin"},"__serializedType__":"store"}',
         );
       }
     });
@@ -559,7 +559,7 @@ describe("createReplacer", () => {
 
       expect(write({ $branch })).toBe(
         '{"$branch":{"data":{"$leaf":{"data":{"(value)":"deep"},' +
-          '"__serializedType__":"atom"}},"__serializedType__":"atom"}}',
+          '"__serializedType__":"store"}},"__serializedType__":"store"}}',
       );
     });
 
@@ -607,12 +607,12 @@ describe("createReplacer", () => {
 
       expect(replacer("k", $text)).toEqual({
         data: { "(value)": "Berlin" },
-        __serializedType__: "atom",
+        __serializedType__: "store",
       });
       /** `typeof null` is `"object"`, so the reviver would take it and then fail to write to it. */
       expect(replacer("k", $nothing)).toEqual({
         data: { "(value)": null },
-        __serializedType__: "atom",
+        __serializedType__: "store",
       });
     });
 
@@ -646,7 +646,7 @@ describe("createReplacer", () => {
       register($self, "atom");
       $self.set($self);
 
-      expect(write($self)).toBe('{"data":{"(value)":{"$jsan":"$"}},"__serializedType__":"atom"}');
+      expect(write($self)).toBe('{"data":{"(value)":{"$jsan":"$"}},"__serializedType__":"store"}');
     });
 
     it("lets a user serializer matching a store win", () => {
@@ -669,9 +669,9 @@ describe("createReplacer", () => {
 
       expect(write({ $rows })).toBe(
         '{"$rows":{"data":[' +
-          '{"data":{"id":1,"name":"city","value":"Berlin"},"__serializedType__":"atom"},' +
-          '{"data":{"id":2,"name":"street","value":"Unter den Linden"},"__serializedType__":"atom"}' +
-          '],"__serializedType__":"atom"}}',
+          '{"data":{"id":1,"name":"city","value":"Berlin"},"__serializedType__":"store"},' +
+          '{"data":{"id":2,"name":"street","value":"Unter den Linden"},"__serializedType__":"store"}' +
+          '],"__serializedType__":"store"}}',
       );
     });
   });
@@ -722,7 +722,7 @@ describe("createReplacer", () => {
       for (const [where, value] of rows) {
         const slot = held(value);
 
-        expect(labelOf(slot), where).toBe("atom");
+        expect(labelOf(slot), where).toBe("store");
         expect(drawnKeys(slot), where).toEqual(["(value)"]);
       }
     });
@@ -747,9 +747,9 @@ describe("createReplacer", () => {
       const cart = held({ total: 12 });
       const items = held(["milk"]);
 
-      expect(labelOf(cart)).toBe("atom");
+      expect(labelOf(cart)).toBe("store");
       expect(drawnKeys(cart)).toEqual(["total"]);
-      expect(labelOf(items)).toBe("atom");
+      expect(labelOf(items)).toBe("store");
       expect(drawnKeys(items)).toEqual(["0"]);
     });
 

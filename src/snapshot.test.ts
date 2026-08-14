@@ -132,7 +132,7 @@ describe("buildSnapshot", () => {
     trackStores("cart", { $items: atom(["milk"]), $count: atom(1) });
 
     expect(buildSnapshot()).toEqual({
-      cart: { $items: staleBare(["milk"]), $count: stale(1) },
+      cart: { "$items [store]": staleBare(["milk"]), "$count [store]": stale(1) },
     });
   });
 
@@ -166,7 +166,7 @@ describe("buildSnapshot", () => {
       "src/stores/apple.ts",
       "src/stores/zebra.ts",
     ]);
-    expect(Object.keys(snapshot["auth"] ?? {})).toEqual(["$session", "$user"]);
+    expect(Object.keys(snapshot["auth"] ?? {})).toEqual(["$session [store]", "$user [store]"]);
   });
 
   it("sorts every external file after the developer's own, groups still first", () => {
@@ -228,8 +228,8 @@ describe("buildSnapshot", () => {
     });
 
     expect(buildSnapshot()).toEqual({
-      "node_modules/@nanostores/router/index.js": { $route: 2 },
-      "packages/nanobots/src/withUndo.ts": { $undo: 1 },
+      "node_modules/@nanostores/router/index.js": { "$route [store]": 2 },
+      "packages/nanobots/src/withUndo.ts": { "$undo [store]": 1 },
     });
   });
 
@@ -275,7 +275,7 @@ describe("buildSnapshot", () => {
     trackStores("src/stores/cart.ts", { $hand });
 
     expect(buildSnapshot()).toEqual({
-      "src/stores/cart.ts": { $plugin: 1, $hand: stale(2) },
+      "src/stores/cart.ts": { "$plugin [store]": 1, "$hand [store]": stale(2) },
     });
   });
 
@@ -285,7 +285,7 @@ describe("buildSnapshot", () => {
     trackStores("cart", { $safe, $hostile: hostileStore(7) });
 
     expect(buildSnapshot()).toEqual({
-      cart: { $safe: stale(1), $hostile: stale(7) },
+      cart: { "$safe [store]": stale(1), "$hostile [store]": stale(7) },
     });
     expect($safe.lc).toBe(0);
   });
@@ -299,7 +299,7 @@ describe("buildSnapshot", () => {
     Object.defineProperty($trapped, "value", { get, configurable: true });
     trackStores("cart", { $trapped });
 
-    expect(buildSnapshot()).toEqual({ cart: { $trapped: stale(undefined) } });
+    expect(buildSnapshot()).toEqual({ cart: { "$trapped [store]": stale(undefined) } });
   });
 
   it("keeps every registered store as a key, mounted or not", () => {
@@ -327,16 +327,16 @@ describe("buildSnapshot", () => {
     trackStores("cart", { $unknown: atom(2) });
 
     expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual([
-      "$mounted",
+      "$mounted [store]",
       "$never [computed]",
-      "$unknown",
+      "$unknown [store]",
     ]);
 
     unbind();
   });
 
   describe("the type note", () => {
-    it("leaves an atom and an unknown type bare", () => {
+    it("gives an atom and an unknown type the same plain word", () => {
       registerStore({
         store: atom(1),
         name: "$atom",
@@ -348,7 +348,10 @@ describe("buildSnapshot", () => {
       });
       trackStores("cart", { $adopted: atom(2) });
 
-      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$adopted", "$atom"]);
+      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual([
+        "$adopted [store]",
+        "$atom [store]",
+      ]);
     });
 
     it("names every other type after the store", () => {
@@ -417,7 +420,7 @@ describe("buildSnapshot", () => {
         fn: null,
       });
 
-      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$a [map]", "$b"]);
+      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$a [map]", "$b [store]"]);
     });
 
     it("sits behind the place suffix a name clash adds", () => {
@@ -431,7 +434,20 @@ describe("buildSnapshot", () => {
         fn: null,
       });
 
-      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$total (line 20) [computed]"]);
+      registerStore({
+        store: atom(1),
+        name: "$counter (line 20)",
+        home: "cart",
+        type: "atom",
+        origin: "plugin",
+        external: false,
+        fn: null,
+      });
+
+      expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual([
+        "$counter (line 20) [store]",
+        "$total (line 20) [computed]",
+      ]);
     });
   });
 
@@ -454,7 +470,9 @@ describe("buildSnapshot", () => {
       });
       trackStores("cart", { $unknown });
 
-      expect(buildSnapshot()).toEqual({ cart: { "$computed [computed]": 2, $unknown: "hi" } });
+      expect(buildSnapshot()).toEqual({
+        cart: { "$computed [computed]": 2, "$unknown [store]": "hi" },
+      });
 
       unbindComputed();
       unbindUnknown();
@@ -491,7 +509,7 @@ describe("buildSnapshot", () => {
 
       expect(buildSnapshot()).toEqual({
         cart: {
-          $atom: 1,
+          "$atom [store]": 1,
           "$map [map]": { total: 2 },
           "$deepMap [deepMap]": { deep: { total: 3 } },
         },
@@ -613,13 +631,13 @@ describe("buildSnapshot", () => {
     it("marks an unmounted store of unknown type as may be stale", () => {
       trackStores("cart", { $adopted: atom(5) });
 
-      expect(buildSnapshot()).toEqual({ cart: { $adopted: stale(5) } });
+      expect(buildSnapshot()).toEqual({ cart: { "$adopted [store]": stale(5) } });
     });
 
     it("marks an unknown store holding no value as may be stale, with the value boxed", () => {
       trackStores("cart", { $empty: atom(undefined) });
 
-      const empty = slot(buildSnapshot(), "cart", "$empty");
+      const empty = slot(buildSnapshot(), "cart", "$empty [store]");
 
       expect(empty).toStrictEqual(stale(undefined));
       expect(boxedKeys(empty)).toEqual(["(value)"]);
@@ -636,9 +654,9 @@ describe("buildSnapshot", () => {
 
       expect(buildSnapshot()).toEqual({
         cart: {
-          $count: stale(12),
-          $cart: staleBare({ total: 12 }),
-          $items: staleBare(["milk"]),
+          "$count [store]": stale(12),
+          "$cart [store]": staleBare({ total: 12 }),
+          "$items [store]": staleBare(["milk"]),
         },
       });
     });
@@ -680,7 +698,7 @@ describe("buildSnapshot", () => {
       const cart = readNode(drawn, "cart");
 
       for (const name of ["$count", "$cart", "$when", "$point", "$nothing"]) {
-        expect(labelOf(cart[name]), name).toBe("not mounted, may be stale");
+        expect(labelOf(cart[`${name} [store]`]), name).toBe("not mounted, may be stale");
       }
     });
 
@@ -791,17 +809,17 @@ describe("buildSnapshot", () => {
 
       expect(buildSnapshot()).toEqual({
         [HOME]: {
-          $draft: { "(value)": "the quick brown fox ", $canUndo: false },
-          $typed: "",
+          "$draft [store]": { "(value)": "the quick brown fox ", "$canUndo [store]": false },
+          "$typed [store]": "",
         },
       });
-      expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$canUndo"]);
+      expect(keysOf(HOME, "$draft [store]")).toEqual(["(value)", "$canUndo [store]"]);
     });
 
     it("draws a store that owns nothing exactly as v1 draws it, with no wrapper", () => {
       track(atom("x"), "$typed");
 
-      expect(buildSnapshot()).toEqual({ [HOME]: { $typed: "x" } });
+      expect(buildSnapshot()).toEqual({ [HOME]: { "$typed [store]": "x" } });
     });
 
     it("nests a node inside a node", () => {
@@ -816,7 +834,10 @@ describe("buildSnapshot", () => {
 
       expect(buildSnapshot()).toEqual({
         [HOME]: {
-          $draft: { "(value)": "", $history: { "(value)": ["a"], $position: 3 } },
+          "$draft [store]": {
+            "(value)": "",
+            "$history [store]": { "(value)": ["a"], "$position [store]": 3 },
+          },
         },
       });
     });
@@ -836,7 +857,7 @@ describe("buildSnapshot", () => {
       ownBindings(FROM, [["$total", $total]]);
 
       expect(buildSnapshot()).toEqual({
-        [HOME]: { "$total [computed]": { "(value)": stale(2), $child: 1 } },
+        [HOME]: { "$total [computed]": { "(value)": stale(2), "$child [store]": 1 } },
       });
     });
 
@@ -855,7 +876,9 @@ describe("buildSnapshot", () => {
       ownBindings(FROM, [["$total", $total]]);
 
       expect(buildSnapshot()).toEqual({
-        [HOME]: { "$total [computed]": { "(value)": staleBare({ total: 12 }), $child: 1 } },
+        [HOME]: {
+          "$total [computed]": { "(value)": staleBare({ total: 12 }), "$child [store]": 1 },
+        },
       });
     });
 
@@ -867,7 +890,7 @@ describe("buildSnapshot", () => {
       trackNumbered($canUndo, "$canUndo", 2);
       ownBindings(FROM, [["$draft2", $draft2]]);
 
-      expect(keysOf(HOME, "$draft2")).toEqual(["(value)", "$canUndo"]);
+      expect(keysOf(HOME, "$draft2 [store]")).toEqual(["(value)", "$canUndo [store]"]);
     });
 
     it("keeps the ordinal where one creation site put two stores on one parent", () => {
@@ -880,7 +903,11 @@ describe("buildSnapshot", () => {
       trackNumbered($second, "$row", 2);
       ownBindings(FROM, [["$draft", $draft]]);
 
-      expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$row", "$row #2"]);
+      expect(keysOf(HOME, "$draft [store]")).toEqual([
+        "(value)",
+        "$row [store]",
+        "$row #2 [store]",
+      ]);
     });
 
     it("keeps two children of one name apart by the file each came from", () => {
@@ -893,10 +920,10 @@ describe("buildSnapshot", () => {
       track($theirs, "$history", "vendor/withUndo.ts");
       ownBindings(FROM, [["$draft", $draft]]);
 
-      expect(keysOf(HOME, "$draft")).toEqual([
+      expect(keysOf(HOME, "$draft [store]")).toEqual([
         "(value)",
-        `$history (${HOME})`,
-        "$history (vendor/withUndo.ts)",
+        `$history [store] (${HOME})`,
+        "$history [store] (vendor/withUndo.ts)",
       ]);
     });
 
@@ -908,7 +935,7 @@ describe("buildSnapshot", () => {
       trackNumbered($total, "$total", 2, "computed");
       ownBindings(FROM, [["$draft", $draft]]);
 
-      expect(keysOf(HOME, "$draft")).toEqual(["(value)", "$total [computed]"]);
+      expect(keysOf(HOME, "$draft [store]")).toEqual(["(value)", "$total [computed]"]);
     });
 
     it("draws a child in its owner's node, whatever home registered it", () => {
@@ -919,7 +946,9 @@ describe("buildSnapshot", () => {
       track($canUndo, "$canUndo", "vendor/withUndo.ts");
       ownBindings(FROM, [["$draft", $draft]]);
 
-      expect(buildSnapshot()).toEqual({ [HOME]: { $draft: { "(value)": "", $canUndo: false } } });
+      expect(buildSnapshot()).toEqual({
+        [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
+      });
     });
 
     it("leaves a store flat when nothing registered its owner", () => {
@@ -928,7 +957,7 @@ describe("buildSnapshot", () => {
       ownBindings(FROM, [["$draft", holder("", { $canUndo })]]);
       track($canUndo, "$canUndo");
 
-      expect(buildSnapshot()).toEqual({ [HOME]: { $canUndo: false } });
+      expect(buildSnapshot()).toEqual({ [HOME]: { "$canUndo [store]": false } });
     });
 
     it("draws every registry entry exactly once", () => {
@@ -960,7 +989,7 @@ describe("buildSnapshot", () => {
       ownBindings(FROM, [["$draft", $draft]]);
 
       expect(buildSnapshot()).toEqual({
-        [HOME]: { $draft: { "(value)": 7, $canUndo: false } },
+        [HOME]: { "$draft [store]": { "(value)": 7, "$canUndo [store]": false } },
       });
       expect($draft.lc).toBe(0);
       expect($canUndo.lc).toBe(0);
@@ -994,7 +1023,7 @@ describe("buildSnapshot", () => {
         ownBindings(FROM, [["editorOne", editorOne]]);
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { editorOne: labelled("Editor", { $value: "draft" }) },
+          [HOME]: { editorOne: labelled("Editor", { "$value [store]": "draft" }) },
         });
       });
 
@@ -1004,7 +1033,7 @@ describe("buildSnapshot", () => {
         track(panel.$open, "$open");
         ownBindings(FROM, [["panel", panel]]);
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { panel: { $open: false } } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { panel: { "$open [store]": false } } });
       });
 
       it("walks an array by index, so an array of instances draws two levels", () => {
@@ -1018,8 +1047,8 @@ describe("buildSnapshot", () => {
         expect(buildSnapshot()).toEqual({
           [HOME]: {
             drafts: labelled("Array", {
-              "[0]": labelled("Editor", { $value: "draft" }),
-              "[1]": labelled("Editor", { $value: "draft" }),
+              "[0]": labelled("Editor", { "$value [store]": "draft" }),
+              "[1]": labelled("Editor", { "$value [store]": "draft" }),
             }),
           },
         });
@@ -1032,7 +1061,7 @@ describe("buildSnapshot", () => {
         ownBindings(FROM, [["byId", new Map([["scratch", scratch]])]]);
 
         expect(heldBy("byId")).toEqual({
-          '["scratch"]': labelled("Editor", { $value: "draft" }),
+          '["scratch"]': labelled("Editor", { "$value [store]": "draft" }),
         });
       });
 
@@ -1055,8 +1084,8 @@ describe("buildSnapshot", () => {
         track($ratio, "$ratio", HOME, "computed");
         ownBindings(FROM, [["bounds", [$width, $ratio]]]);
 
-        expect(Object.keys(heldBy("bounds"))).toEqual(["[0]", "[1] [computed]"]);
-        expect(heldBy("bounds")["[0]"]).toBe(320);
+        expect(Object.keys(heldBy("bounds"))).toEqual(["[0] [store]", "[1] [computed]"]);
+        expect(heldBy("bounds")["[0] [store]"]).toBe(320);
       });
 
       it("draws a node the store that holds it keeps beside its own value", () => {
@@ -1070,9 +1099,11 @@ describe("buildSnapshot", () => {
 
         expect(buildSnapshot()).toEqual({
           [HOME]: {
-            $draft: {
+            "$draft [store]": {
               "(value)": "",
-              drafts: labelled("Array", { "[0]": labelled("Editor", { $value: "draft" }) }),
+              drafts: labelled("Array", {
+                "[0]": labelled("Editor", { "$value [store]": "draft" }),
+              }),
             },
           },
         });
@@ -1082,7 +1113,7 @@ describe("buildSnapshot", () => {
         track(atom("x"), "$typed");
         ownBindings(FROM, [["panel", { title: "Files", size: [1, 2] }]]);
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { $typed: "x" } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$typed [store]": "x" } });
       });
 
       it("gives a store's own slot no type label, because it already carries its marker", () => {
@@ -1098,7 +1129,7 @@ describe("buildSnapshot", () => {
         ownBindings(FROM, [["$draft", $draft]]);
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { $draft: { "(value)": "", $canUndo: false } },
+          [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
         });
       });
 
@@ -1113,9 +1144,9 @@ describe("buildSnapshot", () => {
         const held = heldBy("many");
 
         expect(Object.keys(held)).toHaveLength(MAX_MEMBERS + 3);
-        expect(held["[0]"]).toEqual({ $open: false });
-        expect(held["$open #26"]).toBe(false);
-        expect(held["$open #27"]).toBe(false);
+        expect(held["[0]"]).toEqual({ "$open [store]": false });
+        expect(held["$open #26 [store]"]).toBe(false);
+        expect(held["$open #27 [store]"]).toBe(false);
         expect(held["…"]).toEqual({
           data: {},
           __serializedType__:
@@ -1134,11 +1165,30 @@ describe("buildSnapshot", () => {
 
         const held = heldBy("many");
 
-        expect(held["$open #26"]).toBe(false);
-        expect(held["$open"]).toBeUndefined();
+        expect(held["$open #26 [store]"]).toBe(false);
+        expect(held["$open [store]"]).toBeUndefined();
       });
 
-      it("numbers a name two children of one home both want", () => {
+      it("numbers a name two nodes of one home both want", () => {
+        const panel = { $open: atom(false) };
+        const sidebar = { $width: atom(320) };
+
+        track(panel.$open, "$open");
+        track(sidebar.$width, "$width");
+        ownBindings(FROM, [
+          ["panel", panel],
+          ["panel", sidebar],
+        ]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: {
+            "panel #1": { "$open [store]": false },
+            "panel #2": { "$width [store]": 320 },
+          },
+        });
+      });
+
+      it("tells a store from a node of one name, so the word takes the place of a number", () => {
         const panel = { $open: atom(false) };
 
         track(atom("bare"), "panel");
@@ -1146,7 +1196,7 @@ describe("buildSnapshot", () => {
         ownBindings(FROM, [["panel", panel]]);
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { "panel #1": "bare", "panel #2": { $open: false } },
+          [HOME]: { panel: { "$open [store]": false }, "panel [store]": "bare" },
         });
       });
 
@@ -1202,8 +1252,8 @@ describe("buildSnapshot", () => {
 
           expect(buildSnapshot()).toEqual({
             [HOME]: {
-              Editor: { $opened: 3 },
-              editorOne: labelled("Editor", { "#hidden": 2, $value: 1 }),
+              Editor: { "$opened [store]": 3 },
+              editorOne: labelled("Editor", { "#hidden [store]": 2, "$value [store]": 1 }),
             },
           });
         });
@@ -1221,8 +1271,8 @@ describe("buildSnapshot", () => {
 
           expect(buildSnapshot()).toEqual({
             [HOME]: {
-              editorOne: labelled("Editor", { "#hidden": 2, $value: 1 }),
-              editorTwo: labelled("Editor", { "#hidden": 2, $value: 1 }),
+              editorOne: labelled("Editor", { "#hidden [store]": 2, "$value [store]": 1 }),
+              editorTwo: labelled("Editor", { "#hidden [store]": 2, "$value [store]": 1 }),
             },
           });
         });
@@ -1266,7 +1316,9 @@ describe("buildSnapshot", () => {
 
           expect(buildSnapshot()).toEqual({
             [HOME]: {
-              hidden: labelled("WeakMap", { "ref#1": labelled("Editor", { $value: "draft" }) }),
+              hidden: labelled("WeakMap", {
+                "ref#1": labelled("Editor", { "$value [store]": "draft" }),
+              }),
             },
           });
         });
@@ -1304,7 +1356,7 @@ describe("buildSnapshot", () => {
           ownBindings(FROM, [["$draft", $draft]]);
 
           expect(buildSnapshot()).toEqual({
-            [HOME]: { $draft: { "(value)": "", $timeline: ["a"] } },
+            [HOME]: { "$draft [store]": { "(value)": "", "$timeline [store]": ["a"] } },
           });
         });
 
@@ -1372,7 +1424,7 @@ describe("buildSnapshot", () => {
 
         madeIn("track", $hits, "$hits");
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { "track()": { $hits: 0 } } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { "track()": { "$hits [store]": 0 } } });
       });
 
       it("keeps a store made at module level flat at the file level", () => {
@@ -1380,14 +1432,16 @@ describe("buildSnapshot", () => {
 
         track($hits, "$hits");
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { $hits: 0 } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$hits [store]": 0 } });
       });
 
       it("holds everything one function made in one node", () => {
         madeIn("track", atom(0), "$hits");
         madeIn("track", atom(1), "$misses");
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { "track()": { $hits: 0, $misses: 1 } } });
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { "track()": { "$hits [store]": 0, "$misses [store]": 1 } },
+        });
       });
 
       it("gives each file its own node for a function of the same name", () => {
@@ -1395,8 +1449,8 @@ describe("buildSnapshot", () => {
         madeIn("track", atom(1), "$rate", "src/other.ts");
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { "track()": { $hits: 0 } },
-          "src/other.ts": { "track()": { $rate: 1 } },
+          [HOME]: { "track()": { "$hits [store]": 0 } },
+          "src/other.ts": { "track()": { "$rate [store]": 1 } },
         });
       });
 
@@ -1418,7 +1472,7 @@ describe("buildSnapshot", () => {
         track($draft, "$draft");
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { $draft: { "(value)": "", $canUndo: false } },
+          [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
         });
       });
 
@@ -1434,7 +1488,9 @@ describe("buildSnapshot", () => {
         ownBindings(FROM, [["editorOne", editorOne]]);
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { editorOne: { __serializedType__: "Editor", data: { $value: "draft" } } },
+          [HOME]: {
+            editorOne: { __serializedType__: "Editor", data: { "$value [store]": "draft" } },
+          },
         });
       });
 
@@ -1447,7 +1503,7 @@ describe("buildSnapshot", () => {
         ownBindings(FROM, [["$draft", $draft]]);
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { $draft: { "(value)": "", $canUndo: false } },
+          [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
         });
       });
 
@@ -1465,7 +1521,7 @@ describe("buildSnapshot", () => {
         madeIn("makeHits", $hits, "$hits");
         ownBindings(FROM, [["$hits", $hits, true]]);
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { $hits: 0 } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$hits [store]": 0 } });
       });
     });
 
@@ -1482,7 +1538,10 @@ describe("buildSnapshot", () => {
         ]);
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { $canUndo: false, $draft: { "(value)": "", $canUndo: false } },
+          [HOME]: {
+            "$canUndo [store]": false,
+            "$draft [store]": { "(value)": "", "$canUndo [store]": false },
+          },
         });
       });
 
@@ -1502,7 +1561,7 @@ describe("buildSnapshot", () => {
         expect(buildSnapshot()).toEqual({
           [HOME]: {
             "$undoable [computed]": true,
-            $draft2: { "(value)": "", "$canUndo [computed]": true },
+            "$draft2 [store]": { "(value)": "", "$canUndo [computed]": true },
           },
         });
       });
@@ -1521,7 +1580,10 @@ describe("buildSnapshot", () => {
 
         expect(listEntries()).toHaveLength(2);
         expect(buildSnapshot()).toEqual({
-          [HOME]: { $canUndo: true, $draft: { "(value)": "", $canUndo: true } },
+          [HOME]: {
+            "$canUndo [store]": true,
+            "$draft [store]": { "(value)": "", "$canUndo [store]": true },
+          },
         });
       });
 
@@ -1535,7 +1597,7 @@ describe("buildSnapshot", () => {
           ["$alias", $typed, false],
         ]);
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { $value: "" } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$value [store]": "" } });
       });
 
       it("keeps an exported binding's name against a plain one scanned after it", () => {
@@ -1547,7 +1609,7 @@ describe("buildSnapshot", () => {
           ["$alias", $typed, false],
         ]);
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { $value: "" } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$value [store]": "" } });
       });
 
       it("lets no binding in somebody else's file name the store it holds", () => {
@@ -1564,7 +1626,9 @@ describe("buildSnapshot", () => {
           ],
         );
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { $draft: { "(value)": "", $canUndo: false } } });
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
+        });
       });
 
       it("leaves the name a group was given by hand alone, and still draws it twice", () => {
@@ -1579,8 +1643,8 @@ describe("buildSnapshot", () => {
         ]);
 
         expect(buildSnapshot()).toEqual({
-          cart: { $canUndo: stale(false) },
-          [HOME]: { $draft: { "(value)": "", $canUndo: stale(false) } },
+          cart: { "$canUndo [store]": stale(false) },
+          [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": stale(false) } },
         });
       });
 
@@ -1596,7 +1660,7 @@ describe("buildSnapshot", () => {
         ]);
         untrack("cart");
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { $draft: "" } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$draft [store]": "" } });
       });
 
       it("draws one slot per entry, plus one for every second placement", () => {
@@ -1632,8 +1696,8 @@ describe("buildSnapshot", () => {
         ownBindings(FROM, [["router", router, true]]);
 
         expect(buildSnapshot()).toEqual({
-          debug: { $route: "/" },
-          [HOME]: { router: { "(value)": "", $route: "/" } },
+          debug: { "$route [store]": "/" },
+          [HOME]: { "router [store]": { "(value)": "", "$route [store]": "/" } },
         });
       });
 
@@ -1649,8 +1713,8 @@ describe("buildSnapshot", () => {
         ownBindings(FROM, [["router", router, true]]);
 
         expect(buildSnapshot()).toEqual({
-          debug: { $route: { "(value)": "/", $params: { id: "1" } } },
-          [HOME]: { router: { "(value)": "", $route: "/" } },
+          debug: { "$route [store]": { "(value)": "/", "$params [store]": { id: "1" } } },
+          [HOME]: { "router [store]": { "(value)": "", "$route [store]": "/" } },
         });
       });
 

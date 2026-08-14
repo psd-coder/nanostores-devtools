@@ -117,21 +117,22 @@ This is the shape our own acceptance fixture draws, trimmed:
 
 ```
 app/editor.ts
-  Editor: { $opened: 0 }                                   <- a static field, keyed by the class
-  byId: Map { ["scratch"]: Editor { $count, $value } }     <- a Map, walked by key
+  Editor: { $opened [store]: 0 }                           <- a static field, keyed by the class
+  byId: Map { ["scratch"]: Editor {…} }                    <- a Map, walked by key
   drafts: Array { [0]: Editor {…}, [1]: Editor {…} }       <- an array, walked by index
-  editorOne: Editor { $count: 0, $value: "" }              <- an instance, named by its binding
+  editorOne: Editor { $count [store]: 0, $value [store]: "" }   <- named by its binding
   hidden: WeakMap { ref#1: Editor {…}, ref#2: Viewer {…} } <- nothing here can be named
 app/model.ts
   $busy [computed]: false
-  $draft: { (value): "the quick brown fox jumps ", $canRedo [computed], $canUndo [computed],
-            $history [computed], $position [computed], $timeline }
+  $draft [store]: { (value): "the quick brown fox jumps ", $canRedo [computed],
+                    $canUndo [computed], $history [computed], $position [computed],
+                    $timeline [store] }
   $entries [computed]: ["", "the ", …]                     <- your own name for a nested store
-  counter: { (value): 0, $doubled [computed] }             <- a store with no $ that owns others
+  counter [store]: { (value): 0, $doubled [computed] }     <- a store with no $ that owns others
 app/workspace.ts
-  panel: { open: false, width: 320 }                       <- what a factory returned
+  panel: { open [store]: false, width [store]: 320 }       <- what a factory returned
 vendor/tracker.ts
-  track(): { $hits: 0 }                                    <- a store nothing else could place
+  track(): { $hits [store]: 0 }                            <- a store nothing else could place
 ```
 
 #### `(value)`: a store that owns others
@@ -160,7 +161,13 @@ registry gave it, because a store is drawn as a store wherever it sits.
 The **type label** is not part of the key. It rides in the extension's own `__serializedType__`
 wrapper, and the panel prints it in front of the node, so it costs no key and no nesting level. A
 plain object carries none, because `Object` says nothing the node does not already say. A store
-carries none either: that place already holds its `not mounted` marker.
+carries none either: that place already holds its `not mounted` marker, and its own kind is written
+on its key instead. That is what tells a plain-object node from a store holding a plain object:
+
+```
+panel: { width: 320 }            <- a node
+$panel [store]: { width: 320 }   <- a store holding an object
+```
 
 An instance nothing could name is keyed `ref#1`. The name is ours, so it says so rather than
 borrowing the class name the label already holds. Every unnamed instance shares the base `ref`, and
@@ -198,8 +205,8 @@ owner keeps a second placement of the same store, under the name the owner knows
 For `export const $entries = $draft.$history`:
 
 ```
-$entries [computed]: ["a", "b"]                        <- the name you wrote
-$draft: { (value): "b", $history [computed]: ["a", "b"] }   <- the same store, as $draft knows it
+$entries [computed]: ["a", "b"]                                    <- the name you wrote
+$draft [store]: { (value): "b", $history [computed]: ["a", "b"] }  <- as $draft knows it
 ```
 
 One entry, one identity, two keys. With only the first, `$draft` reads as incomplete. With only the
@@ -231,19 +238,22 @@ holds stores from two different files that share a name, both take the file as a
 
 ### The kind of store, after the name
 
-A store the plugin found carries its kind in square brackets: `$total [computed]`, `$cart [map]`,
-`$settings [deepMap]`, `$slow [batched]`.
+**Every store carries its kind in square brackets**: `$total [computed]`, `$cart [map]`,
+`$settings [deepMap]`, `$slow [batched]`, `$count [store]`.
 
-**A plain `atom` gets nothing**, because it is the common case, and **a store of an unknown kind
-gets nothing either**, because we would be guessing. A kind is read from the creator call at build
-time, so a store listed by hand in a project without the plugin, and a store made by a third-party
-factory such as `createRouter`, both show a bare name. Nothing at runtime can tell a `map` from a
-`deepMap`, or a `computed` from a `batched`.
+**An `atom` and a store of an unknown kind both read `store`.** A kind is read from the creator
+call at build time, so a store listed by hand in a project without the plugin, and a store made by
+a third-party factory such as `createRouter`, have no kind to print. Nothing at runtime can tell a
+`map` from a `deepMap`, or a `computed` from a `batched`, so a guess is all we could add.
+
+The two are one word on purpose. `[atom]` would say we read your creation site and `[store]` that
+we did not, which is a fact about how much of your source we reached and not about the store. Both
+are writable and both hold whatever was last set, so there is nothing you would do differently.
 
 The brackets are part of the tree key only. Timeline rows keep the bare name (`$total/set`), and
 sorting is on the bare name too, so the kind never moves a store in the tree. A store that gains a
 kind later, which adoption can do, changes its key, and the panel draws that as one key removed
-and one added.
+and one added. Gaining `atom` changes nothing, because `store` was already the word.
 
 ### A store listed by hand leaves the file tree
 
@@ -540,6 +550,11 @@ An unmounted `atom`, `map` or `deepMap` is **not** marked. `set` writes the valu
 the listener count, so an unmounted one holds a perfectly correct value and there is no
 consequence to state.
 
+**The word on the key does not tell you which rule a row follows.** Two rows can both read
+`[store]` and behave differently: an `atom` we know about is drawn bare while unmounted, and a
+store of an unknown kind carries `not mounted, may be stale`. The marker is what says which one
+you have.
+
 One gap: the hooks attach when you connect, not when a store registers, so a computed that
 mounted and unmounted before you connected looks never-mounted to us. If it ran and returned
 `undefined`, it takes `never computed` and that claim is then wrong.
@@ -591,20 +606,15 @@ there, with the store's value under `data`.
 
 ```
 $rows
-  0  atom { id: 1, name: "city", value: "Berlin" }
-  1  atom { id: 2, name: "street", value: "Unter den Linden" }
+  0  store { id: 1, name: "city", value: "Berlin" }
+  1  store { id: 2, name: "street", value: "Unter den Linden" }
 ```
 
-The word is the kind the bridge knows: `atom`, `map`, `deepMap`, `computed` or `batched`. A store
-whose kind the bridge never learned says the plain word `store`, because nothing on the object tells
-an `atom` from a `computed`, and any other word would be a guess. `.value` is the whole read, as it
-is everywhere else, so watching a store still never mounts it. An unmounted store keeps the note it
-gets at the top level, `not mounted, may be stale`, instead of its kind: the note says more, and
-only one of the two fits.
-
-**An `atom` gets its word here**, unlike in the tree, where the plain case is left bare. A tree key
-is the name you gave the store, and that name already says a store is a store; a value in an array
-has nothing else to say it.
+The word is the kind the bridge knows: `map`, `deepMap`, `computed` or `batched`. An `atom`, and a
+store whose kind the bridge never learned, both say the plain word `store`, exactly as the tree key
+does: both places read the same. `.value` is the whole read, as it is everywhere else, so watching a
+store still never mounts it. An unmounted store keeps the note it gets at the top level,
+`not mounted, may be stale`, instead of its kind: the note says more, and only one of the two fits.
 
 ### A follower can name the wrong source
 

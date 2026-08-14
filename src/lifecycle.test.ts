@@ -102,8 +102,8 @@ describe("mount and unmount rows", () => {
 
     expect(rowNames()).toEqual(["$counter/set", "$other/mount"]);
     expect(fake.sends.map((call) => call.state)).toEqual([
-      { [HOME]: { $counter: 1, $other: 0 } },
-      { [HOME]: { $counter: 1, $other: 0 } },
+      { [HOME]: { "$counter [store]": 1, "$other [store]": 0 } },
+      { [HOME]: { "$counter [store]": 1, "$other [store]": 0 } },
     ]);
   });
 
@@ -129,7 +129,9 @@ describe("mount and unmount rows", () => {
         { label: `${HOME}/$total`, op: "computed", from: undefined },
       ],
     });
-    expect(fake.sends[0]?.state).toEqual({ [HOME]: { $source: 1, "$total [computed]": 2 } });
+    expect(fake.sends[0]?.state).toEqual({
+      [HOME]: { "$source [store]": 1, "$total [computed]": 2 },
+    });
   });
 });
 
@@ -185,7 +187,7 @@ describe("register, unregister and hot reload rows", () => {
     await endOfTurn();
 
     expect(fake.sends).toHaveLength(0);
-    expect(fake.inits[0]?.state).toEqual({ [HOME]: { $early: 7 } });
+    expect(fake.inits[0]?.state).toEqual({ [HOME]: { "$early [store]": 7 } });
   });
 
   it("draws no row in the connect turn even with the panel already listening", async () => {
@@ -198,7 +200,7 @@ describe("register, unregister and hot reload rows", () => {
     await endOfTurn();
 
     expect(fake.sends).toHaveLength(0);
-    expect(fake.inits.at(-1)?.state).toEqual({ [HOME]: { $early: 7 } });
+    expect(fake.inits.at(-1)?.state).toEqual({ [HOME]: { "$early [store]": 7 } });
   });
 
   it("draws a register row for a store that arrives after the connect turn", async () => {
@@ -213,7 +215,7 @@ describe("register, unregister and hot reload rows", () => {
       type: "$late/register",
       changes: [{ label: `${HOME}/$late`, op: "register" }],
     });
-    expect(fake.sends[0]?.state).toEqual({ [HOME]: { $late: 0 } });
+    expect(fake.sends[0]?.state).toEqual({ [HOME]: { "$late [store]": 0 } });
   });
 
   it("coalesces one module's registrations into one row naming each store", async () => {
@@ -265,7 +267,7 @@ describe("register, unregister and hot reload rows", () => {
         { label: `${HOME}/$total`, op: "hotReload" },
       ],
     });
-    expect(fake.sends[0]?.state).toEqual({ [HOME]: { $count: 1, $total: 2 } });
+    expect(fake.sends[0]?.state).toEqual({ [HOME]: { "$count [store]": 1, "$total [store]": 2 } });
   });
 
   it("names the hot reload row after the only store it moved", async () => {
@@ -358,7 +360,7 @@ describe("lifecycleEvents off", () => {
     await endOfTurn();
 
     expect(rowNames()).toEqual(["$counter/set"]);
-    expect(fake.sends[0]?.state).toEqual({ [HOME]: { $counter: 1, $late: 0 } });
+    expect(fake.sends[0]?.state).toEqual({ [HOME]: { "$counter [store]": 1, "$late [store]": 0 } });
   });
 });
 

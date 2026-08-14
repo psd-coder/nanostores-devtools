@@ -2,7 +2,7 @@ import type { Store } from "nanostores";
 
 import { chainDescriptor } from "./descriptor.ts";
 import { box, boxUnlessPlain, mark, type Marked } from "./marker.ts";
-import { getEntry, isStore, type StoreType } from "./registry.ts";
+import { getEntry, isStore, storeWord } from "./registry.ts";
 import { staleNote, storeValue } from "./slot.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
@@ -290,15 +290,6 @@ function markStore(wrappers: Wrappers, store: Store): Marked {
   return note === undefined
     ? markOnce(wrappers, store, storeWord(entry?.type), boxUnlessPlain(storeValue(store)))
     : markOnce(wrappers, store, note.label, note.data);
-}
-
-/**
- * `unknown` is a type nothing worked out, and the object gives no way to work it out: `setKey`
- * separates a `map` and a `deepMap` from the rest but not from each other, and nothing at all
- * separates an `atom` from a `computed`. So a store the registry never saw says the plain word.
- */
-function storeWord(type: StoreType | undefined): string {
-  return type === undefined || type === "unknown" ? "store" : type;
 }
 
 /**

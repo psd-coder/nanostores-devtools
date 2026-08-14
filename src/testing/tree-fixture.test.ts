@@ -60,9 +60,9 @@ function labelled(type: string, children: Record<string, unknown>): unknown {
 /** What the tree draws for a computed store nobody has mounted, which holds no value to show. */
 const NEVER_COMPUTED = labelled("not mounted, never computed", {});
 
-const EDITOR_NODE = { $count: 0, $value: "" };
+const EDITOR_NODE = { "$count [store]": 0, "$value [store]": "" };
 
-const PANEL_NODE = { open: false, width: 320 };
+const PANEL_NODE = { "open [store]": false, "width [store]": 320 };
 
 async function serve(options: VitePluginOptions = {}): Promise<ViteDevServer> {
   resetDevtoolsGlobal();
@@ -176,26 +176,26 @@ describe("the fixture drawn by the shipped code", () => {
   });
 
   it("opens a frame without an adopt call, and places a store held only in a closure", () => {
-    expect(homeOf(MODEL_HOME)["$draft"]).toEqual({
+    expect(homeOf(MODEL_HOME)["$draft [store]"]).toEqual({
       "(value)": TEXT,
       "$canRedo [computed]": NEVER_COMPUTED,
       "$canUndo [computed]": NEVER_COMPUTED,
       "$history [computed]": HISTORY,
       "$position [computed]": 5,
-      $timeline: { entries: HISTORY, index: 5 },
+      "$timeline [store]": { entries: HISTORY, index: 5 },
     });
     /** Nothing in `model.ts` reaches `$timeline`: it was born in the library and drawn here. */
     expect(entryNamed("$timeline").home).toBe(UNDO_HOME);
   });
 
   it("drops the ordinal from a nested store, because the parent says which one it is", () => {
-    expect(homeOf(MODEL_HOME)["$draft2"]).toEqual({
+    expect(homeOf(MODEL_HOME)["$draft2 [store]"]).toEqual({
       "(value)": "",
       "$canRedo [computed]": NEVER_COMPUTED,
       "$canUndo [computed]": NEVER_COMPUTED,
       "$history [computed]": NEVER_COMPUTED,
       "$position [computed]": NEVER_COMPUTED,
-      $timeline: { entries: [""], index: 0 },
+      "$timeline [store]": { entries: [""], index: 0 },
     });
     /** The registry still numbers the second instance, and only the key its owner uses does not. */
     expect(entryNamed("$timeline #2")).toMatchObject({ home: UNDO_HOME, ownerName: "$timeline" });
@@ -206,7 +206,7 @@ describe("the fixture drawn by the shipped code", () => {
 
     expect(entryNamed("$canUndo")).toMatchObject({ home: MODEL_HOME, ownerName: "$canUndo" });
     expect(model["$canUndo [computed]"]).toEqual(NEVER_COMPUTED);
-    expect(into(model, "$draft")).toHaveProperty(["$canUndo [computed]"]);
+    expect(into(model, "$draft [store]")).toHaveProperty(["$canUndo [computed]"]);
   });
 
   it("does not lose the chosen name when the alias renames the store", () => {
@@ -214,18 +214,18 @@ describe("the fixture drawn by the shipped code", () => {
 
     expect(entryNamed("$undoable")).toMatchObject({ home: MODEL_HOME, ownerName: "$canUndo" });
     expect(model["$undoable [computed]"]).toEqual(NEVER_COMPUTED);
-    expect(into(model, "$draft2")).toHaveProperty(["$canUndo [computed]"]);
+    expect(into(model, "$draft2 [store]")).toHaveProperty(["$canUndo [computed]"]);
   });
 
   it("draws both placements of a store holding real data", () => {
     const model = homeOf(MODEL_HOME);
 
     expect(model["$entries [computed]"]).toEqual(HISTORY);
-    expect(into(model, "$draft")["$history [computed]"]).toEqual(HISTORY);
+    expect(into(model, "$draft [store]")["$history [computed]"]).toEqual(HISTORY);
   });
 
   it("wraps a store with no $ in its name in (value), because it owns another", () => {
-    expect(homeOf(MODEL_HOME)["counter"]).toEqual({
+    expect(homeOf(MODEL_HOME)["counter [store]"]).toEqual({
       "(value)": 0,
       "$doubled [computed]": NEVER_COMPUTED,
     });
@@ -240,7 +240,7 @@ describe("the fixture drawn by the shipped code", () => {
   it("names the exported binding's store, whatever order the two bindings are scanned in", () => {
     const model = homeOf(MODEL_HOME);
 
-    expect(model["$value"]).toBe(TEXT);
+    expect(model["$value [store]"]).toBe(TEXT);
     expect(Object.keys(model)).not.toContain("$typed");
     expect(Object.keys(model)).not.toContain("$alias");
   });
@@ -254,7 +254,7 @@ describe("the fixture drawn by the shipped code", () => {
   });
 
   it("gives a static field to the class, keyed by the class name and carrying no label", () => {
-    expect(homeOf(EDITOR_HOME)["Editor"]).toEqual({ $opened: 0 });
+    expect(homeOf(EDITOR_HOME)["Editor"]).toEqual({ "$opened [store]": 0 });
   });
 
   it("walks an array by index, and nests a node inside a node", () => {
@@ -282,12 +282,14 @@ describe("the fixture drawn by the shipped code", () => {
   it("keys a bare store in a collection by its position, and keeps its own flat name", () => {
     const editor = homeOf(EDITOR_HOME);
 
-    expect(editor["bounds"]).toEqual(labelled("Array", { "[0]": 320, "[1]": 240 }));
-    expect(editor["byMode"]).toEqual(labelled("Map", { '["scratch"]': "" }));
-    expect(editor["watched"]).toEqual(labelled("Set", { "[0]": false, "[1]": true }));
-    expect(Object.keys(inside(editor, "watched"))).toEqual(["[0]", "[1]"]);
+    expect(editor["bounds"]).toEqual(labelled("Array", { "[0] [store]": 320, "[1] [store]": 240 }));
+    expect(editor["byMode"]).toEqual(labelled("Map", { '["scratch"] [store]': "" }));
+    expect(editor["watched"]).toEqual(
+      labelled("Set", { "[0] [store]": false, "[1] [store]": true }),
+    );
+    expect(Object.keys(inside(editor, "watched"))).toEqual(["[0] [store]", "[1] [store]"]);
     /** The name the developer wrote still holds the flat slot, and the collection the second one. */
-    expect(editor["$width"]).toBe(320);
+    expect(editor["$width [store]"]).toBe(320);
     expect(entryNamed("$width").ownerName).toBe("$width");
   });
 
@@ -295,7 +297,7 @@ describe("the fixture drawn by the shipped code", () => {
     expect(homeOf(EDITOR_HOME)["hidden"]).toEqual(
       labelled("WeakMap", {
         "ref#1": labelled("Editor", EDITOR_NODE),
-        "ref#2": labelled("Viewer", { $zoom: 1 }),
+        "ref#2": labelled("Viewer", { "$zoom [store]": 1 }),
       }),
     );
   });
@@ -309,6 +311,15 @@ describe("the fixture drawn by the shipped code", () => {
     expect(Object.keys(buildSnapshot())).not.toContain(PANEL_HOME);
   });
 
+  it("tells a store holding a plain object from a plain-object node", () => {
+    const draft = into(homeOf(MODEL_HOME), "$draft [store]");
+
+    /** Both draw an object and nothing else; only the word on the key says which is a store. */
+    expect(draft["$timeline [store]"]).toEqual({ entries: HISTORY, index: 5 });
+    expect(homeOf(WORKSPACE_HOME)["panel"]).toEqual(PANEL_NODE);
+    expect(Object.keys(homeOf(WORKSPACE_HOME))).toContain("panel");
+  });
+
   it("says what a capped collection left out, and loses none of its stores", () => {
     const many = inside(homeOf(WORKSPACE_HOME), "many");
     const walked = Object.fromEntries(
@@ -316,8 +327,8 @@ describe("the fixture drawn by the shipped code", () => {
     );
     const past = Object.fromEntries(
       Array.from({ length: 5 }, (_, index) => [
-        [`open #${30 + index}`, false],
-        [`width #${30 + index}`, 320],
+        [`open #${30 + index} [store]`, false],
+        [`width #${30 + index} [store]`, 320],
       ]).flat(),
     );
 
@@ -333,11 +344,11 @@ describe("the fixture drawn by the shipped code", () => {
   });
 
   it("falls back to the enclosing function for a store nothing else names", () => {
-    expect(homeOf(TRACKER_HOME)).toEqual({ "track()": { $hits: 0 } });
+    expect(homeOf(TRACKER_HOME)).toEqual({ "track()": { "$hits [store]": 0 } });
   });
 
   it("keeps a module-level library store flat, and sorts every external file last", () => {
-    expect(homeOf(SHARED_HOME)).toEqual({ $lastError: null, $requests: 0 });
+    expect(homeOf(SHARED_HOME)).toEqual({ "$lastError [store]": null, "$requests [store]": 0 });
     expect(Object.keys(buildSnapshot())).toEqual([
       EDITOR_HOME,
       MODEL_HOME,
@@ -523,18 +534,18 @@ describe("an await, a helper and two functions of one name", () => {
   });
 
   it("opens no frame across an await, and still places the store by its binding", () => {
-    expect(homeOf(REMOTE_HOME)).toEqual({ remote: { $ready: true } });
+    expect(homeOf(REMOTE_HOME)).toEqual({ remote: { "$ready [store]": true } });
     /** The frame is gone, so the enclosing function is all that was left to fall back on. */
     expect(entryNamed("$ready").fn).toBe("loadRemote");
   });
 
   it("draws a store a helper made and a binding adopted flat, not under the helper", () => {
-    expect(homeOf(HELPERS_HOME)["$flag"]).toBe(false);
+    expect(homeOf(HELPERS_HOME)["$flag [store]"]).toBe(false);
     expect(entryNamed("$flag").fn).toBeNull();
   });
 
   it("keys a function node by its name alone, so two functions of one name share it", () => {
-    expect(homeOf(HELPERS_HOME)["build()"]).toEqual({ $one: 1, $two: 2 });
+    expect(homeOf(HELPERS_HOME)["build()"]).toEqual({ "$one [store]": 1, "$two [store]": 2 });
   });
 });
 

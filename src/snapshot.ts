@@ -4,16 +4,17 @@ import type { NodeInfo } from "./global.ts";
 import { mark, VALUE_KEY } from "./marker.ts";
 import { enclosingNode, MAX_MEMBERS } from "./ownership.ts";
 import { namedByBinding, nodeInfoOf, ownerKeyOf, ownerOf } from "./placement.ts";
-import { getEntry, isStore, listEntries, type StoreEntry, type StoreType } from "./registry.ts";
+import {
+  getEntry,
+  isStore,
+  listEntries,
+  type StoreEntry,
+  type StoreType,
+  storeWord,
+} from "./registry.ts";
 import { staleNote, storeValue } from "./slot.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
-
-/**
- * The two types the tree writes no note for: an atom is the plain case that needs no word, and an
- * unknown type would state a guess. Every other type names itself.
- */
-const UNNOTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "unknown"]);
 
 /** What a capped collection says it left out, so silence never reads as "this is all of it". */
 const MORE_KEY = "…";
@@ -386,7 +387,7 @@ function displayName(entry: StoreEntry): string {
 }
 
 function noted(name: string, type: StoreType): string {
-  return UNNOTED.has(type) ? name : `${name} [${type}]`;
+  return `${name} [${storeWord(type)}]`;
 }
 
 function slotFor(entry: StoreEntry): unknown {

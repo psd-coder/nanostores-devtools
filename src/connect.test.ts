@@ -184,7 +184,7 @@ describe("connectDevtools", () => {
       expect(again.connected).toBe(true);
       expect(fake.listenerCount()).toBe(1);
       expect(fake.inits).toHaveLength(2);
-      expect(fake.inits[1]?.state).toEqual({ cart: { $count: stale(0) } });
+      expect(fake.inits[1]?.state).toEqual({ cart: { "$count [store]": stale(0) } });
     });
 
     it("does nothing twice over", async () => {
@@ -217,7 +217,7 @@ describe("connectDevtools", () => {
       await endOfTurn();
 
       expect(fake.inits).toHaveLength(1);
-      expect(fake.inits[0]?.state).toEqual({ cart: { $count: stale(7) } });
+      expect(fake.inits[0]?.state).toEqual({ cart: { "$count [store]": stale(7) } });
     });
 
     /** jsan runs inside the extension's `init`, so one unserializable store throws at our call. */
@@ -252,7 +252,7 @@ describe("connectDevtools", () => {
       fake.start();
 
       expect(fake.inits).toHaveLength(2);
-      expect(fake.inits[1]?.state).toEqual({ cart: { $count: stale(1) } });
+      expect(fake.inits[1]?.state).toEqual({ cart: { "$count [store]": stale(1) } });
 
       fake.start();
 
@@ -269,7 +269,7 @@ describe("connectDevtools", () => {
       fake.start();
 
       expect(fake.inits).toHaveLength(3);
-      expect(fake.inits[2]?.state).toEqual({ cart: { $count: stale(2) } });
+      expect(fake.inits[2]?.state).toEqual({ cart: { "$count [store]": stale(2) } });
     });
 
     it("ignores a START whose source is not the extension", async () => {

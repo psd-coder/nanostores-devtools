@@ -268,7 +268,7 @@ describe("a file that imports no nanostores creator", () => {
       type: "atom",
       origin: "plugin",
     });
-    expect(buildSnapshot()[APP_HOME]?.["$theme"]).toBe("dark");
+    expect(buildSnapshot()[APP_HOME]?.["$theme [store]"]).toBe("dark");
   });
 
   it("puts a dependency's store in the tree with its type lost", () => {
@@ -276,7 +276,7 @@ describe("a file that imports no nanostores creator", () => {
   });
 
   it("marks the dependency's store, because an unknown type is not trusted unmounted", () => {
-    expect(buildSnapshot()[APP_HOME]?.["$router"]).toMatchObject({
+    expect(buildSnapshot()[APP_HOME]?.["$router [store]"]).toMatchObject({
       __serializedType__: "not mounted, may be stale",
     });
   });
@@ -350,9 +350,9 @@ describe("a file the narrow parse gate never sees", () => {
 
     expect(buildSnapshot()).toEqual({
       [WORKSPACE_HOME]: {
-        panel: { open: false, width: 320 },
-        sidebar: { open: false, width: 240 },
-        hidden: labelled("WeakMap", { "ref#1": labelled("Editor", { $value: "draft" }) }),
+        panel: { "open [store]": false, "width [store]": 320 },
+        sidebar: { "open [store]": false, "width [store]": 240 },
+        hidden: labelled("WeakMap", { "ref#1": labelled("Editor", { "$value [store]": "draft" }) }),
       },
     });
     expect(listEntries()).toHaveLength(5);
@@ -363,9 +363,14 @@ describe("a file the narrow parse gate never sees", () => {
 
     expect(buildSnapshot()).toEqual({
       [PANEL_HOME]: {
-        "createPanel()": { open: false, "open #2": false, width: 320, "width #2": 240 },
+        "createPanel()": {
+          "open [store]": false,
+          "open #2 [store]": false,
+          "width [store]": 320,
+          "width #2 [store]": 240,
+        },
       },
-      [EDITOR_HOME]: { "ref#1": labelled("Editor", { $value: "draft" }) },
+      [EDITOR_HOME]: { "ref#1": labelled("Editor", { "$value [store]": "draft" }) },
     });
     expect(listEntries()).toHaveLength(5);
   });

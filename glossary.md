@@ -37,8 +37,8 @@ root state; nanostores has none, so the bridge invents this. The home level exis
 stores with the same name apart.
 
 **Type note** — the store's type in square brackets behind its name in the tree,
-`$total [computed]`. Tree key only: the name and the label stay bare. An `atom` and an
-unknown type carry none.
+`$total [computed]`. Tree key only: the name and the label stay bare. Every store carries
+one, and an `atom` and an unknown type both read `store`.
 
 **Timeline entry** — one row in the extension's list of changes. The extension calls
 these actions. Nanostores has no actions, so the bridge invents each entry from a store
