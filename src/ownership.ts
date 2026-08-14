@@ -443,13 +443,15 @@ function canHold(value: unknown): value is object {
 
 /**
  * An array is named by index, a `Map` by key and a `Set` by insertion order, so every name the
- * tree draws is one the developer could write to reach that member. Anything else gives up its own
- * enumerable data properties, read through the descriptor so a getter never runs: it is the
- * developer's own code and running it would change how the app behaves.
+ * tree draws is one the developer could write to reach that member. An array gives up its own
+ * indices and anything else its own enumerable keys. Both read through the descriptor and take
+ * only a data one, so a getter never runs: it is the developer's own code and running it would
+ * change how the app behaves. A `Map` and a `Set` keep their members in an internal slot instead,
+ * which no property of the app's sits in front of.
  */
 function membersOf(value: object): Members {
   if (Array.isArray(value)) {
-    return capped(walked((visit) => Array.prototype.forEach.call(value, visit), indexName));
+    return capped(indexed(value));
   }
 
   if (value instanceof Map) {
@@ -476,10 +478,33 @@ function capped(members: Binding[]): Members {
 }
 
 /**
+ * Every index the array itself holds a data descriptor for, so no accessor of the app's runs and no
+ * index the array only inherits is drawn. A member keeps the index it really sits at, so a hole
+ * shifts nothing that follows it, and one index that is refused costs the others nothing. A read
+ * that throws, which now takes a `Proxy` trap, leaves the array contributing nothing.
+ */
+function indexed(value: readonly unknown[]): Binding[] {
+  const found: Binding[] = [];
+
+  try {
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, index);
+
+      if (descriptor !== undefined && "value" in descriptor) {
+        found.push([`[${index}]`, descriptor.value]);
+      }
+    }
+  } catch {
+    return [];
+  }
+
+  return found;
+}
+
+/**
  * The built-in `forEach` called against the value, never a method of the value's own, so a subclass
- * that overrides iteration cannot run its code during a scan, and neither can the constructor that
- * `map` and `slice` would build their result through. A failure leaves the collection contributing
- * nothing.
+ * that overrides iteration cannot run its code during a scan. A failure leaves the collection
+ * contributing nothing.
  */
 function walked(
   iterate: (visit: (member: unknown, key: unknown) => void) => void,
@@ -503,11 +528,6 @@ function walked(
   }
 
   return found;
-}
-
-/** An array member is named by the index it sits at, so a hole shifts nothing that follows it. */
-function indexName(key: unknown): string | undefined {
-  return typeof key === "number" ? `[${key}]` : undefined;
 }
 
 /** A `Set` holds no keys, so its members are named by the order they were put in. */

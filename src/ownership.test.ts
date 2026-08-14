@@ -410,8 +410,12 @@ describe("a node", () => {
     expect(ownerKeyOf(panel.$open)).toBeUndefined();
   });
 
-  it("iterates an array through the built-in forEach, so a subclass override never runs", () => {
+  it("reads an array by index, so a method of its own never runs", () => {
     class Loud extends Array<Editor> {
+      override forEach(): never {
+        throw new Error("the value's own forEach ran");
+      }
+
       override map(): never {
         throw new Error("the value's own map ran");
       }
@@ -426,14 +430,71 @@ describe("a node", () => {
     expect(nameOf(first)).toBe("[0]");
   });
 
+  it("runs no getter sitting at an array index, so one that throws costs the array nothing", () => {
+    const first = new Editor();
+    const third = new Editor();
+    const hostile = vi.fn((): never => {
+      throw new Error("an index getter ran");
+    });
+    const drafts: Editor[] = [first];
+
+    Object.defineProperty(drafts, 1, { enumerable: true, configurable: true, get: hostile });
+    drafts[2] = third;
+
+    expect(() => {
+      ownBindings(FROM, [["drafts", drafts]]);
+    }).not.toThrow();
+    expect(hostile).not.toHaveBeenCalled();
+    expect(nameOf(first)).toBe("[0]");
+    expect(nameOf(third)).toBe("[2]");
+  });
+
+  it("runs no accessor an array inherits from Array.prototype", () => {
+    const inherited = vi.fn(() => new Editor());
+    const first = new Editor();
+    const last = new Editor();
+    const drafts: Editor[] = [first];
+
+    drafts[4] = last;
+    /** A hole of the array's own, so only the prototype can answer for index 3. */
+    Object.defineProperty(Array.prototype, 3, { configurable: true, get: inherited });
+
+    try {
+      ownBindings(FROM, [["drafts", drafts]]);
+    } finally {
+      Reflect.deleteProperty(Array.prototype, 3);
+    }
+
+    expect(inherited).not.toHaveBeenCalled();
+    expect(nameOf(first)).toBe("[0]");
+    expect(nameOf(last)).toBe("[4]");
+  });
+
+  it("lets an array that throws while being read contribute nothing", () => {
+    const created = panel();
+    const drafts = new Proxy([created], {
+      get(): never {
+        throw new Error("a read trap ran");
+      },
+    });
+
+    expect(() => {
+      ownBindings(FROM, [["drafts", drafts]]);
+    }).not.toThrow();
+    expect(ownerOf(created.$open)).toBeUndefined();
+  });
+
   it("skips a hole in an array, and keeps the index the members that are there sit at", () => {
     const third = new Editor();
-    const drafts: Editor[] = [];
+    const $open = atom(false);
+    const drafts: (Editor | Store)[] = [];
 
     drafts[2] = third;
+    drafts[5] = $open;
     ownBindings(FROM, [["drafts", drafts]]);
 
     expect(nameOf(third)).toBe("[2]");
+    expect(ownerKeyOf($open)).toBe("[5]");
   });
 
   it("reads the constructor through the descriptor, so a getter over it never runs", () => {

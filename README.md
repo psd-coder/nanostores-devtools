@@ -618,9 +618,12 @@ change, and a gap might.
   how the app behaves. A store held only behind a getter still reaches the tree; it just sits where
   it was made rather than under the object that holds it. An object whose data lives entirely on its
   prototype is the same case.
-- **A collection is iterated through the built-in `forEach`**, never through a method of its own, so
-  a subclass that overrides iteration cannot run its code while we scan. If that fails, the
-  collection contributes nothing.
+- **An array is read index by index through its own descriptors**, so a getter sitting at an index
+  never runs and an index only its prototype holds is left out. If that fails, the array
+  contributes nothing.
+- **A `Map` and a `Set` are iterated through the built-in `forEach`**, never through a method of
+  their own, so a subclass that overrides iteration cannot run its code while we scan. If that
+  fails, the collection contributes nothing.
 
 **Cannot be reached at all:**
 
