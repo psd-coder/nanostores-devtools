@@ -2,14 +2,8 @@ import type { Store } from "nanostores";
 
 import type { NodeInfo } from "./global.ts";
 import { mark } from "./marker.ts";
-import {
-  enclosingNode,
-  MAX_MEMBERS,
-  namedByBinding,
-  nodeInfoOf,
-  ownerKeyOf,
-  ownerOf,
-} from "./ownership.ts";
+import { enclosingNode, MAX_MEMBERS } from "./ownership.ts";
+import { namedByBinding, nodeInfoOf, ownerKeyOf, ownerOf } from "./placement.ts";
 import { getEntry, isStore, listEntries, type StoreEntry, type StoreType } from "./registry.ts";
 import { staleNote, storeValue } from "./slot.ts";
 

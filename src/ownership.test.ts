@@ -7,14 +7,11 @@ import {
   enclosingNode,
   endFrame,
   MAX_MEMBERS,
-  namedByBinding,
-  nodeInfoOf,
   noteBirth,
   ownBindings,
-  ownerKeyOf,
-  ownerOf,
   ownField,
 } from "./ownership.ts";
+import { namedByBinding, nodeInfoOf, ownerKeyOf, ownerOf } from "./placement.ts";
 import { listEntries, registerStore, unregisterStore } from "./registry.ts";
 
 const HOME = "src/model.ts";

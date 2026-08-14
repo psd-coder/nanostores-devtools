@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "../connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
-import { nodeInfoOf, ownerOf } from "../ownership.ts";
+import { nodeInfoOf, ownerOf } from "../placement.ts";
 import { getEntry, listEntries, trackStores, unregisterStore, untrack } from "../registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import { keepHooks } from "../unhook.ts";
