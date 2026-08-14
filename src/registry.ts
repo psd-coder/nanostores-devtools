@@ -40,8 +40,11 @@ export type StoreEntry = {
    * The name whatever owns the store knows it by, which is the one its creation site gave it. It
    * stays as it was when a binding of the developer's renames the entry, because the owner drawing
    * a second placement of the store still knows it under its own key.
+   *
+   * `null` where no creation site ever named the store, which is a store a group registered by
+   * hand and the plugin never saw.
    */
-  ownerName: string;
+  ownerName: string | null;
   label: string;
   type: StoreType;
   origin: StoreOrigin;
@@ -120,6 +123,15 @@ function labelOf(place: EntryPlace): string {
   return makeLabel(place.home, qualify(place.name, place));
 }
 
+/**
+ * Only a creation site names a store for its owner. An explicit registration says where the store
+ * is rooted and nothing about what holds it: the name it carries is a group key, and the owner
+ * holds no member under that name. So it gives none.
+ */
+function ownerNameOf(registration: Registration): string | null {
+  return registration.origin === "explicit" ? null : registration.name;
+}
+
 function entryPlace(registration: Registration): EntryPlace {
   return {
     name: registration.name,
@@ -164,7 +176,7 @@ export function registerStore(registration: Registration): StoreEntry {
   const entry: StoreEntry = {
     ...to,
     store: registration.store,
-    ownerName: registration.name,
+    ownerName: ownerNameOf(registration),
     label,
     type: registration.type,
     origin: registration.origin,
@@ -320,11 +332,18 @@ function relabelEntry(
 
   /**
    * The site that registered last says which function holds the store: one made inside a helper
-   * and then adopted at a top-level binding is no longer a store only that helper knows about. The
-   * name its owner knows it by comes from the same site, for the same reason.
+   * and then adopted at a top-level binding is no longer a store only that helper knows about.
+   *
+   * An explicit registration clears the function, and that is right: it passes none, and a store
+   * the developer placed is drawn where they put it rather than under the function that built it.
    */
   entry.fn = registration.fn;
-  entry.ownerName = registration.name;
+
+  const ownerName = ownerNameOf(registration);
+
+  if (ownerName !== null) {
+    entry.ownerName = ownerName;
+  }
 
   if (label === entry.label) {
     entry.origin = registration.origin;

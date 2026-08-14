@@ -279,7 +279,16 @@ function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string 
 
   return inside !== undefined && inside.skipped > 0
     ? displayName(held.entry)
-    : noted(held.entry.ownerName, held.entry.type);
+    : noted(nameForOwner(held.entry), held.entry.type);
+}
+
+/**
+ * The name the owner knows the store by, and the store's own name where no creation site ever gave
+ * one. The name the store is drawn under everywhere else is the only one left to key it by, and it
+ * is what a primary placement takes as well.
+ */
+function nameForOwner(entry: StoreEntry): string {
+  return entry.ownerName ?? entry.name;
 }
 
 /**
@@ -333,7 +342,7 @@ function sortName(placement: Placement): string {
    * A member of a collection sorts by its position, and a second placement sorts where its own key
    * puts it rather than where the developer's name would.
    */
-  return held.key ?? (held.kind === "second" ? held.entry.ownerName : held.entry.name);
+  return held.key ?? (held.kind === "second" ? nameForOwner(held.entry) : held.entry.name);
 }
 
 /**

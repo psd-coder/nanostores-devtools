@@ -349,6 +349,23 @@ describe("registry", () => {
       expect(getEntry($count)?.fn).toBeNull();
     });
 
+    it("leaves the name a store's owner knows it by alone when a group takes the store", () => {
+      const $canUndo = atom(false);
+
+      registerStore(plugin({ store: $canUndo, name: "$canUndo" }));
+      trackStores("debug", { undo: $canUndo });
+
+      expect(getEntry($canUndo)).toMatchObject({ name: "undo", ownerName: "$canUndo" });
+    });
+
+    it("gives a store only a group ever named no owner name at all", () => {
+      const $count = atom(0);
+
+      trackStores("cart", { $count });
+
+      expect(getEntry($count)?.ownerName).toBeNull();
+    });
+
     it("carries the plain name the site gave, and what qualifies it beside it", () => {
       const $canUndo = atom(false);
       const $other = atom(false);

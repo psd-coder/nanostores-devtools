@@ -1827,6 +1827,35 @@ describe("buildSnapshot", () => {
         });
       });
 
+      it("leaves the owner's second placement under the name the owner knows the store by", () => {
+        const $route = atom("/");
+        const router = holder("", { $route });
+
+        track(router, "router");
+        track($route, "$route", "node_modules/@nanostores/router/index.js");
+        trackStores("debug", { route: $route });
+        ownBindings(FROM, [["router", router, true]]);
+
+        expect(buildSnapshot()).toEqual({
+          debug: { "route [store]": "/" },
+          [HOME]: { "router [store]": { "(value)": "", "$route [store]": "/" } },
+        });
+      });
+
+      it("keys the second placement of a store no site ever named by its own name", () => {
+        const $route = atom("/");
+        const router = holder("", { $route });
+
+        track(router, "router");
+        trackStores("debug", { route: $route });
+        ownBindings(FROM, [["router", router, true]]);
+
+        expect(buildSnapshot()).toEqual({
+          debug: { "route [store]": stale("/") },
+          [HOME]: { "router [store]": { "(value)": "", "route [store]": stale("/") } },
+        });
+      });
+
       it("keeps the stores it owns under it, at the group it was given", () => {
         const $params = atom({ id: "1" });
         const $route = holder("/", { $params });
