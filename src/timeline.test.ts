@@ -177,7 +177,9 @@ describe("direct write rows", () => {
       const $canUndo = atom(false);
 
       register("$canUndo", $canUndo);
-      ownBindings({ home: "cart", external: false }, [["$undoable", $canUndo, true]]);
+      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+        ["$undoable", $canUndo, true],
+      ]);
       await listen();
 
       $canUndo.set(true);

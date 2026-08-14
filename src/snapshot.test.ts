@@ -635,7 +635,7 @@ describe("buildSnapshot", () => {
 
   describe("the ownership tree", () => {
     const HOME = "src/model.ts";
-    const FROM = { home: HOME, external: false };
+    const FROM = { home: HOME, external: false, moduleKey: HOME };
 
     function track(store: Store, name: string, home = HOME, type: StoreType = "atom"): StoreEntry {
       return registerStore({
@@ -1065,7 +1065,14 @@ describe("buildSnapshot", () => {
 
         track(atom("x"), "$typed");
         track(panel.$open, "$open");
-        ownBindings({ home: "node_modules/panel/index.ts", external: true }, [["panel", panel]]);
+        ownBindings(
+          {
+            home: "node_modules/panel/index.ts",
+            external: true,
+            moduleKey: "node_modules/panel/index.ts",
+          },
+          [["panel", panel]],
+        );
 
         expect(Object.keys(buildSnapshot())).toEqual([HOME, "node_modules/panel/index.ts"]);
       });
@@ -1459,10 +1466,13 @@ describe("buildSnapshot", () => {
 
         track($draft, "$draft");
         track($canUndo, "$canUndo");
-        ownBindings({ home: "vendor/withUndo.ts", external: true }, [
-          ["$draft", $draft, true],
-          ["$canUndo", $canUndo, true],
-        ]);
+        ownBindings(
+          { home: "vendor/withUndo.ts", external: true, moduleKey: "vendor/withUndo.ts" },
+          [
+            ["$draft", $draft, true],
+            ["$canUndo", $canUndo, true],
+          ],
+        );
 
         expect(buildSnapshot()).toEqual({ [HOME]: { $draft: { "(value)": "", $canUndo: false } } });
       });

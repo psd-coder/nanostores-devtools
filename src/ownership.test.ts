@@ -20,7 +20,7 @@ import { listEntries, registerStore, unregisterStore } from "./registry.ts";
 const HOME = "src/model.ts";
 
 /** The module the bindings come from, which is where a node one of them makes is drawn. */
-const FROM = { home: HOME, external: false };
+const FROM = { home: HOME, external: false, moduleKey: HOME };
 
 /** A store holding other stores beside its own value, which is what `Object.assign` builds. */
 function holder(value: unknown, held: Record<string, Store>): Store {
@@ -256,7 +256,9 @@ describe("ownBindings", () => {
       const $canUndo = atom(false);
 
       track($canUndo, "$canUndo");
-      ownBindings({ home: "vendor/withUndo.ts", external: true }, [["$undoable", $canUndo, true]]);
+      ownBindings({ home: "vendor/withUndo.ts", external: true, moduleKey: "vendor/withUndo.ts" }, [
+        ["$undoable", $canUndo, true],
+      ]);
 
       expect(listEntries()[0]?.name).toBe("$canUndo");
       expect(namedByBinding($canUndo)).toBe(false);
@@ -566,7 +568,9 @@ describe("a node", () => {
   it("draws a node in the file its binding was written in, whoever made the value", () => {
     const created = panel();
 
-    ownBindings({ home: "vendor/panel.ts", external: true }, [["panel", created]]);
+    ownBindings({ home: "vendor/panel.ts", external: true, moduleKey: "vendor/panel.ts" }, [
+      ["panel", created],
+    ]);
 
     expect(nodeInfoOf(created)).toMatchObject({ home: "vendor/panel.ts", external: true });
   });

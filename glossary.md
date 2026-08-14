@@ -162,6 +162,11 @@ much by itself. A store never takes one: that slot already holds its marker.
 `WeakMap`. It says plainly that the name is ours. Every unnamed instance shares the base `ref`
 and they number across the file, not per class.
 
+**Name suffix** — what an entry's name grows when two entries would otherwise share one label:
+the place it was made, `$counter (line 20)`, for two creation sites in one file, and the file it
+came from, `$counter (a.ts)`, for two files one home holds. Both sides take it, so neither name
+turns on which of the two loaded first.
+
 **Lifecycle row** — a timeline entry for something other than a value change: a store
 joining or leaving the registry, or mounting and unmounting. All four are on by default,
 because a tree that changes without a row would drift into the next write's diff.

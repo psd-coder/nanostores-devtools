@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectDevtools } from "../connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
 import { nodeInfoOf, ownerOf } from "../ownership.ts";
-import { getEntry, listEntries, trackStores } from "../registry.ts";
+import { getEntry, listEntries, trackStores, unregisterStore, untrack } from "../registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";
 
@@ -246,6 +246,158 @@ describe("a name two source lines claim", () => {
     scope.store(atom(0), site({ name: "$counter", line: 12 }));
 
     expect(names()).toEqual(["$counter"]);
+  });
+});
+
+describe("a name two modules mapped to one home claim", () => {
+  const SHARED = "stores";
+  const A_KEY = "src/a.ts";
+  const B_KEY = "src/b.ts";
+
+  function mapped(moduleKey: string): FileScope {
+    return fileScope(moduleKey, SHARED, CAP, false);
+  }
+
+  it("keeps both stores and names the file each one came from", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+
+    a.store(atom(0), site({ name: "$counter" }));
+    b.store(atom(0), site({ name: "$counter" }));
+
+    expect(names()).toEqual(["$counter (a.ts)", "$counter (b.ts)"]);
+  });
+
+  it("keeps both stores a top-level binding of the developer's own named", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+    const $first = atom(0);
+    const $second = atom(0);
+
+    a.store($first, site({ name: "$counter" }));
+    a.own([["$counter", $first, true]]);
+    b.store($second, site({ name: "$counter" }));
+    b.own([["$counter", $second, true]]);
+
+    expect(getEntry($first)).toMatchObject({ name: "$counter (a.ts)" });
+    expect(getEntry($second)).toMatchObject({ name: "$counter (b.ts)" });
+  });
+
+  it("gives the same two names whichever module runs first", () => {
+    const b = mapped(B_KEY);
+    const a = mapped(A_KEY);
+
+    b.store(atom(0), site({ name: "$counter" }));
+    a.store(atom(0), site({ name: "$counter" }));
+
+    expect(names()).toEqual(["$counter (b.ts)", "$counter (a.ts)"]);
+  });
+
+  it("takes as much of the path as it takes to tell two files of one name apart", () => {
+    const a = fileScope("src/a/store.ts", SHARED, CAP, false);
+    const b = fileScope("src/b/store.ts", SHARED, CAP, false);
+
+    a.store(atom(0), site({ name: "$counter" }));
+    b.store(atom(0), site({ name: "$counter" }));
+
+    expect(names()).toEqual(["$counter (a/store.ts)", "$counter (b/store.ts)"]);
+  });
+
+  it("names the file in front of the place when both sides clash", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+
+    a.store(atom(0), site({ name: "$counter", line: 12 }));
+    a.store(atom(0), site({ name: "$counter", line: 20 }));
+    b.store(atom(0), site({ name: "$counter" }));
+
+    expect(names()).toEqual([
+      "$counter (a.ts, line 12)",
+      "$counter (a.ts, line 20)",
+      "$counter (b.ts)",
+    ]);
+  });
+
+  it("keeps the numbering of the site it renames", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+
+    a.store(atom(0), site({ name: "$counter" }));
+    a.store(atom(0), site({ name: "$counter" }));
+    b.store(atom(0), site({ name: "$counter" }));
+
+    expect(names()).toEqual(["$counter (a.ts)", "$counter (a.ts) #2", "$counter (b.ts)"]);
+  });
+
+  it("warns once and names both files", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+    const c = mapped("src/c.ts");
+
+    a.store(atom(0), site({ name: "$counter" }));
+    b.store(atom(0), site({ name: "$counter" }));
+    c.store(atom(0), site({ name: "$counter" }));
+
+    expect(names()).toEqual(["$counter (a.ts)", "$counter (b.ts)", "$counter (c.ts)"]);
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain(A_KEY);
+    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain(B_KEY);
+  });
+
+  it("leaves every name alone when each module has a home of its own", () => {
+    const a = fileScope(A_KEY, "a", CAP, false);
+    const b = fileScope(B_KEY, "b", CAP, false);
+
+    a.store(atom(0), site({ name: "$counter" }));
+    b.store(atom(0), site({ name: "$counter" }));
+
+    expect(names()).toEqual(["$counter", "$counter"]);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("removes the store asked for and nothing else", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+    const $dropped = atom(0);
+    const $last = atom(0);
+
+    a.store($dropped, site({ name: "$counter" }));
+    b.store($last, site({ name: "$counter" }));
+    trackStores("cart", { $counter: $dropped });
+    untrack("cart");
+
+    expect(names()).toEqual(["$counter (b.ts)"]);
+
+    unregisterStore($last);
+
+    expect(names()).toEqual([]);
+  });
+
+  it("replaces one module's own stores on a reload, saying nothing about the other", async () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+    const $first = atom(0);
+    const $kept = atom(0);
+
+    a.store($first, site({ name: "$counter" }));
+    a.own([["$counter", $first, true]]);
+    b.store($kept, site({ name: "$counter" }));
+    b.own([["$counter", $kept, true]]);
+    await listen();
+
+    const reloaded = mapped(A_KEY);
+    const $again = atom(1);
+
+    reloaded.clear();
+    reloaded.store($again, site({ name: "$counter" }));
+    reloaded.own([["$counter", $again, true]]);
+
+    await endOfTurn();
+
+    expect(names()).toEqual(["$counter (b.ts)", "$counter (a.ts)"]);
+    expect(getEntry($kept)).toMatchObject({ name: "$counter (b.ts)" });
+    expect(rowNames()).toEqual(["$counter (a.ts)/hotReload"]);
+    expect(console.warn).toHaveBeenCalledTimes(1);
   });
 });
 

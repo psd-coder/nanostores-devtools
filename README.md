@@ -451,6 +451,13 @@ relative to that root and a file outside it arrives relative to `projectRoot`. I
 is displayed. A hot reload still clears a module by its real path, so two files sharing one display
 key cannot delete each other's stores.
 
+**Two files mapped to one home keep both stores.** When each of them holds a `$counter`, both
+entries say which file they came from: `$counter (a.ts)` next to `$counter (b.ts)`. Where the two
+files carry the same name, the suffix takes as much of the path as it takes to tell them apart,
+`$counter (a/store.ts)`. It comes from the file alone, so a hot reload and the other load order
+both give the same two names, and you are warned once for each name two files write. Every other
+name stays exactly as it is: a name only one of the files writes needs nothing added to it.
+
 We do not cut the shared start of your file paths for you, because that shared part changes as
 routes load. Cutting it would rename every key in the tree at once, and the extension reads that
 as every key deleted and added again. Write a fixed rule instead, such as

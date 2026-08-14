@@ -8,6 +8,7 @@ import {
   type OwnerSource,
   peekDevtoolsGlobal,
 } from "./global.ts";
+import { claimBindingName, type NameSource } from "./names.ts";
 import { getEntry, isStore, renameEntry } from "./registry.ts";
 
 /**
@@ -49,6 +50,9 @@ export type Binding = readonly [string, unknown, boolean?];
 /** The module these bindings come from, which is where a node one of them makes is drawn. */
 export type ModuleHome = Pick<NodeInfo, "home" | "external">;
 
+/** A module running its own body, which is the one thing that knows the file its bindings sit in. */
+export type BindingHome = ModuleHome & NameSource;
+
 /** What one value holds: the members the tree draws, and the ones its cap left out. */
 type Members = {
   drawn: Binding[];
@@ -69,7 +73,7 @@ type Scan = { module: ModuleHome; seen: Set<object> };
  * names for one store resolve to one store, so this decides where the tree draws it and what the
  * entry it already has is called.
  */
-export function ownBindings(module: ModuleHome, bindings: readonly Binding[]): void {
+export function ownBindings(module: BindingHome, bindings: readonly Binding[]): void {
   for (const [name, value, exported = false] of bindings) {
     if (!module.external && isStore(value)) {
       claimName(module, value, name, exported);
@@ -249,8 +253,11 @@ export function nodeInfoOf(value: object): NodeInfo | undefined {
  * An exported binding is the name the rest of the app knows the store by, so it wins whatever order
  * the two bindings are scanned in. Two bindings of the same kind pick one arbitrarily, and the last
  * one scanned is the one that wins.
+ *
+ * The name says which file it came from where a second module the home holds writes it too, which
+ * is what keeps two files `fileKey` maps onto one home from taking each other's entry.
  */
-function claimName(module: ModuleHome, store: Store, name: string, exported: boolean): void {
+function claimName(module: BindingHome, store: Store, name: string, exported: boolean): void {
   const { bound } = getDevtoolsGlobal();
 
   if (getEntry(store) === undefined || (bound.get(store) === true && !exported)) {
@@ -258,7 +265,7 @@ function claimName(module: ModuleHome, store: Store, name: string, exported: boo
   }
 
   bound.set(store, exported);
-  renameEntry(store, name, module.home);
+  renameEntry(store, claimBindingName(module, store, name), module.home);
 }
 
 /**

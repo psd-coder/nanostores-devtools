@@ -13,11 +13,33 @@ export type SiteState = {
   name: string;
   fn: string | null;
   line: number;
-  /** What the entries are named. It grows a place suffix once a second site claims `name`. */
+  /** What the entries are named: `name`, plus whichever of the two suffixes below is on. */
   display: string;
+  /** The file the name says it came from, once a second module sharing the home claims `name`. */
+  file: string | null;
+  /** Whether the name says the place it was made, once a second site here claims `name`. */
+  placed: boolean;
   made: number;
   stores: SiteStore[];
 };
+
+/**
+ * One module's hold on one name at one display home, and everything named after it, so a name
+ * that turns ambiguous later renames what it already gave out.
+ */
+export type NameHolder = {
+  /** The file every entry of this holder names, and nothing while the module holds the name alone. */
+  file: string | null;
+  sites: SiteState[];
+  /**
+   * The stores a top-level binding of the module's own named, which the sites do not hold. Weak,
+   * so a name the app has let go keeps nothing alive.
+   */
+  bound: WeakRef<Store>[];
+};
+
+/** Which modules took one name at one display home, keyed by the module key. */
+export type NameClaim = Map<string, NameHolder>;
 
 /**
  * One instrumented module's own bookkeeping. It outlives the module body, because a hot reload
@@ -103,8 +125,13 @@ export type DevtoolsGlobal = {
   byLabel: Map<string, Store>;
   changeListeners: Set<ChangeListener>;
   warned: Set<string>;
-  /** Keyed by the module id, never the display home, so two files cannot wipe each other. */
+  /** Keyed by the module key, never the display home, so two files cannot wipe each other. */
   scopes: Map<string, ModuleScope>;
+  /**
+   * Which module took each name at each display home, keyed by the label the name makes. `fileKey`
+   * can map two modules onto one home, and this is what keeps the two `$counter`s they hold apart.
+   */
+  homeNames: Map<string, NameClaim>;
   /** The type of a store made at a creation site with no name, until an adopt call names it. */
   creations: WeakMap<Store, StoreType>;
   /** What each store is drawn under, which the registry knows nothing about. */
@@ -154,6 +181,7 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     changeListeners: new Set(),
     warned: new Set(),
     scopes: new Map(),
+    homeNames: new Map(),
     creations: new WeakMap(),
     owners: new WeakMap(),
     bound: new WeakMap(),
