@@ -7,6 +7,7 @@ import {
   getDevtoolsGlobal,
   peekDevtoolsGlobal,
 } from "./global.ts";
+import { detachEntryHooks } from "./unhook.ts";
 import { warnOnce } from "./warn.ts";
 
 export type StoreType = "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
@@ -223,12 +224,6 @@ export function getEntryByLabel(label: string): StoreEntry | undefined {
   return store === undefined ? undefined : devtools.entries.get(store);
 }
 
-export function detachHooks(): void {
-  for (const entry of peekDevtoolsGlobal()?.entries.values() ?? []) {
-    clearHooks(entry);
-  }
-}
-
 export function onRegistryChange(listener: ChangeListener): () => void {
   const { changeListeners } = getDevtoolsGlobal();
 
@@ -253,7 +248,7 @@ function relabelEntry(
   /** The type decides which hooks an entry carries, so the ones attached under the old one go. */
   if (registration.type !== "unknown" && registration.type !== entry.type) {
     entry.type = registration.type;
-    clearHooks(entry);
+    detachEntryHooks(entry);
     notifyChange(devtools, { kind: "update" });
   }
 
@@ -341,7 +336,7 @@ function dropEntry(devtools: DevtoolsGlobal, store: Store, notify: boolean): boo
     return false;
   }
 
-  clearHooks(entry);
+  detachEntryHooks(entry);
   devtools.entries.delete(store);
 
   if (devtools.byLabel.get(entry.label) === store) {
@@ -353,14 +348,6 @@ function dropEntry(devtools: DevtoolsGlobal, store: Store, notify: boolean): boo
   }
 
   return true;
-}
-
-function clearHooks(entry: StoreEntry): void {
-  for (const unhook of entry.unhook) {
-    unhook();
-  }
-
-  entry.unhook.length = 0;
 }
 
 function warnOnSize(devtools: DevtoolsGlobal): void {

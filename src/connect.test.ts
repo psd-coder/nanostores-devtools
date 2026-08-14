@@ -1,10 +1,11 @@
-import { atom } from "nanostores";
+import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./connect.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
 import { getEntry, listEntries, trackStores } from "./registry.ts";
 import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
+import { hasHooks, keepHooks } from "./unhook.ts";
 
 let fake: FakeExtension;
 
@@ -16,6 +17,12 @@ function endOfTurn(): Promise<void> {
 /** `trackStores` records every store as `unknown`, so an unmounted one reaches the panel marked. */
 function stale(value: unknown): unknown {
   return { data: { $$value: value }, __serializedType__: "not mounted, may be stale" };
+}
+
+function hooked(store: Store): boolean {
+  const entry = getEntry(store);
+
+  return entry !== undefined && hasHooks(entry);
 }
 
 describe("connectDevtools", () => {
@@ -38,8 +45,10 @@ describe("connectDevtools", () => {
     });
 
     it("is a quiet no-op with no extension", async () => {
+      const $count = atom(0);
+
       fake.uninstall();
-      trackStores("cart", { $count: atom(0) });
+      trackStores("cart", { $count });
 
       const handle = connectDevtools();
 
@@ -48,7 +57,7 @@ describe("connectDevtools", () => {
       expect(handle.connected).toBe(false);
       expect(console.warn).not.toHaveBeenCalled();
       expect(fake.inits).toHaveLength(0);
-      expect(listEntries()[0]?.unhook).toEqual([]);
+      expect(hooked($count)).toBe(false);
 
       handle.disconnect();
     });
@@ -154,12 +163,19 @@ describe("connectDevtools", () => {
       const handle = connectDevtools();
 
       await endOfTurn();
-      getEntry($count)?.unhook.push(unhook);
+
+      const entry = getEntry($count);
+
+      if (entry) {
+        keepHooks(entry, unhook);
+      }
+
       handle.disconnect();
 
       expect(unhook).toHaveBeenCalledTimes(1);
       expect(fake.listenerCount()).toBe(0);
-      expect(getEntry($count)?.unhook).toEqual([]);
+      expect(hooked($count)).toBe(false);
+      expect(listEntries()).toHaveLength(1);
 
       const again = connectDevtools();
 

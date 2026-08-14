@@ -4,11 +4,19 @@ import { catchAndWarn } from "./catch-and-warn.ts";
 import { noteMount, noteUnmount } from "./lifecycle.ts";
 import { DERIVED, listEntries, type StoreEntry } from "./registry.ts";
 import { appendFollower, flushOpenRow, openDirectRow } from "./timeline.ts";
+import { detachEntryHooks, hasHooks, keepHooks } from "./unhook.ts";
 
 /** Registration records, connect attaches: only connect knows whether the extension is there. */
 export function attachHooks(): void {
   for (const entry of listEntries()) {
     attach(entry);
+  }
+}
+
+/** The other half, so a disconnected page is left as devtools found it. */
+export function detachHooks(): void {
+  for (const entry of listEntries()) {
+    detachEntryHooks(entry);
   }
 }
 
@@ -19,7 +27,7 @@ export function attachHooks(): void {
  * of its own instead of the row that caused it.
  */
 function attach(entry: StoreEntry): void {
-  if (entry.unhook.length > 0) {
+  if (hasHooks(entry)) {
     return;
   }
 
@@ -39,7 +47,8 @@ function attachLifecycle(entry: StoreEntry): void {
     entry.everMounted = true;
   }
 
-  entry.unhook.push(
+  keepHooks(
+    entry,
     onStart(entry.store, () => {
       catchAndWarn(entry.label, () => {
         noteMount(entry);
@@ -67,12 +76,13 @@ function attachDirectWrite(entry: StoreEntry): void {
     });
   }
 
-  entry.unhook.push(onSet(entry.store, flushOpenRow), onNotify(entry.store, onWrite));
+  keepHooks(entry, onSet(entry.store, flushOpenRow), onNotify(entry.store, onWrite));
 }
 
 /** No `onSet`: a computed sets itself mid-cascade, and flushing there would split the row. */
 function attachFollower(entry: StoreEntry): void {
-  entry.unhook.push(
+  keepHooks(
+    entry,
     onNotify(entry.store, () => {
       catchAndWarn(entry.label, () => {
         appendFollower(entry);

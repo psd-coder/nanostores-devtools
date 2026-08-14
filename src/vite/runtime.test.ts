@@ -6,6 +6,7 @@ import { resetDevtoolsGlobal } from "../global.ts";
 import { nodeInfoOf, ownerOf } from "../ownership.ts";
 import { getEntry, listEntries, trackStores, unregisterStore, untrack } from "../registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
+import { keepHooks } from "../unhook.ts";
 import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";
 
 const MODULE_ID = "/repo/src/stores/cart.ts";
@@ -466,7 +467,13 @@ describe("the per-site cap", () => {
     const unhook = vi.fn();
 
     scope.store($first, site());
-    getEntry($first)?.unhook.push(unhook);
+
+    const entry = getEntry($first);
+
+    if (entry) {
+      keepHooks(entry, unhook);
+    }
+
     scope.store(atom(0), site());
 
     expect(unhook).toHaveBeenCalledTimes(1);

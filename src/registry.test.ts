@@ -1,4 +1,4 @@
-import { atom, batched, computed, deepMap, map } from "nanostores";
+import { atom, batched, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GLOBAL_KEY, resetDevtoolsGlobal } from "./global.ts";
@@ -15,6 +15,7 @@ import {
   trackStores,
   untrack,
 } from "./registry.ts";
+import { hasHooks, keepHooks } from "./unhook.ts";
 
 function plugin(
   overrides: Partial<Registration> & Pick<Registration, "store" | "name">,
@@ -33,6 +34,21 @@ function labels(): string[] {
   return listEntries()
     .map((entry) => entry.label)
     .sort();
+}
+
+function hooked(store: Store): boolean {
+  const entry = getEntry(store);
+
+  return entry !== undefined && hasHooks(entry);
+}
+
+/** A stand-in for the hooks a bridge would attach, so a drop has something to run. */
+function keep(store: Store, unhook: () => void): void {
+  const entry = getEntry(store);
+
+  if (entry) {
+    keepHooks(entry, unhook);
+  }
 }
 
 describe("registry", () => {
@@ -126,7 +142,7 @@ describe("registry", () => {
       trackStores("cart", { $count });
 
       expect($count.lc).toBe(0);
-      expect(getEntry($count)?.unhook).toEqual([]);
+      expect(hooked($count)).toBe(false);
     });
 
     it("keeps the first name when one store arrives under two names in one call", () => {
@@ -160,7 +176,7 @@ describe("registry", () => {
       const unhook = vi.fn();
 
       trackStores("cart", { $count: $first });
-      getEntry($first)?.unhook.push(unhook);
+      keep($first, unhook);
       trackStores("cart", { $count: $second });
 
       expect(listEntries()).toHaveLength(1);
@@ -191,8 +207,8 @@ describe("registry", () => {
 
       trackStores("cart", { $items, $count });
       trackStores("checkout", { $other });
-      getEntry($items)?.unhook.push(unhookItems);
-      getEntry($count)?.unhook.push(unhookCount);
+      keep($items, unhookItems);
+      keep($count, unhookCount);
 
       untrack("cart");
 

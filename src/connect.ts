@@ -5,7 +5,7 @@ import {
   type ExtensionMessage,
 } from "./extension.ts";
 import { getDevtoolsGlobal, peekDevtoolsGlobal } from "./global.ts";
-import { attachHooks } from "./hooks.ts";
+import { attachHooks, detachHooks } from "./hooks.ts";
 import {
   createLifecycle,
   dropPendingRows,
@@ -13,7 +13,7 @@ import {
   noteInitSent,
   noteRegistryChange,
 } from "./lifecycle.ts";
-import { detachHooks, onRegistryChange } from "./registry.ts";
+import { onRegistryChange } from "./registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { createTimeline, currentStack, dropOpenRow, type TimelineState } from "./timeline.ts";
