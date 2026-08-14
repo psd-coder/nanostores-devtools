@@ -6,6 +6,7 @@ import { resetDevtoolsGlobal } from "./global.ts";
 import { box, mark } from "./marker.ts";
 import { isStore, registerStore, type StoreType } from "./registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
+import { MAX_WALKED_NODES } from "./slot.ts";
 import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
 
 class Point {
@@ -647,6 +648,79 @@ describe("createReplacer", () => {
       $self.set($self);
 
       expect(write($self)).toBe('{"data":{"(value)":{"$jsan":"$"}},"__serializedType__":"store"}');
+    });
+
+    it("boxes a store its own value holds back, where a bare value would go out as a pointer", () => {
+      const shared: Record<string, unknown> = {};
+      const $inner = atom<unknown>(shared);
+
+      shared["self"] = $inner;
+      register($inner, "atom");
+
+      expect(write(shared)).toBe(
+        '{"self":{"data":{"(value)":{"$jsan":"$"}},"__serializedType__":"store"}}',
+      );
+    });
+
+    it("follows a second store's value to the store it is marking", () => {
+      const shared: Record<string, unknown> = {};
+      const $outer = atom<unknown>(shared);
+      const $middle = atom<unknown>({ back: $outer });
+
+      shared["middle"] = $middle;
+      register($outer, "atom", "$outer");
+      register($middle, "atom", "$middle");
+
+      expect(markedKeys(replacer("k", $outer))).toEqual(["(value)"]);
+    });
+
+    it("leaves two stores holding one plain object bare, with a label on each", () => {
+      const shared = { total: 12 };
+      const $a = atom(shared);
+      const $b = atom(shared);
+
+      register($a, "atom", "$a");
+      register($b, "atom", "$b");
+
+      expect(write({ $a, $b })).toBe(
+        '{"$a":{"data":{"total":12},"__serializedType__":"store"},' +
+          '"$b":{"data":{"total":12},"__serializedType__":"store"}}',
+      );
+    });
+
+    it("boxes a value with more nodes than the walk may look at", () => {
+      const $wide = atom(Array.from({ length: MAX_WALKED_NODES + 1 }, () => ({})));
+
+      register($wide, "atom");
+
+      expect(markedKeys(replacer("k", $wide))).toEqual(["(value)"]);
+    });
+
+    it("runs no getter the app put on a value while it looks for the store", () => {
+      const get = vi.fn(() => "app code ran");
+      const value = {};
+
+      Object.defineProperty(value, "hidden", { get, enumerable: true });
+
+      const $held = atom(value);
+
+      register($held, "atom");
+
+      expect(markedData(replacer("k", $held))).toBe(value);
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it("ends on a value that comes round to itself without holding the store", () => {
+      const value: Record<string, unknown> = { name: "leaf" };
+
+      value["self"] = value;
+      value["again"] = { first: value, second: value };
+
+      const $held = atom(value);
+
+      register($held, "atom");
+
+      expect(markedData(replacer("k", $held))).toBe(value);
     });
 
     it("lets a user serializer matching a store win", () => {

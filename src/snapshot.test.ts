@@ -62,6 +62,11 @@ function slot(snapshot: Snapshot, home: string, name: string): unknown {
   return snapshot[home]?.[name];
 }
 
+/** The whole trip: written the way the extension writes it, read the way the panel reads it. */
+function drawnTree(): unknown {
+  return parsePanel(stringify(buildSnapshot(), createReplacer([]), null, EXTENSION_OPTIONS));
+}
+
 /** One level of a tree the panel's reviver has already been over, so its labels sit on symbols. */
 function readNode(value: unknown, key: string): Record<string, unknown> {
   const node = isRecord(value) ? value[key] : undefined;
@@ -693,13 +698,47 @@ describe("buildSnapshot", () => {
         $nothing: atom<unknown>(null),
       });
 
-      const written = stringify(buildSnapshot(), createReplacer([]), null, EXTENSION_OPTIONS);
-      const drawn = parsePanel(written);
-      const cart = readNode(drawn, "cart");
+      const cart = readNode(drawnTree(), "cart");
 
       for (const name of ["$count", "$cart", "$when", "$point", "$nothing"]) {
         expect(labelOf(cart[`${name} [store]`]), name).toBe("not mounted, may be stale");
       }
+    });
+
+    it("keeps the label on a store its own value holds back", () => {
+      const shared: Record<string, unknown> = {};
+      const $inner = atom<unknown>(shared);
+
+      shared["self"] = $inner;
+      registerStore({
+        store: $inner,
+        name: "$inner",
+        home: "cart",
+        type: "atom",
+        origin: "plugin",
+        external: false,
+        fn: null,
+      });
+
+      const value = readNode(readNode(drawnTree(), "cart"), "$inner [store]");
+
+      expect(labelOf(value["self"])).toBe("store");
+      expect(Object.keys(Object(value["self"]))).toEqual(["(value)"]);
+    });
+
+    it("keeps the marker on a store its own value holds back", () => {
+      const shared: Record<string, unknown> = {};
+      const $inner = atom<unknown>(shared);
+
+      shared["self"] = $inner;
+      trackStores("cart", { $inner });
+
+      const drawn = readNode(drawnTree(), "cart")["$inner [store]"];
+      const inside = Reflect.get(Object(Reflect.get(Object(drawn), "(value)")), "self");
+
+      expect(labelOf(drawn)).toBe("not mounted, may be stale");
+      expect(Object.keys(Object(drawn))).toEqual(["(value)"]);
+      expect(labelOf(inside)).toBe("not mounted, may be stale");
     });
 
     it("marks a store that mounted and unmounted before connect as may be stale", () => {
@@ -880,6 +919,23 @@ describe("buildSnapshot", () => {
           "$total [computed]": { "(value)": staleBare({ total: 12 }), "$child [store]": 1 },
         },
       });
+    });
+
+    it("keeps a store bare in its own slot and inside its owner's value alike", () => {
+      const $canUndo = atom({ total: 12 });
+      const $draft = holder({ from: $canUndo }, { $canUndo });
+
+      track($draft, "$draft");
+      track($canUndo, "$canUndo");
+      ownBindings(FROM, [["$draft", $draft]]);
+
+      const node = readNode(readNode(drawnTree(), HOME), "$draft [store]");
+      const held = readNode(node["(value)"], "from");
+
+      expect(labelOf(held)).toBe("store");
+      expect(Object.keys(held)).toEqual(["total"]);
+      expect(node["$canUndo [store]"]).toEqual({ total: 12 });
+      expect(labelOf(node["$canUndo [store]"])).toBeUndefined();
     });
 
     it("drops a nested store's ordinal, because the parent already says which one it is", () => {

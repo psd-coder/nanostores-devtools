@@ -1,9 +1,9 @@
 import type { Store } from "nanostores";
 
-import { chainDescriptor } from "./descriptor.ts";
-import { box, boxUnlessPlain, mark, type Marked } from "./marker.ts";
+import { chainDescriptor, copyData, type Fields, ownFields } from "./descriptor.ts";
+import { box, mark, type Marked } from "./marker.ts";
 import { getEntry, isStore, storeWord } from "./registry.ts";
-import { staleNote, storeValue } from "./slot.ts";
+import { dataForMark, staleNote, storeValue } from "./slot.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /**
@@ -15,8 +15,6 @@ export type Serializer = {
   match: (value: unknown) => boolean;
   convert: (value: unknown) => unknown;
 };
-
-type Fields = Record<string, unknown>;
 
 type NodeAttribute = { name: string; value: string };
 
@@ -288,22 +286,8 @@ function markStore(wrappers: Wrappers, store: Store): Marked {
   const note = staleNote(store, entry);
 
   return note === undefined
-    ? markOnce(wrappers, store, storeWord(entry?.type), boxUnlessPlain(storeValue(store)))
+    ? markOnce(wrappers, store, storeWord(entry?.type), dataForMark(store, storeValue(store)))
     : markOnce(wrappers, store, note.label, note.data);
-}
-
-/**
- * Own enumerable string keys that hold data. A getter can run app code, so it is skipped rather
- * than called, and a symbol key is skipped rather than walked.
- */
-function ownFields(value: object): Fields {
-  const fields: Fields = {};
-
-  for (const key of Object.keys(value)) {
-    copyData(fields, key, Object.getOwnPropertyDescriptor(value, key));
-  }
-
-  return fields;
 }
 
 /**
@@ -330,13 +314,6 @@ function errorFields(error: Error): Fields {
   }
 
   return Object.assign(fields, ownFields(error));
-}
-
-/** An accessor is passed over rather than called, so its key never appears. */
-function copyData(fields: Fields, key: string, descriptor: PropertyDescriptor | undefined): void {
-  if (descriptor && "value" in descriptor) {
-    fields[key] = descriptor.value;
-  }
 }
 
 /**

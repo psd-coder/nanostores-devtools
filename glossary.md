@@ -136,7 +136,10 @@ Only a `computed`, a `batched` or an unknown-type store is marked, as
 which carries `{}` with no value key at all. A plain object and an array sit in `data` bare; every
 other value is **boxed** under **`(value)`** first, or the panel drops the label. That is the one
 invented key name in the design, the same key a store that owns others keeps its own value under,
-and parentheses cannot spell a name a developer could have written. The marker states the
+and parentheses cannot spell a name a developer could have written. One plain value is boxed too:
+one the store itself can be reached from. The mark then sits inside the object it carries, jsan
+writes that object as a pointer back to the ancestor it is inside, and the label was written onto
+the object the pointer replaces. The marker states the
 consequence, not the mount state, so where there is no consequence there is no marker. Nothing is ever hidden, so a marker is how an untrustworthy store appears,
 never a replacement for a missing key.
 
