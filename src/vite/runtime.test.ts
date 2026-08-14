@@ -36,6 +36,11 @@ function plainNames(): string[] {
   return listEntries().map((entry) => entry.name);
 }
 
+/** Every warning printed so far, in order, so a second one about the same name is visible. */
+function warnings(): unknown[] {
+  return vi.mocked(console.warn).mock.calls.map((call) => call[0]);
+}
+
 function endOfTurn(): Promise<void> {
   return Promise.resolve();
 }
@@ -201,6 +206,13 @@ describe("store", () => {
 });
 
 describe("a name two source lines claim", () => {
+  const TWO_PLACES =
+    `[nanostores-devtools] "$counter" is made in 2 places in "src/stores/cart.ts": ` +
+    `makeCart, line 12 and line 20. Each entry shows its place.`;
+  const THREE_PLACES =
+    `[nanostores-devtools] "$counter" is made in 3 places in "src/stores/cart.ts": ` +
+    `makeCart, line 12, line 20 and line 31. Each entry shows its place.`;
+
   it("qualifies both entries with the enclosing function and the line", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
@@ -232,11 +244,48 @@ describe("a name two source lines claim", () => {
 
     scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    expect(warnings()).toEqual([TWO_PLACES]);
+  });
+
+  it("warns again for the third place and names all three", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+
+    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
     scope.store(atom(0), site({ name: "$counter", line: 31 }));
 
-    expect(console.warn).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain("makeCart, line 12");
-    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain("line 20");
+    expect(names()).toEqual([
+      "$counter (makeCart, line 12)",
+      "$counter (line 20)",
+      "$counter (line 31)",
+    ]);
+    expect(warnings()).toEqual([TWO_PLACES, THREE_PLACES]);
+  });
+
+  it("says nothing again when a reload reaches the same two places", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+
+    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    const reloaded = fileScope(MODULE_ID, HOME, CAP, false);
+
+    reloaded.clear();
+    reloaded.store(atom(0), site({ name: "$counter", line: 20 }));
+    reloaded.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+
+    expect(warnings()).toEqual([TWO_PLACES]);
+  });
+
+  it("names the three places the same way whichever line runs first", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+
+    scope.store(atom(0), site({ name: "$counter", line: 31 }));
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+
+    expect(warnings().at(-1)).toBe(THREE_PLACES);
   });
 
   it("keeps where the file sits while it renames both entries", () => {
@@ -327,6 +376,13 @@ describe("a name two modules mapped to one home claim", () => {
   const SHARED = "stores";
   const A_KEY = "src/a.ts";
   const B_KEY = "src/b.ts";
+  const C_KEY = "src/c.ts";
+  const TWO_FILES =
+    `[nanostores-devtools] "$counter" is made in 2 files that "stores" holds: ` +
+    `"src/a.ts" and "src/b.ts". Each entry shows its file.`;
+  const THREE_FILES =
+    `[nanostores-devtools] "$counter" is made in 3 files that "stores" holds: ` +
+    `"src/a.ts", "src/b.ts" and "src/c.ts". Each entry shows its file.`;
 
   function mapped(moduleKey: string): FileScope {
     return fileScope(moduleKey, SHARED, CAP, false);
@@ -419,16 +475,53 @@ describe("a name two modules mapped to one home claim", () => {
   it("warns once and names both files", () => {
     const a = mapped(A_KEY);
     const b = mapped(B_KEY);
-    const c = mapped("src/c.ts");
+
+    a.store(atom(0), site({ name: "$counter" }));
+    b.store(atom(0), site({ name: "$counter" }));
+
+    expect(warnings()).toEqual([TWO_FILES]);
+  });
+
+  it("warns again for the third module and names all three files", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+    const c = mapped(C_KEY);
 
     a.store(atom(0), site({ name: "$counter" }));
     b.store(atom(0), site({ name: "$counter" }));
     c.store(atom(0), site({ name: "$counter" }));
 
     expect(names()).toEqual(["$counter (a.ts)", "$counter (b.ts)", "$counter (c.ts)"]);
-    expect(console.warn).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain(A_KEY);
-    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain(B_KEY);
+    expect(warnings()).toEqual([TWO_FILES, THREE_FILES]);
+  });
+
+  it("says nothing again when one of the three modules reloads", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+    const c = mapped(C_KEY);
+
+    a.store(atom(0), site({ name: "$counter" }));
+    b.store(atom(0), site({ name: "$counter" }));
+    c.store(atom(0), site({ name: "$counter" }));
+
+    const reloaded = mapped(B_KEY);
+
+    reloaded.clear();
+    reloaded.store(atom(0), site({ name: "$counter" }));
+
+    expect(warnings()).toEqual([TWO_FILES, THREE_FILES]);
+  });
+
+  it("names the three files the same way whichever module runs first", () => {
+    const c = mapped(C_KEY);
+    const b = mapped(B_KEY);
+    const a = mapped(A_KEY);
+
+    c.store(atom(0), site({ name: "$counter" }));
+    b.store(atom(0), site({ name: "$counter" }));
+    a.store(atom(0), site({ name: "$counter" }));
+
+    expect(warnings().at(-1)).toBe(THREE_FILES);
   });
 
   it("leaves every name alone when each module has a home of its own", () => {

@@ -80,31 +80,42 @@ export function releaseSiteNames(scope: ModuleScope, module: NameSource): void {
 }
 
 /**
- * Two source lines wanting one name is a real clash, so both sides show their place: one bare
- * `$counter` next to `$counter (line 20)` does not say which of the two lines it came from.
+ * Two source lines wanting one name is a real clash, so every side shows its place: one bare
+ * `$counter` next to `$counter (line 20)` does not say which of the two lines it came from. A
+ * third line joining is the hardest name of all to explain, so it warns again.
  */
 function claimInModule(scope: ModuleScope, state: SiteState, home: string): void {
-  const owner = scope.claims.get(state.name);
+  const claimants = scope.claims.get(state.name);
 
-  if (owner === undefined) {
-    scope.claims.set(state.name, state);
+  if (claimants === undefined) {
+    scope.claims.set(state.name, [state]);
 
     return;
   }
 
-  if (owner === state) {
+  if (claimants.includes(state)) {
     return;
   }
 
-  const both = `${placeOf(owner)} and ${placeOf(state)}`;
+  claimants.push(state);
 
-  namePlace(owner, home);
-  namePlace(state, home);
+  const places = [...claimants].sort(bySource).map(placeOf);
+
+  for (const claimant of claimants) {
+    namePlace(claimant, home);
+  }
+
   warnOnce(
     "name-clash",
-    makeLabel(home, state.name),
-    `"${state.name}" is made in two places in "${home}": ${both}. Both entries show their place.`,
+    subjectOf(home, state.name, places),
+    `"${state.name}" is made in ${places.length} places in "${home}": ${listOf(places)}. ` +
+      `Each entry shows its place.`,
   );
+}
+
+/** Source order, which a run can reach a site in and a message should still read in. */
+function bySource(one: SiteState, other: SiteState): number {
+  return one.line - other.line || (one.fn ?? "").localeCompare(other.fn ?? "");
 }
 
 /**
@@ -169,12 +180,31 @@ function nameFiles(claim: NameClaim, home: string, name: string): void {
     }
   }
 
+  const files = [...keys].sort().map((key) => `"${key}"`);
+
   warnOnce(
     "shared-home",
-    makeLabel(home, name),
-    `"${name}" is made in "${keys.join('" and "')}", which "${home}" holds both of. ` +
-      `Both entries show their file.`,
+    subjectOf(home, name, files),
+    `"${name}" is made in ${files.length} files that "${home}" holds: ${listOf(files)}. ` +
+      `Each entry shows its file.`,
   );
+}
+
+/**
+ * What one warning is about: the name at its home, and every part the message counts. A module or
+ * a site joining later makes a subject of its own and warns again, and the same set on a reload
+ * makes the one already warned about. The parts come sorted, so load order cannot split one set
+ * into two.
+ */
+function subjectOf(home: string, name: string, parts: string[]): string {
+  return [makeLabel(home, name), ...parts].join("\u0000");
+}
+
+/** `a and b`, `a, b and c`: a list of any length for a sentence to name. */
+function listOf(parts: string[]): string {
+  const last = parts[parts.length - 1] ?? "";
+
+  return parts.length < 2 ? last : `${parts.slice(0, -1).join(", ")} and ${last}`;
 }
 
 function nameFile(state: SiteState, file: string | null, home: string): void {

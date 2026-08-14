@@ -46,8 +46,8 @@ export type NameClaim = Map<string, NameHolder>;
 export type ModuleScope = {
   owned: Set<Store>;
   sites: Map<string, SiteState>;
-  /** Which site took a plain name first, so the second one can rename both. */
-  claims: Map<string, SiteState>;
+  /** Which sites took a plain name, so the one arriving next can rename every one of them. */
+  claims: Map<string, SiteState[]>;
 };
 
 /**
