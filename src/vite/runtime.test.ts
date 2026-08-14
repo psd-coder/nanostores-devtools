@@ -269,6 +269,49 @@ describe("a name two source lines claim", () => {
     expect(getEntry($counter)).toMatchObject({ home: "cart", name: "$counter" });
   });
 
+  it("keeps the name a top-level binding gave to one of the two stores", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $alias = atom(0);
+
+    scope.store($alias, site({ name: "$counter", line: 12 }));
+    scope.own([["$alias", $alias, true]]);
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    expect(getEntry($alias)).toMatchObject({ name: "$alias", place: null });
+    expect(names()).toEqual(["$alias", "$counter (line 20)"]);
+  });
+
+  it("moves a store the developer named twice into the group they put it in", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $alias = atom(0);
+
+    scope.store($alias, site({ name: "$counter", line: 12 }));
+    scope.own([["$alias", $alias, true]]);
+    trackStores("cart", { $alias });
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    expect(getEntry($alias)).toMatchObject({ home: "cart", name: "$alias", place: null });
+  });
+
+  it("keeps the binding's name through a reload that clashes again", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $alias = atom(0);
+
+    scope.store($alias, site({ name: "$counter", line: 12 }));
+    scope.own([["$alias", $alias, true]]);
+    scope.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    const reloaded = fileScope(MODULE_ID, HOME, CAP, false);
+    const $again = atom(1);
+
+    reloaded.clear();
+    reloaded.store($again, site({ name: "$counter", line: 12 }));
+    reloaded.own([["$alias", $again, true]]);
+    reloaded.store(atom(0), site({ name: "$counter", line: 20 }));
+
+    expect(names()).toEqual(["$alias", "$counter (line 20)"]);
+  });
+
   it("starts the claims again after a clear, so a reload does not clash with itself", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
@@ -312,6 +355,19 @@ describe("a name two modules mapped to one home claim", () => {
 
     expect(getEntry($first)).toMatchObject({ name: "$counter", file: "a.ts" });
     expect(getEntry($second)).toMatchObject({ name: "$counter", file: "b.ts" });
+  });
+
+  it("keeps the name a top-level binding gave when the other module names the file", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+    const $alias = atom(0);
+
+    a.store($alias, site({ name: "$counter" }));
+    a.own([["$alias", $alias, true]]);
+    b.store(atom(0), site({ name: "$counter" }));
+
+    expect(getEntry($alias)).toMatchObject({ name: "$alias", file: null });
+    expect(names()).toEqual(["$alias", "$counter (b.ts)"]);
   });
 
   it("gives the same two names whichever module runs first", () => {

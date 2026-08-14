@@ -7,7 +7,14 @@ import {
   type NameHolder,
   type SiteState,
 } from "./global.ts";
-import { getEntry, makeLabel, type NameParts, registerStore, renameEntry } from "./registry.ts";
+import {
+  getEntry,
+  makeLabel,
+  type NameParts,
+  registerStore,
+  renameEntry,
+  type StoreEntry,
+} from "./registry.ts";
 import { warnOnce } from "./warn.ts";
 
 /** What decides a name: the display home the entry sits in, and the module that wrote it. */
@@ -154,12 +161,10 @@ function nameFiles(claim: NameClaim, home: string, name: string): void {
 
     /** Last, because a name the developer wrote beats the one the creation site gave. */
     for (const held of holder.bound) {
-      const store = held.deref();
-      const entry = store === undefined ? undefined : getEntry(store);
+      const entry = entryStillNamed(held.deref(), name, home);
 
-      /** Anything drawn elsewhere or under another name since has a better one than this. */
-      if (store !== undefined && entry?.home === home && entry.name === name) {
-        renameEntry(store, name, home, file);
+      if (entry) {
+        renameEntry(entry.store, name, home, file);
       }
     }
   }
@@ -190,13 +195,29 @@ function namePlace(state: SiteState, home: string): void {
   redisplay(state, home);
 }
 
+/**
+ * The entry a name at this home may still qualify: one still drawn here, and still under the name
+ * being qualified. A store drawn elsewhere was taken by an explicit group or moved by a top-level
+ * binding of the developer's own, and one under another name was renamed by such a binding. Either
+ * way the name it carries now was written by hand, and a written name beats one a creation site
+ * derived (spec 5.5).
+ */
+function entryStillNamed(
+  store: Store | undefined,
+  name: string,
+  home: string,
+): StoreEntry | undefined {
+  const entry = store === undefined ? undefined : getEntry(store);
+
+  return entry?.home === home && entry.name === name ? entry : undefined;
+}
+
 /** The site under new parts, which every store it already registered takes as well. */
 function redisplay(state: SiteState, home: string): void {
   for (const held of state.stores) {
-    const entry = getEntry(held.store);
+    const entry = entryStillNamed(held.store, state.name, home);
 
-    /** A store an explicit group took carries a hand-written name, which this must not touch. */
-    if (entry?.home === home) {
+    if (entry) {
       registerStore({
         store: held.store,
         name: state.name,
