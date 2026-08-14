@@ -3,7 +3,7 @@ import type { Store } from "nanostores";
 import type { NodeInfo } from "./global.ts";
 import { mark, VALUE_KEY } from "./marker.ts";
 import { enclosingNode, MAX_MEMBERS } from "./ownership.ts";
-import { namedByBinding, nodeInfoOf, ownerKeyOf, ownerOf } from "./placement.ts";
+import { type LiveOwnerLink, namedByBinding, nodeInfoOf, ownerLinkOf } from "./placement.ts";
 import {
   getEntry,
   isStore,
@@ -28,13 +28,6 @@ type Held =
   | { kind: "store"; entry: StoreEntry; key?: string | undefined }
   | { kind: "second"; entry: StoreEntry; key?: string | undefined }
   | { kind: "node"; value: object; info: NodeInfo };
-
-/**
- * What a store is drawn under, and the key that owner knows it by. The key belongs to the owner and
- * not to the store, so a store in an array is `[0]` there while keeping its own name everywhere
- * else.
- */
-type Drawn = { owner: object; key: string | undefined };
 
 /** One key in the tree, and what sits behind it. Built for one snapshot: ownership can change. */
 type Placement = { key: string; held: Held };
@@ -111,10 +104,10 @@ function place(tree: Tree, entry: StoreEntry): void {
  * lost holds no place in the tree, so a store under it would be drawn nowhere at all and is drawn at
  * its own home instead.
  */
-function drawnOwner(store: Store): Drawn | undefined {
-  const owner = ownerOf(store);
+function drawnOwner(store: Store): LiveOwnerLink | undefined {
+  const link = ownerLinkOf(store);
 
-  return owner !== undefined && drawable(owner) ? { owner, key: ownerKeyOf(store) } : undefined;
+  return link !== undefined && drawable(link.owner) ? link : undefined;
 }
 
 /**

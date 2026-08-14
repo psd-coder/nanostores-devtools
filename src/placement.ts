@@ -7,17 +7,23 @@ export function namedByBinding(store: Store): boolean {
   return peekDevtoolsGlobal()?.bound.has(store) ?? false;
 }
 
-/** An owner the app has let go reads as none, and the store it held is drawn flat again. */
-export function ownerOf(store: Store): object | undefined {
-  return peekDevtoolsGlobal()?.owners.get(store)?.owner.deref();
-}
-
 /**
- * The key the owner knows the store by, for a collection that reached it by a position or a map key.
- * Nothing for every other owner, where the store's own name is already the key.
+ * A live owner and the key it knows the store by. The key belongs to the owner and not to the
+ * store, so the two are one record: a key with no owner behind it names nothing.
  */
-export function ownerKeyOf(store: Store): string | undefined {
-  return peekDevtoolsGlobal()?.owners.get(store)?.key;
+export type LiveOwnerLink = { owner: object; key: string | undefined };
+
+/** An owner the app has let go reads as none, and the store it held is drawn flat again. */
+export function ownerLinkOf(store: Store): LiveOwnerLink | undefined {
+  const link = peekDevtoolsGlobal()?.owners.get(store);
+
+  if (link === undefined) {
+    return undefined;
+  }
+
+  const owner = link.owner.deref();
+
+  return owner === undefined ? undefined : { owner, key: link.key };
 }
 
 /** What the tree knows about a value it drew as a node, or nothing for a value it never walked. */

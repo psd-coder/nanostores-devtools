@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "../connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
-import { nodeInfoOf, ownerOf } from "../placement.ts";
+import { nodeInfoOf, ownerLinkOf } from "../placement.ts";
 import {
   getEntry,
   listEntries,
@@ -168,7 +168,7 @@ describe("store", () => {
 
     const editorOne = new Editor();
 
-    expect(ownerOf(editorOne.$value)).toBe(editorOne);
+    expect(ownerLinkOf(editorOne.$value)?.owner).toBe(editorOne);
     expect(nodeInfoOf(editorOne)).toMatchObject({ name: "ref", type: "Editor", home: HOME });
     expect(names()).toEqual(["$value"]);
   });
@@ -180,7 +180,7 @@ describe("store", () => {
       static $opened = scope.store(atom(false), site({ name: "$opened" }), this);
     }
 
-    expect(ownerOf(Editor.$opened)).toBe(Editor);
+    expect(ownerLinkOf(Editor.$opened)?.owner).toBe(Editor);
     expect(nodeInfoOf(Editor)).toMatchObject({ name: "Editor", home: HOME });
     expect(nodeInfoOf(Editor)?.type).toBeUndefined();
   });
@@ -191,7 +191,7 @@ describe("store", () => {
 
     scope.store($items, site());
 
-    expect(ownerOf($items)).toBeUndefined();
+    expect(ownerLinkOf($items)?.owner).toBeUndefined();
   });
 
   it("counts each site on its own", () => {
@@ -802,7 +802,7 @@ describe("own", () => {
     scope.store($draft, site({ name: "$draft" }));
     scope.own([["$draft", $draft]]);
 
-    expect(ownerOf($canUndo)).toBe($draft);
+    expect(ownerLinkOf($canUndo)?.owner).toBe($draft);
     expect(names()).toEqual(["$draft"]);
   });
 
@@ -857,7 +857,7 @@ describe("begin and end", () => {
     caller.store($draft, site({ name: "$draft" }));
     caller.end($draft, site({ name: "$draft", type: "unknown" }));
 
-    expect(ownerOf($timeline)).toBe($draft);
+    expect(ownerLinkOf($timeline)?.owner).toBe($draft);
     expect(names()).toEqual(["$timeline", "$draft"]);
   });
 
@@ -869,7 +869,7 @@ describe("begin and end", () => {
     scope.store(model.$open, site({ name: "$open" }));
     scope.end(model, site({ name: "model", type: "unknown" }));
 
-    expect(ownerOf(model.$open)).toBe(model);
+    expect(ownerLinkOf(model.$open)?.owner).toBe(model);
     expect(nodeInfoOf(model)).toMatchObject({ name: "model", home: HOME, external: false });
   });
 
@@ -883,7 +883,7 @@ describe("begin and end", () => {
     scope.adopt($shared, site({ name: "$shared", type: "unknown" }));
     scope.end(panel, site({ name: "panel", type: "unknown" }));
 
-    expect(ownerOf($shared)).toBeUndefined();
+    expect(ownerLinkOf($shared)?.owner).toBeUndefined();
   });
 });
 

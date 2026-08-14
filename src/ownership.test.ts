@@ -1,7 +1,7 @@
 import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { peekDevtoolsGlobal, resetDevtoolsGlobal } from "./global.ts";
+import { getDevtoolsGlobal, peekDevtoolsGlobal, resetDevtoolsGlobal } from "./global.ts";
 import {
   beginFrame,
   enclosingNode,
@@ -11,7 +11,7 @@ import {
   ownBindings,
   ownField,
 } from "./ownership.ts";
-import { namedByBinding, nodeInfoOf, ownerKeyOf, ownerOf } from "./placement.ts";
+import { namedByBinding, nodeInfoOf, ownerLinkOf } from "./placement.ts";
 import { listEntries, registerStore, unregisterStore } from "./registry.ts";
 
 const HOME = "src/model.ts";
@@ -51,7 +51,7 @@ describe("ownBindings", () => {
 
     ownBindings(FROM, [["$draft", $draft]]);
 
-    expect(ownerOf($canUndo)).toBe($draft);
+    expect(ownerLinkOf($canUndo)?.owner).toBe($draft);
   });
 
   it("leaves the store a binding holds without an owner of its own", () => {
@@ -59,7 +59,7 @@ describe("ownBindings", () => {
 
     ownBindings(FROM, [["$draft", $draft]]);
 
-    expect(ownerOf($draft)).toBeUndefined();
+    expect(ownerLinkOf($draft)?.owner).toBeUndefined();
   });
 
   it("stops at a binding that holds no object at all", () => {
@@ -71,7 +71,7 @@ describe("ownBindings", () => {
       ["make", () => $open],
     ]);
 
-    expect(ownerOf($open)).toBeUndefined();
+    expect(ownerLinkOf($open)?.owner).toBeUndefined();
   });
 
   it("skips the nanostores keys, so an atom holding a store does not nest it", () => {
@@ -80,7 +80,7 @@ describe("ownBindings", () => {
 
     ownBindings(FROM, [["$outer", $outer]]);
 
-    expect(ownerOf($inner)).toBeUndefined();
+    expect(ownerLinkOf($inner)?.owner).toBeUndefined();
   });
 
   it("reads through the descriptor, so a getter never runs", () => {
@@ -131,10 +131,10 @@ describe("ownBindings", () => {
 
     ownBindings(FROM, [["$draft", $draft]]);
 
-    expect(ownerOf($first)).toBe($draft);
-    expect(ownerOf($second)).toBe($first);
-    expect(ownerOf($third)).toBe($second);
-    expect(ownerOf($fourth)).toBeUndefined();
+    expect(ownerLinkOf($first)?.owner).toBe($draft);
+    expect(ownerLinkOf($second)?.owner).toBe($first);
+    expect(ownerLinkOf($third)?.owner).toBe($second);
+    expect(ownerLinkOf($fourth)?.owner).toBeUndefined();
   });
 
   it("refuses to put a store under itself", () => {
@@ -143,7 +143,7 @@ describe("ownBindings", () => {
     Object.assign($draft, { $self: $draft });
     ownBindings(FROM, [["$draft", $draft]]);
 
-    expect(ownerOf($draft)).toBeUndefined();
+    expect(ownerLinkOf($draft)?.owner).toBeUndefined();
   });
 
   it("ends the walk on a cycle and refuses the edge that would loop", () => {
@@ -153,8 +153,8 @@ describe("ownBindings", () => {
     Object.assign($draft, { $history });
     ownBindings(FROM, [["$draft", $draft]]);
 
-    expect(ownerOf($history)).toBe($draft);
-    expect(ownerOf($draft)).toBeUndefined();
+    expect(ownerLinkOf($history)?.owner).toBe($draft);
+    expect(ownerLinkOf($draft)?.owner).toBeUndefined();
   });
 
   it("keeps the first owner the registry knows when two bindings hold one store", () => {
@@ -169,7 +169,7 @@ describe("ownBindings", () => {
       ["$other", $other],
     ]);
 
-    expect(ownerOf($canUndo)).toBe($draft);
+    expect(ownerLinkOf($canUndo)?.owner).toBe($draft);
   });
 
   it("moves a store to the owner a hot reload built to replace the one it dropped", () => {
@@ -185,7 +185,7 @@ describe("ownBindings", () => {
     track($after, "$draft");
     ownBindings(FROM, [["$draft", $after]]);
 
-    expect(ownerOf($canUndo)).toBe($after);
+    expect(ownerLinkOf($canUndo)?.owner).toBe($after);
   });
 
   it("registers nothing, so a store already in the registry gains no second entry", () => {
@@ -313,7 +313,7 @@ describe("a node", () => {
 
     ownBindings(FROM, [["editorOne", editorOne]]);
 
-    expect(ownerOf(editorOne.$value)).toBe(editorOne);
+    expect(ownerLinkOf(editorOne.$value)?.owner).toBe(editorOne);
     expect(nodeInfoOf(editorOne)).toMatchObject({ name: "editorOne", type: "Editor" });
   });
 
@@ -343,7 +343,7 @@ describe("a node", () => {
 
     ownBindings(FROM, [["panel", created]]);
 
-    expect(ownerOf(created.$open)).toBe(created);
+    expect(ownerLinkOf(created.$open)?.owner).toBe(created);
     expect(nameOf(created)).toBe("panel");
     expect(nodeInfoOf(created)?.type).toBeUndefined();
   });
@@ -357,7 +357,7 @@ describe("a node", () => {
     expect(nodeInfoOf(drafts)).toMatchObject({ name: "drafts", type: "Array" });
     expect(nameOf(first)).toBe("[0]");
     expect(nodeInfoOf(first)?.parent?.deref()).toBe(drafts);
-    expect(ownerOf(first.$value)).toBe(first);
+    expect(ownerLinkOf(first.$value)?.owner).toBe(first);
   });
 
   it("walks a Map by key, string or number", () => {
@@ -382,7 +382,7 @@ describe("a node", () => {
     ownBindings(FROM, [["byRef", byRef]]);
 
     expect(nodeInfoOf(held)).toBeUndefined();
-    expect(ownerOf(held.$value)).toBeUndefined();
+    expect(ownerLinkOf(held.$value)?.owner).toBeUndefined();
   });
 
   it("walks a Set in insertion order", () => {
@@ -406,9 +406,9 @@ describe("a node", () => {
       ["panel", panel],
     ]);
 
-    expect(ownerKeyOf($width)).toBe("[0]");
+    expect(ownerLinkOf($width)?.key).toBe("[0]");
     /** A property the developer wrote is already the name the store is drawn under. */
-    expect(ownerKeyOf(panel.$open)).toBeUndefined();
+    expect(ownerLinkOf(panel.$open)?.key).toBeUndefined();
   });
 
   it("reads an array by index, so a method of its own never runs", () => {
@@ -482,7 +482,7 @@ describe("a node", () => {
     expect(() => {
       ownBindings(FROM, [["drafts", drafts]]);
     }).not.toThrow();
-    expect(ownerOf(created.$open)).toBeUndefined();
+    expect(ownerLinkOf(created.$open)?.owner).toBeUndefined();
   });
 
   it("skips a hole in an array, and keeps the index the members that are there sit at", () => {
@@ -495,7 +495,7 @@ describe("a node", () => {
     ownBindings(FROM, [["drafts", drafts]]);
 
     expect(nameOf(third)).toBe("[2]");
-    expect(ownerKeyOf($open)).toBe("[5]");
+    expect(ownerLinkOf($open)?.key).toBe("[5]");
   });
 
   it("reads the constructor through the descriptor, so a getter over it never runs", () => {
@@ -511,7 +511,7 @@ describe("a node", () => {
     expect(() => {
       ownBindings(FROM, [["hostile", hostile]]);
     }).not.toThrow();
-    expect(ownerOf($open)).toBe(hostile);
+    expect(ownerLinkOf($open)?.owner).toBe(hostile);
     expect(nodeInfoOf(hostile)?.type).toBeUndefined();
   });
 
@@ -539,7 +539,7 @@ describe("a node", () => {
     expect(() => {
       ownBindings(FROM, [["broken", broken]]);
     }).not.toThrow();
-    expect(ownerOf($open)).toBeUndefined();
+    expect(ownerLinkOf($open)?.owner).toBeUndefined();
   });
 
   it("gives a member past the cap no node, and hangs the stores it holds on the collection", () => {
@@ -550,7 +550,7 @@ describe("a node", () => {
 
     expect(nodeInfoOf(many)?.skipped).toBe(2);
     expect(nodeInfoOf(past)).toBeUndefined();
-    expect(ownerOf(past.$open)).toBe(many);
+    expect(ownerLinkOf(past.$open)?.owner).toBe(many);
   });
 
   it("keeps the first name a binding gave a value, whichever binding holds it later", () => {
@@ -639,7 +639,7 @@ describe("a value that refuses to be read", () => {
           ["panel", created],
         ]);
       }).not.toThrow();
-      expect(ownerOf(created.$open)).toBe(created);
+      expect(ownerLinkOf(created.$open)?.owner).toBe(created);
     },
   );
 
@@ -661,7 +661,7 @@ describe("a value that refuses to be read", () => {
     expect(() => {
       ownBindings(FROM, [["drafts", build(refusing("getOwnPropertyDescriptor"), created)]]);
     }).not.toThrow();
-    expect(ownerOf(created.$open)).toBe(created);
+    expect(ownerLinkOf(created.$open)?.owner).toBe(created);
   });
 
   it("walks a Proxy that answers both traps exactly as the object under it", () => {
@@ -670,7 +670,7 @@ describe("a value that refuses to be read", () => {
 
     ownBindings(FROM, [["panel", held]]);
 
-    expect(ownerOf(created.$open)).toBe(held);
+    expect(ownerLinkOf(created.$open)?.owner).toBe(held);
     expect(nodeInfoOf(held)).toMatchObject({ name: "panel" });
   });
 
@@ -736,7 +736,7 @@ describe("ownField", () => {
 
     ownField(FROM, editorOne.$value, editorOne);
 
-    expect(ownerOf(editorOne.$value)).toBe(editorOne);
+    expect(ownerLinkOf(editorOne.$value)?.owner).toBe(editorOne);
     expect(nodeInfoOf(editorOne)).toMatchObject({
       name: "ref",
       ours: true,
@@ -748,7 +748,7 @@ describe("ownField", () => {
   it("keys a static field's node by the class name and labels it with nothing", () => {
     ownField(FROM, Editor.$opened, Editor);
 
-    expect(ownerOf(Editor.$opened)).toBe(Editor);
+    expect(ownerLinkOf(Editor.$opened)?.owner).toBe(Editor);
     expect(nodeInfoOf(Editor)).toMatchObject({ name: "Editor", ours: false, numbered: false });
     expect(nodeInfoOf(Editor)?.type).toBeUndefined();
   });
@@ -782,8 +782,8 @@ describe("ownField", () => {
     ownField(FROM, editorOne.$value, editorOne);
     ownField(FROM, editorTwo.$value, editorTwo);
 
-    expect(ownerOf(editorOne.$value)).toBe(editorOne);
-    expect(ownerOf(editorTwo.$value)).toBe(editorTwo);
+    expect(ownerLinkOf(editorOne.$value)?.owner).toBe(editorOne);
+    expect(ownerLinkOf(editorTwo.$value)?.owner).toBe(editorTwo);
   });
 
   it("places a private field, which the walk over the instance never sees", () => {
@@ -803,7 +803,7 @@ describe("ownField", () => {
 
     ownBindings(FROM, [["vault", vault]]);
 
-    expect(ownerOf(vault.hidden)).toBe(vault);
+    expect(ownerLinkOf(vault.hidden)?.owner).toBe(vault);
     expect(nodeInfoOf(vault)).toMatchObject({ name: "vault", type: "Vault" });
   });
 
@@ -862,7 +862,7 @@ describe("ownField", () => {
     ownField(FROM, editorOne.$value, editorOne);
     ownBindings(FROM, [["shared", { $value: editorOne.$value }]]);
 
-    expect(ownerOf(editorOne.$value)).toBe(editorOne);
+    expect(ownerLinkOf(editorOne.$value)?.owner).toBe(editorOne);
   });
 });
 
@@ -897,8 +897,8 @@ describe("the creation frame", () => {
     born($timeline);
     endFrame(FROM, $draft, "$draft");
 
-    expect(ownerOf($timeline)).toBe($draft);
-    expect(ownerOf($draft)).toBeUndefined();
+    expect(ownerLinkOf($timeline)?.owner).toBe($draft);
+    expect(ownerLinkOf($draft)?.owner).toBeUndefined();
   });
 
   it("names a node after the binding when the expression returned anything else", () => {
@@ -909,7 +909,7 @@ describe("the creation frame", () => {
     born($timeline);
     endFrame(FROM, model, "model");
 
-    expect(ownerOf($timeline)).toBe(model);
+    expect(ownerLinkOf($timeline)?.owner).toBe(model);
     expect(nodeInfoOf(model)).toMatchObject({ name: "model", ours: false, type: undefined });
   });
 
@@ -936,7 +936,7 @@ describe("the creation frame", () => {
 
     expect(nodeInfoOf(hidden)).toMatchObject({ name: "hidden", type: "WeakMap", ours: false });
     expect(nodeInfoOf(editor)?.parent?.deref()).toBe(hidden);
-    expect(ownerOf(editor.$value)).toBe(editor);
+    expect(ownerLinkOf(editor.$value)?.owner).toBe(editor);
   });
 
   it("reaches a store a factory made in a class field, which adoption places nowhere", () => {
@@ -949,7 +949,7 @@ describe("the creation frame", () => {
     born($made);
     endFrame(FROM, editor, "editorOne");
 
-    expect(ownerOf($made)).toBe(editor);
+    expect(ownerLinkOf($made)?.owner).toBe(editor);
     expect(nodeInfoOf(editor)).toMatchObject({ name: "editorOne", type: "Editor", ours: false });
   });
 
@@ -965,8 +965,8 @@ describe("the creation frame", () => {
     endFrame(FROM, $part, "$part");
     endFrame(FROM, model, "model");
 
-    expect(ownerOf($inner)).toBe(model);
-    expect(ownerOf($part)).toBe(model);
+    expect(ownerLinkOf($inner)?.owner).toBe(model);
+    expect(ownerLinkOf($part)?.owner).toBe(model);
   });
 
   it("lets the binding scan correct it, so a Map member keeps the key it sits at", () => {
@@ -977,11 +977,11 @@ describe("the creation frame", () => {
     born(scratch.$open);
     endFrame(FROM, byId, "byId");
 
-    expect(ownerOf(scratch.$open)).toBe(byId);
+    expect(ownerLinkOf(scratch.$open)?.owner).toBe(byId);
 
     ownBindings(FROM, [["byId", byId]]);
 
-    expect(ownerOf(scratch.$open)).toBe(scratch);
+    expect(ownerLinkOf(scratch.$open)?.owner).toBe(scratch);
     expect(nodeInfoOf(scratch)?.name).toBe(`["scratch"]`);
   });
 
@@ -996,7 +996,7 @@ describe("the creation frame", () => {
 
     ownField(FROM, $made, editor);
 
-    expect(ownerOf($made)).toBe(editor);
+    expect(ownerLinkOf($made)?.owner).toBe(editor);
   });
 
   it("counts what a capped collection left out, as the walk over it does", () => {
@@ -1017,7 +1017,7 @@ describe("the creation frame", () => {
     endFrame(FROM, editor.$value, "$value");
 
     expect(nodeInfoOf(editor)?.parent).toBeUndefined();
-    expect(ownerOf(editor.$value)).toBe(editor);
+    expect(ownerLinkOf(editor.$value)?.owner).toBe(editor);
   });
 
   it("draws no node for an initializer that returned no object at all", () => {
@@ -1027,7 +1027,7 @@ describe("the creation frame", () => {
     born($timeline);
     endFrame(FROM, 3, "count");
 
-    expect(ownerOf($timeline)).toBeUndefined();
+    expect(ownerLinkOf($timeline)?.owner).toBeUndefined();
   });
 
   it("places nothing while no frame is open, and brings no registry into being", () => {
@@ -1036,7 +1036,7 @@ describe("the creation frame", () => {
     born($stray);
     endFrame(FROM, { title: "" }, "model");
 
-    expect(ownerOf($stray)).toBeUndefined();
+    expect(ownerLinkOf($stray)?.owner).toBeUndefined();
     expect(peekDevtoolsGlobal()).toBeUndefined();
   });
 
@@ -1055,7 +1055,7 @@ describe("the creation frame", () => {
     endFrame(FROM, { title: "" }, "model");
 
     expect(peekDevtoolsGlobal()?.frames).toEqual([]);
-    expect(ownerOf($stray)).toBeUndefined();
+    expect(ownerLinkOf($stray)?.owner).toBeUndefined();
   });
 
   it("books one drop for the outermost frame, not one for every frame it holds", () => {
@@ -1103,5 +1103,33 @@ describe("enclosingNode", () => {
 
     expect(enclosingNode(FROM, "sample")).not.toBe(node);
     expect(enclosingNode({ home: "src/other.ts", external: false }, "track")).not.toBe(node);
+  });
+});
+
+describe("ownerLinkOf", () => {
+  beforeEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  afterEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  it("hands the owner and the key that owner knows the store by back as one record", () => {
+    const $width = atom(320);
+    const bounds = [$width];
+
+    ownBindings(FROM, [["bounds", bounds]]);
+
+    expect(ownerLinkOf($width)).toEqual({ owner: bounds, key: "[0]" });
+  });
+
+  it("reads an owner the app has let go as no owner, so its key goes with it", () => {
+    const $open = atom(false);
+    const gone: WeakRef<object> = { [Symbol.toStringTag]: "WeakRef", deref: () => undefined };
+
+    getDevtoolsGlobal().owners.set($open, { owner: gone, source: "scan", key: "[0]" });
+
+    expect(ownerLinkOf($open)).toBeUndefined();
   });
 });
