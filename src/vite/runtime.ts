@@ -253,14 +253,20 @@ function adoptedType(store: Store, site: CreationSite): StoreType {
  * short-lived ones would otherwise lose the one store the developer came to look at.
  */
 function enforceCap(scope: ModuleScope, state: SiteState, cap: number): void {
-  if (state.stores.length <= cap) {
+  /**
+   * An empty list is still longer than a cap below zero, so the loop would take from nothing for
+   * ever. A floor of zero holds no store at all, the one just taken included.
+   */
+  const limit = Math.max(cap, 0);
+
+  if (state.stores.length <= limit) {
     return;
   }
 
   /** A store the registry lost to somebody else's label holds no slot here either. */
   state.stores = state.stores.filter((held) => getEntry(held.store) !== undefined);
 
-  while (state.stores.length > cap) {
+  while (state.stores.length > limit) {
     const [doomed] = state.stores.splice(doomedIndex(state.stores), 1);
 
     if (doomed) {

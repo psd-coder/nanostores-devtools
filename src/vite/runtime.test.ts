@@ -329,6 +329,48 @@ describe("the per-site cap", () => {
 
     expect(names()).toEqual(["$items", "$cart"]);
   });
+
+  /**
+   * The runtime is a published entry point, so a number like this can reach it, and none of them
+   * may loop for ever. A test that finishes at all is the proof.
+   */
+  describe("a number no cap can be made of", () => {
+    it("holds nothing at a cap below zero instead of taking from an empty list", () => {
+      const scope = fileScope(MODULE_ID, HOME, -1, false);
+
+      scope.store(atom(0), site());
+      scope.store(atom(0), site());
+
+      expect(names()).toEqual([]);
+    });
+
+    it("holds nothing at a cap of zero", () => {
+      const scope = fileScope(MODULE_ID, HOME, 0, false);
+
+      scope.store(atom(0), site());
+
+      expect(names()).toEqual([]);
+    });
+
+    it("evicts nothing at a cap of NaN, because no length is above it", () => {
+      const scope = fileScope(MODULE_ID, HOME, Number.NaN, false);
+
+      scope.store(atom(0), site());
+      scope.store(atom(0), site());
+
+      expect(names()).toEqual(["$items", "$items #2"]);
+    });
+  });
+
+  it("evicts nothing at a cap of Infinity", () => {
+    const scope = fileScope(MODULE_ID, HOME, Number.POSITIVE_INFINITY, false);
+
+    for (let call = 0; call < 200; call += 1) {
+      scope.store(atom(0), site());
+    }
+
+    expect(listEntries()).toHaveLength(200);
+  });
 });
 
 describe("adopt", () => {

@@ -785,6 +785,12 @@ describe("the injected header", () => {
     expect(output(result)).toContain(`"node_modules/nanobots/dist/index.js", 50, true)`);
   });
 
+  it("writes Infinity as a number the runtime reads back as no cap", () => {
+    const result = transform(source, { maxStoresPerSite: Number.POSITIVE_INFINITY });
+
+    expect(output(result)).toContain(`"src/stores/cart.ts", Infinity, false)`);
+  });
+
   it("leaves the module body on the next line, so nothing before it moves", () => {
     expect(output(transform(source)).split("\n")[1]).toContain(`import { atom } from "nanostores"`);
   });

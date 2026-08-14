@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { build, createServer, type Plugin, type ViteDevServer } from "vite";
+import { build, createLogger, createServer, type Plugin, type ViteDevServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
@@ -11,6 +11,7 @@ import {
   type ModuleRoots,
   moduleKeys,
   nanostoresDevtools,
+  resolveStoreCap,
   type VitePluginOptions,
 } from "./plugin.ts";
 
@@ -32,6 +33,31 @@ describe("nanostoresDevtools", () => {
     expect(plugin.name).toBe("nanostores-devtools");
     expect(plugin.apply).toBe("serve");
     expect(plugin.enforce).toBe("pre");
+  });
+});
+
+describe("resolveStoreCap", () => {
+  it("keeps a whole number of one or more, and Infinity, which is no cap at all", () => {
+    expect(resolveStoreCap(1)).toEqual({ cap: 1, warning: undefined });
+    expect(resolveStoreCap(50)).toEqual({ cap: 50, warning: undefined });
+    expect(resolveStoreCap(Number.POSITIVE_INFINITY)).toEqual({
+      cap: Number.POSITIVE_INFINITY,
+      warning: undefined,
+    });
+  });
+
+  it("takes the default without a warning when the option is unset", () => {
+    expect(resolveStoreCap(undefined)).toEqual({ cap: 50, warning: undefined });
+  });
+
+  it("refuses every number no store count can be made of, and names option and value", () => {
+    for (const value of [-1, 0, 2.5, Number.NaN, Number.NEGATIVE_INFINITY]) {
+      const { cap, warning } = resolveStoreCap(value);
+
+      expect(cap).toBe(50);
+      expect(warning).toContain("maxStoresPerSite");
+      expect(warning).toContain(String(value));
+    }
   });
 });
 
@@ -342,6 +368,49 @@ describe("a file the narrow parse gate never sees", () => {
       [EDITOR_HOME]: { "ref#1": labelled("Editor", { $value: "draft" }) },
     });
     expect(listEntries()).toHaveLength(5);
+  });
+});
+
+describe("a maxStoresPerSite the developer typed wrong", () => {
+  let server: ViteDevServer;
+  const warnings: string[] = [];
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    warnings.length = 0;
+    server = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      customLogger: {
+        ...createLogger("silent"),
+        warn: (message) => {
+          warnings.push(message);
+        },
+      },
+      root: PROJECT_ROOT,
+      plugins: [nanostoresDevtools({ maxStoresPerSite: -1 }), memoryFixture(FILES)],
+      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+    });
+
+    await server.ssrLoadModule(APP);
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /** The fixture is two files, so a warning per transform would land here twice. */
+  it("warns once, naming the option and the number", () => {
+    const named = warnings.filter((line) => line.includes("maxStoresPerSite"));
+
+    expect(named).toHaveLength(1);
+    expect(named[0]).toContain("-1");
+  });
+
+  it("registers the stores under the default cap instead of hanging on the first one", () => {
+    expect(entryNamed("$theme")).toMatchObject({ home: APP_HOME });
+    expect(entryNamed("$router")).toMatchObject({ home: APP_HOME });
   });
 });
 

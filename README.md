@@ -412,7 +412,7 @@ registry holds strong references on purpose, so nothing leaves it on its own.
 | ------------------ | ------------------------- | -------------------------------------------------- |
 | `fileKey`          | the home unchanged        | rewrites the path shown as a store's home          |
 | `adoptFactories`   | `true`                    | wrap `$`-named calls the plugin does not recognise |
-| `maxStoresPerSite` | `50`                      | how many live stores one creation site may hold    |
+| `maxStoresPerSite` | `50`                      | live stores one creation site may hold, 1 or more  |
 | `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from |
 | `parseEveryFile`   | `true`                    | parse every source file, not only a likely one     |
 
@@ -421,6 +421,10 @@ oldest of those first, and never the store just made. So **a table with 200 rows
 row, all from one factory line, shows 50 of them.** The number 50 is a guess; only the eviction
 order is settled. Stores registered through `trackStores` have no site and no cap, because you
 wrote each one by hand.
+
+**It takes a whole number of 1 or more, or `Infinity` for no cap.** Anything else is refused with
+a warning naming the option and your value, and the plugin holds 50 per site instead: `0`, a
+number below zero, a fraction and `NaN` each say something no count of stores can be made of.
 
 **`fileKey` receives the home as the tree would show it**, so a file inside the Vite root arrives
 relative to that root and a file outside it arrives relative to `projectRoot`. It only changes what

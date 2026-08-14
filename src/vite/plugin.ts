@@ -37,6 +37,32 @@ export type ModuleKeys = FileHome & { moduleKey: string };
 
 const DEFAULT_MAX_STORES_PER_SITE = 50;
 
+/** The cap the runtime is handed, and what the developer is told when their number is refused. */
+export type StoreCap = { cap: number; warning: string | undefined };
+
+/**
+ * `Infinity` is an answer: it says no cap. Every other number a site cannot be held to is refused
+ * instead of being changed into a usable one, because a silent 50 for a typed `0` is the opposite
+ * of what was asked and says nothing.
+ */
+export function resolveStoreCap(value: number | undefined): StoreCap {
+  if (value === undefined) {
+    return { cap: DEFAULT_MAX_STORES_PER_SITE, warning: undefined };
+  }
+
+  if (value === Number.POSITIVE_INFINITY || (Number.isSafeInteger(value) && value >= 1)) {
+    return { cap: value, warning: undefined };
+  }
+
+  return {
+    cap: DEFAULT_MAX_STORES_PER_SITE,
+    warning:
+      `maxStoresPerSite is ${value} in your Vite config, which is no number of stores, so the ` +
+      `plugin holds ${DEFAULT_MAX_STORES_PER_SITE} per site instead. Pass a whole number of 1 ` +
+      `or more, or Infinity for no cap.`,
+  };
+}
+
 const SCRIPT = /\.[cm]?[jt]sx?$/;
 
 /**
@@ -60,6 +86,7 @@ export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
    * skip our warnings.
    */
   const warned = new Set<string>();
+  const { cap, warning: capWarning } = resolveStoreCap(options.maxStoresPerSite);
 
   return {
     name: "nanostores-devtools",
@@ -87,13 +114,16 @@ export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
         moduleKey: keys.moduleKey,
         home: keys.home,
         external: keys.external,
-        maxStoresPerSite: options.maxStoresPerSite ?? DEFAULT_MAX_STORES_PER_SITE,
+        maxStoresPerSite: cap,
         adoptFactories: options.adoptFactories ?? true,
         parseEveryFile: options.parseEveryFile ?? true,
         parser: await parser,
       });
 
-      for (const warning of result.warnings) {
+      const warnings =
+        capWarning === undefined ? result.warnings : [capWarning, ...result.warnings];
+
+      for (const warning of warnings) {
         if (!warned.has(warning)) {
           warned.add(warning);
           this.warn(warning);
