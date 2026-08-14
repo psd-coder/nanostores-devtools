@@ -429,10 +429,11 @@ describe("buildSnapshot", () => {
       expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual(["$a [map]", "$b [store]"]);
     });
 
-    it("sits behind the place suffix a name clash adds", () => {
+    it("sits in front of the group a name clash adds, and of the number behind it", () => {
       registerStore({
         store: computed(atom(1), (count) => count + 1),
-        name: "$total (line 20)",
+        name: "$total",
+        place: "line 20",
         home: "cart",
         type: "computed",
         origin: "plugin",
@@ -442,7 +443,10 @@ describe("buildSnapshot", () => {
 
       registerStore({
         store: atom(1),
-        name: "$counter (line 20)",
+        name: "$counter",
+        file: "app.ts",
+        place: "makeCart, line 20",
+        number: 2,
         home: "cart",
         type: "atom",
         origin: "plugin",
@@ -451,8 +455,8 @@ describe("buildSnapshot", () => {
       });
 
       expect(Object.keys(buildSnapshot()["cart"] ?? {})).toEqual([
-        "$counter (line 20) [store]",
-        "$total (line 20) [computed]",
+        "$counter [store] (app.ts, makeCart, line 20) #2",
+        "$total [computed] (line 20)",
       ]);
     });
   });
@@ -766,12 +770,19 @@ describe("buildSnapshot", () => {
     const HOME = "src/model.ts";
     const FROM = { home: HOME, external: false, moduleKey: HOME };
 
-    function track(store: Store, name: string, home = HOME, type: StoreType = "atom"): StoreEntry {
+    function track(
+      store: Store,
+      name: string,
+      home = HOME,
+      type: StoreType = "atom",
+      place: string | null = null,
+    ): StoreEntry {
       return registerStore({
         store,
         name,
         home,
         type,
+        place,
         origin: "plugin",
         external: false,
         fn: null,
@@ -780,7 +791,7 @@ describe("buildSnapshot", () => {
 
     /**
      * One of several stores from a single creation site, which the registry numbers from two on.
-     * Its owner knows it by the name without the number, as the runtime records it.
+     * The number sits beside the name, as the runtime records it, so the owner can leave it off.
      */
     function trackNumbered(
       store: Store,
@@ -790,8 +801,8 @@ describe("buildSnapshot", () => {
     ): StoreEntry {
       return registerStore({
         store,
-        name: made === 1 ? name : `${name} #${made}`,
-        ownerName: name,
+        name,
+        number: made,
         home: HOME,
         type,
         origin: "plugin",
@@ -963,7 +974,7 @@ describe("buildSnapshot", () => {
       expect(keysOf(HOME, "$draft [store]")).toEqual([
         "(value)",
         "$row [store]",
-        "$row #2 [store]",
+        "$row [store] #2",
       ]);
     });
 
@@ -975,6 +986,23 @@ describe("buildSnapshot", () => {
       track($draft, "$draft");
       track($mine, "$history");
       track($theirs, "$history", "vendor/withUndo.ts");
+      ownBindings(FROM, [["$draft", $draft]]);
+
+      expect(keysOf(HOME, "$draft [store]")).toEqual([
+        "(value)",
+        `$history [store] (${HOME})`,
+        "$history [store] (vendor/withUndo.ts)",
+      ]);
+    });
+
+    it("gives the home the one group, so no key of a home clash carries two", () => {
+      const $mine = atom(1);
+      const $theirs = atom(2);
+      const $draft = holder("", { $mine, $theirs });
+
+      track($draft, "$draft");
+      track($mine, "$history", HOME, "atom", "line 20");
+      track($theirs, "$history", "vendor/withUndo.ts", "atom", "line 20");
       ownBindings(FROM, [["$draft", $draft]]);
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([

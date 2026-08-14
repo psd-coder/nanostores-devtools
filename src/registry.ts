@@ -52,24 +52,31 @@ export type StoreEntry = {
    * module level.
    */
   fn: string | null;
+  /** The file the name says it came from, once a second module the home holds claims it too. */
+  file: string | null;
+  /** Where in the file it was made, `makeCart, line 12`, once a second site here claims the name. */
+  place: string | null;
+  /** Which store of its creation site this is, counting from one. */
+  number: number;
   everMounted: boolean;
   unhook: (() => void)[];
 };
+
+/** What tells a store from another one of the same name, read by the label and the tree key alike. */
+export type NameParts = Pick<StoreEntry, "file" | "place" | "number">;
 
 export type Registration = {
   store: Store;
   name: string;
   home: string;
-  /** The name the site gave before the registry numbered it: `$canUndo` behind `$canUndo #2`. */
-  ownerName?: string;
   type: StoreType;
   origin: StoreOrigin;
   external: boolean;
   fn: string | null;
-};
+} & Partial<NameParts>;
 
-/** Where an entry is drawn: its name, the home it sits in, and whether that home is theirs. */
-type EntryPlace = Pick<Registration, "name" | "home" | "external">;
+/** Where an entry is drawn: its name and what qualifies it, its home, and whose home that is. */
+type EntryPlace = Pick<StoreEntry, "name" | "home" | "external"> & NameParts;
 
 /**
  * What moved, for a listener that draws a row for it. `update` covers a store that was already
@@ -84,6 +91,44 @@ const TOTAL_WARNING_AT = 2000;
 
 export function makeLabel(home: string, name: string): string {
   return `${home}/${name}`;
+}
+
+/**
+ * `$counter (a.ts, makeCart, line 12) #2`: a head, then everything that tells this store from
+ * another one the same name was given. The file first, because it says where to look before the
+ * line says where in the file, and the number last, spaced, so it never reads as part of the place.
+ *
+ * The head is a parameter so that one function spells the parts for every caller: whatever sits in
+ * front of them, they arrive in one order.
+ */
+export function qualify(head: string, parts: NameParts): string {
+  const group = groupOf(parts);
+  const placed = group === null ? head : `${head} (${group})`;
+
+  return parts.number > 1 ? `${placed} #${parts.number}` : placed;
+}
+
+function groupOf(parts: NameParts): string | null {
+  if (parts.file === null) {
+    return parts.place;
+  }
+
+  return parts.place === null ? parts.file : `${parts.file}, ${parts.place}`;
+}
+
+function labelOf(place: EntryPlace): string {
+  return makeLabel(place.home, qualify(place.name, place));
+}
+
+function entryPlace(registration: Registration): EntryPlace {
+  return {
+    name: registration.name,
+    home: registration.home,
+    external: registration.external,
+    file: registration.file ?? null,
+    place: registration.place ?? null,
+    number: registration.number ?? 1,
+  };
 }
 
 /**
@@ -106,24 +151,23 @@ export function isStore(value: unknown): value is Store {
 
 export function registerStore(registration: Registration): StoreEntry {
   const devtools = getDevtoolsGlobal();
-  const label = makeLabel(registration.home, registration.name);
+  const to = entryPlace(registration);
+  const label = labelOf(to);
   const known = devtools.entries.get(registration.store);
 
   if (known) {
-    return relabelEntry(devtools, known, registration, label);
+    return relabelEntry(devtools, known, registration, to, label);
   }
 
   takeLabel(devtools, label, registration.store);
 
   const entry: StoreEntry = {
+    ...to,
     store: registration.store,
-    name: registration.name,
-    home: registration.home,
-    ownerName: registration.ownerName ?? registration.name,
+    ownerName: registration.name,
     label,
     type: registration.type,
     origin: registration.origin,
-    external: registration.external,
     fn: registration.fn,
     everMounted: false,
     unhook: [],
@@ -171,17 +215,22 @@ export function trackStores(group: string, stores: Readonly<Record<string, Store
  *
  * A name a group was given by hand is left alone, as it is everywhere else: the developer wrote
  * that one as well, and they wrote it for this store rather than for whatever holds it.
+ *
+ * `file` is the only qualifier a written name can need: the place and the number tell two stores of
+ * one creation site apart, and this name came from neither.
  */
-export function renameEntry(store: Store, name: string, home: string): void {
+export function renameEntry(store: Store, name: string, home: string, file: string | null): void {
   const devtools = peekDevtoolsGlobal();
   const entry = devtools?.entries.get(store);
 
-  if (!devtools || !entry || entry.origin === "explicit" || makeLabel(home, name) === entry.label) {
+  /** Only a file of the developer's own renames a store, so the home it moves to is theirs. */
+  const to: EntryPlace = { name, home, external: false, file, place: null, number: 1 };
+
+  if (!devtools || !entry || entry.origin === "explicit" || labelOf(to) === entry.label) {
     return;
   }
 
-  /** Only a file of the developer's own renames a store, so the home it moves to is theirs. */
-  moveEntry(devtools, entry, { name, home, external: false });
+  moveEntry(devtools, entry, to);
 }
 
 export function untrack(group: string): void {
@@ -255,6 +304,7 @@ function relabelEntry(
   devtools: DevtoolsGlobal,
   entry: StoreEntry,
   registration: Registration,
+  to: EntryPlace,
   label: string,
 ): StoreEntry {
   /** The type decides which hooks an entry carries, so the ones attached under the old one go. */
@@ -274,7 +324,7 @@ function relabelEntry(
    * name its owner knows it by comes from the same site, for the same reason.
    */
   entry.fn = registration.fn;
-  entry.ownerName = registration.ownerName ?? registration.name;
+  entry.ownerName = registration.name;
 
   if (label === entry.label) {
     entry.origin = registration.origin;
@@ -296,7 +346,7 @@ function relabelEntry(
   }
 
   entry.origin = registration.origin;
-  moveEntry(devtools, entry, registration);
+  moveEntry(devtools, entry, to);
 
   return entry;
 }
@@ -306,7 +356,7 @@ function relabelEntry(
  * entry, and the label index moves with it. Where that home sits moves with it too.
  */
 function moveEntry(devtools: DevtoolsGlobal, entry: StoreEntry, to: EntryPlace): void {
-  const label = makeLabel(to.home, to.name);
+  const label = labelOf(to);
 
   devtools.byLabel.delete(entry.label);
   takeLabel(devtools, label, entry.store);
@@ -315,6 +365,9 @@ function moveEntry(devtools: DevtoolsGlobal, entry: StoreEntry, to: EntryPlace):
   entry.home = to.home;
   entry.label = label;
   entry.external = to.external;
+  entry.file = to.file;
+  entry.place = to.place;
+  entry.number = to.number;
 
   notifyChange(devtools, { kind: "update" });
 }

@@ -9,6 +9,7 @@ import {
   listEntries,
   makeLabel,
   onRegistryChange,
+  qualify,
   type Registration,
   registerStore,
   renameEntry,
@@ -228,6 +229,42 @@ describe("registry", () => {
     });
   });
 
+  describe("qualify", () => {
+    it("reads the file, then the function, then the line, in one group", () => {
+      expect(
+        qualify("$history", {
+          file: "vendor/withUndo.ts",
+          place: "createPanel, line 20",
+          number: 1,
+        }),
+      ).toBe("$history (vendor/withUndo.ts, createPanel, line 20)");
+    });
+
+    it("shows only the parts there are", () => {
+      expect(qualify("$counter", { file: null, place: "line 20", number: 1 })).toBe(
+        "$counter (line 20)",
+      );
+      expect(qualify("$counter", { file: "app.ts", place: null, number: 1 })).toBe(
+        "$counter (app.ts)",
+      );
+      expect(qualify("$count", { file: null, place: null, number: 1 })).toBe("$count");
+    });
+
+    it("puts the number last, spaced, and leaves the first store of a site without one", () => {
+      expect(qualify("$items", { file: null, place: null, number: 1 })).toBe("$items");
+      expect(qualify("$items", { file: null, place: "line 3", number: 3 })).toBe(
+        "$items (line 3) #3",
+      );
+    });
+
+    it("takes the head it is given, so a tree key and a label read the same parts", () => {
+      const parts = { file: "app.ts", place: null, number: 2 };
+
+      expect(qualify("$counter [store]", parts)).toBe("$counter [store] (app.ts) #2");
+      expect(qualify("$counter", parts)).toBe("$counter (app.ts) #2");
+    });
+  });
+
   describe("registerStore", () => {
     it("keeps one entry per store object", () => {
       const $count = atom(0);
@@ -312,15 +349,36 @@ describe("registry", () => {
       expect(getEntry($count)?.fn).toBeNull();
     });
 
-    it("carries the name the site gave, without the number the registry added", () => {
+    it("carries the plain name the site gave, and what qualifies it beside it", () => {
       const $canUndo = atom(false);
       const $other = atom(false);
 
-      registerStore(plugin({ store: $canUndo, name: "$canUndo #2", ownerName: "$canUndo" }));
+      registerStore(plugin({ store: $canUndo, name: "$canUndo", number: 2 }));
       registerStore(plugin({ store: $other, name: "$typed" }));
 
-      expect(getEntry($canUndo)?.ownerName).toBe("$canUndo");
-      expect(getEntry($other)?.ownerName).toBe("$typed");
+      expect(getEntry($canUndo)).toMatchObject({
+        name: "$canUndo",
+        ownerName: "$canUndo",
+        file: null,
+        place: null,
+        number: 2,
+        label: "src/stores/cart.ts/$canUndo #2",
+      });
+      expect(getEntry($other)).toMatchObject({ name: "$typed", number: 1 });
+    });
+
+    it("tells two stores of one name apart by the label the parts build", () => {
+      const $inCart = atom(0);
+      const $inList = atom(0);
+
+      registerStore(plugin({ store: $inCart, name: "$counter", file: "cart.ts" }));
+      registerStore(plugin({ store: $inList, name: "$counter", place: "line 20" }));
+
+      expect(listEntries()).toHaveLength(2);
+      expect(labels()).toEqual([
+        "src/stores/cart.ts/$counter (cart.ts)",
+        "src/stores/cart.ts/$counter (line 20)",
+      ]);
     });
 
     it("answers who holds a label without scanning", () => {
@@ -352,13 +410,13 @@ describe("registry", () => {
       registerStore(
         plugin({
           store: $canUndo,
-          name: "$canUndo #2",
-          ownerName: "$canUndo",
+          name: "$canUndo",
+          number: 2,
           home: "vendor/withUndo.ts",
           external: true,
         }),
       );
-      renameEntry($canUndo, "$undoable", "src/model.ts");
+      renameEntry($canUndo, "$undoable", "src/model.ts", null);
 
       expect(listEntries()).toHaveLength(1);
       expect(getEntry($canUndo)).toMatchObject({
@@ -367,15 +425,31 @@ describe("registry", () => {
         home: "src/model.ts",
         label: "src/model.ts/$undoable",
         external: false,
+        number: 1,
       });
       expect(getEntryByLabel("vendor/withUndo.ts/$canUndo #2")).toBeUndefined();
+    });
+
+    it("takes the file a written name needs and drops the parts of the site it left", () => {
+      const $counter = atom(0);
+
+      registerStore(plugin({ store: $counter, name: "$counter", place: "line 20", number: 2 }));
+      renameEntry($counter, "$total", "src/model.ts", "a.ts");
+
+      expect(getEntry($counter)).toMatchObject({
+        name: "$total",
+        file: "a.ts",
+        place: null,
+        number: 1,
+        label: "src/model.ts/$total (a.ts)",
+      });
     });
 
     it("leaves a name a group was given by hand alone", () => {
       const $count = atom(0);
 
       trackStores("cart", { $count });
-      renameEntry($count, "$counter", "src/model.ts");
+      renameEntry($count, "$counter", "src/model.ts", null);
 
       expect(getEntry($count)).toMatchObject({ name: "$count", home: "cart" });
     });
@@ -386,8 +460,8 @@ describe("registry", () => {
 
       registerStore(plugin({ store: $count, name: "$count" }));
       onRegistryChange(changed);
-      renameEntry($count, "$counter", "src/model.ts");
-      renameEntry($count, "$counter", "src/model.ts");
+      renameEntry($count, "$counter", "src/model.ts", null);
+      renameEntry($count, "$counter", "src/model.ts", null);
 
       expect(changed.mock.calls).toEqual([[{ kind: "update" }]]);
     });
@@ -398,7 +472,7 @@ describe("registry", () => {
 
       registerStore(plugin({ store: $held, name: "$counter", home: "src/model.ts" }));
       registerStore(plugin({ store: $taking, name: "$inner", home: "src/model.ts" }));
-      renameEntry($taking, "$counter", "src/model.ts");
+      renameEntry($taking, "$counter", "src/model.ts", null);
 
       expect(labels()).toEqual(["src/model.ts/$counter"]);
       expect(getEntryByLabel("src/model.ts/$counter")?.store).toBe($taking);
@@ -406,7 +480,7 @@ describe("registry", () => {
 
     it("does nothing for a store the registry never took", () => {
       expect(() => {
-        renameEntry(atom(0), "$counter", "src/model.ts");
+        renameEntry(atom(0), "$counter", "src/model.ts", null);
       }).not.toThrow();
       expect(listEntries()).toHaveLength(0);
     });

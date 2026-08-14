@@ -13,8 +13,6 @@ export type SiteState = {
   name: string;
   fn: string | null;
   line: number;
-  /** What the entries are named: `name`, plus whichever of the two suffixes below is on. */
-  display: string;
   /** The file the name says it came from, once a second module sharing the home claims `name`. */
   file: string | null;
   /** Whether the name says the place it was made, once a second site here claims `name`. */

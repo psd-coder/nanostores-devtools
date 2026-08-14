@@ -26,10 +26,12 @@ the project root, `vendor/withUndo.ts`, instead of climbing out of the Vite root
 file's place in the tree for stores the plugin did not find, it holds a store the walk gave an
 owner as well, and it is also the unit that `untrack` removes.
 
-**Label** — home, a slash, then the store name: `src/stores/cart.ts/$counter` or
-`cart/$counter`. Internal. It decides which home holds a store, not how deep inside that home
-the store is drawn and not whether two stores are the same. Registering a label that is
-already taken replaces the store behind it.
+**Label** — home, a slash, then the store name with its qualifier:
+`src/stores/cart.ts/$counter (line 20)` or `cart/$counter`. Internal. It decides which home holds
+a store, not how deep inside that home the store is drawn and not whether two stores are the same.
+Registering a label that is already taken replaces the store behind it, which is why the qualifier
+is part of it: without it two clashing stores would share one label and the registry would keep
+one.
 
 **Tree** — the single state object the bridge sends to the extension. Its top level is the
 home. Below that a store sits under whatever built it, at any depth. The extension expects one
@@ -38,7 +40,8 @@ stores with the same name apart.
 
 **Type note** — the store's type in square brackets behind its name in the tree,
 `$total [computed]`. Tree key only: the name and the label stay bare. Every store carries
-one, and an `atom` and an unknown type both read `store`.
+one, and an `atom` and an unknown type both read `store`. It sits straight behind the name, in
+front of anything else the key carries.
 
 **Timeline entry** — one row in the extension's list of changes. The extension calls
 these actions. Nanostores has no actions, so the bridge invents each entry from a store
@@ -166,10 +169,16 @@ much by itself. A store never takes one: that slot already holds its marker.
 `WeakMap`. It says plainly that the name is ours. Every unnamed instance shares the base `ref`
 and they number across the file, not per class.
 
-**Name suffix** — what an entry's name grows when two entries would otherwise share one label:
-the place it was made, `$counter (line 20)`, for two creation sites in one file, and the file it
-came from, `$counter (a.ts)`, for two files one home holds. Both sides take it, so neither name
-turns on which of the two loaded first.
+**Name qualifier** — what an entry carries beside its name so two entries never share one label:
+the place it was made, `line 20`, for two creation sites in one file, the file it came from,
+`a.ts`, for two files one home holds, and the number of the store among the ones its site made.
+Both sides of a clash take it, so neither name turns on which of the two loaded first. The entry
+keeps the parts, and one function spells them: `$counter (a.ts, line 20) #2` for the label,
+`$counter [store] (a.ts, line 20) #2` for the tree key.
+
+**Key order** — a tree key reads name, type note, one parenthesis group, number, always in that
+order. The group holds the place the store was made, until a home clash needs telling apart: the
+home takes the group then and the place steps aside, so a key carries one group and never two.
 
 **Lifecycle row** — a timeline entry for something other than a value change: a store
 joining or leaving the registry, or mounting and unmounting. All four are on by default,

@@ -7,7 +7,7 @@ import {
   type SiteState,
   type SiteStore,
 } from "../global.ts";
-import { claimSiteName, numbered, releaseSiteNames } from "../names.ts";
+import { claimSiteName, releaseSiteNames, siteParts } from "../names.ts";
 import {
   beginFrame,
   type Binding,
@@ -76,13 +76,13 @@ export function fileScope(
 
     const entry = registerStore({
       store,
-      name: numbered(state.display, state.made),
-      ownerName: state.display,
+      name: state.name,
       home,
       type,
       origin: "plugin",
       external,
       fn: site.fn,
+      ...siteParts(state, state.made),
     });
 
     /** An explicit registration keeps the store, so this module neither owns nor drops it. */
@@ -250,7 +250,6 @@ function siteState(scope: ModuleScope, site: CreationSite, name: string): SiteSt
     name,
     fn: site.fn,
     line: site.line,
-    display: name,
     file: null,
     placed: false,
     made: 0,

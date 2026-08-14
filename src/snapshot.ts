@@ -8,6 +8,7 @@ import {
   getEntry,
   isStore,
   listEntries,
+  qualify,
   type StoreEntry,
   type StoreType,
   storeWord,
@@ -240,9 +241,9 @@ function rootPlacements(pass: Pass, held: readonly Held[]): Placement[] {
  * holds them.
  *
  * Then the home, for the one clash a file level used to make impossible: ownership draws stores
- * from two files in one node, and two files may each hold a `$history`. Both sides take the
- * suffix, as a name clash inside one file does, because one bare `$history` beside
- * `$history (vendor/withUndo.ts)` does not say which file the bare one came from.
+ * from two files in one node, and two files may each hold a `$history`. Both sides show it, as a
+ * name clash inside one file shows its place, because one bare `$history [store]` beside
+ * `$history [store] (vendor/withUndo.ts)` does not say which file the bare one came from.
  */
 function childPlacements(
   pass: Pass,
@@ -288,7 +289,7 @@ function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string 
  *
  * The number is handed out here rather than when the node was made, because a binding may rename a
  * node afterwards and numbering at creation time would leave gaps. It sits tight against the name,
- * `ref#1`, so a node's number never reads as the spaced one a store's name carries.
+ * `ref#1`, so a node's number never reads as the spaced one a store's key carries.
  */
 function nodeKey(pass: Pass, info: NodeInfo): string {
   if (!info.numbered) {
@@ -301,14 +302,26 @@ function nodeKey(pass: Pass, info: NodeInfo): string {
 }
 
 function sorted(placements: readonly Placement[]): Placement[] {
-  return [...placements].sort((left, right) => compare(sortName(left), sortName(right)));
+  return [...placements].sort((left, right) => {
+    const byName = compare(sortName(left), sortName(right));
+
+    return byName === 0 ? compare(left.key, right.key) : byName;
+  });
 }
 
-function homed(entry: StoreEntry, key: string): string {
-  return `${key} (${entry.home})`;
+/**
+ * The clash a file level made impossible, so the group holds the home instead of the place. Built
+ * from the parts rather than added to the key, because a key carries one parenthesis group.
+ */
+function homed(entry: StoreEntry): string {
+  return qualify(noted(entry.name, entry.type), {
+    file: entry.home,
+    place: null,
+    number: entry.number,
+  });
 }
 
-/** The name the source wrote, which orders the tree: a note or a suffix never moves a child. */
+/** The name the source wrote, which orders the tree: a note or a group never moves a child. */
 function sortName(placement: Placement): string {
   const { held } = placement;
 
@@ -330,21 +343,21 @@ function sortName(placement: Placement): string {
  */
 function keepApart(
   placements: readonly Placement[],
-  rename: (entry: StoreEntry, key: string) => string,
+  rename: (entry: StoreEntry) => string,
 ): Placement[] {
   const wanted = countKeys(placements);
 
   return placements.map(({ held, key }) =>
     wanted.get(key) === 1 || held.kind === "node"
       ? { held, key }
-      : { held, key: rename(held.entry, key) },
+      : { held, key: rename(held.entry) },
   );
 }
 
 /**
- * A name two children still want is numbered, which is where a node's ordinal comes from. Both
- * sides take a number, as both sides of a name clash take the place suffix, because one bare
- * `panel` next to `panel #2` does not say which of the two the bare one is.
+ * A name two children still want is numbered, which is where a node's ordinal comes from. The
+ * number goes last, after the group, and both sides take one, because one bare `panel [store]`
+ * next to `panel [store] #2` does not say which of the two the bare one is.
  *
  * Handed out as the tree is drawn, not when the node was made: until every child is in, no name is
  * known to repeat at all.
@@ -377,13 +390,13 @@ function countKeys(placements: readonly Placement[]): Map<string, number> {
 }
 
 /**
- * The tree key, and the only place the type is written. `name` and `label` stay as they are,
- * because they name timeline rows and decide which two stores are one, and a key that changes when
- * adoption learns a type costs one row redrawn. Square brackets, so the type never reads as the
- * place suffix a name clash adds (`$counter (line 20) [computed]`).
+ * The tree key, in the one order every key reads in: the name, its type in square brackets, then
+ * the group saying where it was made, then the number saying which store of that place this is.
+ * `name` and `label` stay as they are, because they name timeline rows and decide which two stores
+ * are one, and a key that changes when adoption learns a type costs one row redrawn.
  */
 function displayName(entry: StoreEntry): string {
-  return noted(entry.name, entry.type);
+  return qualify(noted(entry.name, entry.type), entry);
 }
 
 function noted(name: string, type: StoreType): string {

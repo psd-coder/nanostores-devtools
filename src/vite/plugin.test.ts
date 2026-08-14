@@ -361,9 +361,9 @@ describe("a file the narrow parse gate never sees", () => {
       [PANEL_HOME]: {
         "createPanel()": {
           "open [store]": false,
-          "open #2 [store]": false,
+          "open [store] #2": false,
           "width [store]": 320,
-          "width #2 [store]": 240,
+          "width [store] #2": 240,
         },
       },
       [EDITOR_HOME]: { "ref#1": labelled("Editor", { "$value [store]": "draft" }) },

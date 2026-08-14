@@ -8,7 +8,7 @@ import {
   type OwnerSource,
   peekDevtoolsGlobal,
 } from "./global.ts";
-import { claimBindingName, type NameSource } from "./names.ts";
+import { claimBindingFile, type NameSource } from "./names.ts";
 import { getEntry, isStore, renameEntry } from "./registry.ts";
 
 /**
@@ -231,8 +231,8 @@ export function enclosingNode(module: ModuleHome, fn: string): object {
  * the two bindings are scanned in. Two bindings of the same kind pick one arbitrarily, and the last
  * one scanned is the one that wins.
  *
- * The name says which file it came from where a second module the home holds writes it too, which
- * is what keeps two files `fileKey` maps onto one home from taking each other's entry.
+ * The entry says which file it came from where a second module the home holds writes that name too,
+ * which is what keeps two files `fileKey` maps onto one home from taking each other's entry.
  */
 function claimName(module: BindingHome, store: Store, name: string, exported: boolean): void {
   const { bound } = getDevtoolsGlobal();
@@ -242,7 +242,7 @@ function claimName(module: BindingHome, store: Store, name: string, exported: bo
   }
 
   bound.set(store, exported);
-  renameEntry(store, claimBindingName(module, store, name), module.home);
+  renameEntry(store, name, module.home, claimBindingFile(module, store, name));
 }
 
 /**

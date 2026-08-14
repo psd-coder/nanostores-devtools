@@ -108,8 +108,9 @@ else's. A home holding at least one store you listed by hand counts as a group. 
 node over the external files: it would cost a click to reach anything inside and say nothing itself.
 
 Inside a home everything sorts too, on **the name your source wrote**, so a type note, a number or
-a suffix never moves a row. The order is by character code rather than by locale, so the tree reads
-the same everywhere and a capital letter sorts before a small one: `Editor` sits above `byId`.
+a group never moves a row. Two rows your source names the same then sort on their whole keys. The
+order is by character code rather than by locale, so the tree reads the same everywhere and a
+capital letter sorts before a small one: `Editor` sits above `byId`.
 
 ### The ownership tree
 
@@ -230,10 +231,11 @@ is no name you chose.
 
 A nested store drops the number its creation site gave it, because the parent already says which
 one this is: `$draft` and `$draft2` read the same way inside, even though the registry knows the
-second set as `$timeline #2` and names its timeline rows that way.
+second set as the second store of its site.
 
-Where the number is all that tells two children apart, both sides take one back. Where a node
-holds stores from two different files that share a name, both take the file as a suffix:
+Where the number is all that tells two children apart, both sides take one back:
+`$timeline [store]` next to `$timeline [store] #2`. Where a node holds stores from two different
+files that share a name, both name the file instead:
 `$history [computed] (vendor/withUndo.ts)`.
 
 ### The kind of store, after the name
@@ -254,6 +256,28 @@ The brackets are part of the tree key only. Timeline rows keep the bare name (`$
 sorting is on the bare name too, so the kind never moves a store in the tree. A store that gains a
 kind later, which adoption can do, changes its key, and the panel draws that as one key removed
 and one added. Gaining `atom` changes nothing, because `store` was already the word.
+
+### One order for a key
+
+**A tree key always reads the same way**: the name, the kind in square brackets, then at most one
+group in parentheses saying where the store was made, then the number saying which store of that
+place it is.
+
+```
+$count [store]                                        nothing to tell apart
+$counter [store] (line 20)                            two source lines in one file
+$counter [store] (app.ts, line 20)                    two files under one home
+$history [store] (vendor/withUndo.ts, createPanel, line 20)
+$history [store] (vendor/withUndo.ts)                 a home clash with no place to give
+panel [store] #2                                      a clash nothing else told apart
+```
+
+Inside the group the file comes first, because it says where to look before the line says where in
+the file. There is never a second group: where a home clash has a place to show as well, the home
+takes the group and the place steps aside.
+
+A node's number sits tight against its name, `ref#1`, and a store's stays spaced, `panel [store] #2`,
+so the two never read as one thing.
 
 ### A store listed by hand leaves the file tree
 
@@ -282,9 +306,9 @@ together.**
 The plugin and `trackStores` behave differently here, and the difference is real.
 
 **The plugin** tells two cases apart. One source line running again (a factory, a loop) makes
-interchangeable stores, so they are numbered: `$items`, `$items #2`. Two different source lines
-wanting one name is a real clash: both entries take a suffix naming the enclosing function and the
-line, such as `$counter (makeCart, line 12)`, and we warn once with both places.
+interchangeable stores, so they are numbered: `$items [store]`, `$items [store] #2`. Two different
+source lines wanting one name is a real clash: both keys name the enclosing function and the line,
+such as `$counter [store] (makeCart, line 12)`, and we warn once with both places.
 
 **`trackStores` replaces, quietly.** A second registration for `cart/$counter` drops whatever held
 that label before, with no warning. A clash here is almost always a hot reload, and we cannot tell
@@ -324,7 +348,7 @@ and [`lifecycleEvents`](#connectdevtoolsoptions) turns all five off together.
 inside it, so a register row is always a late arrival:
 
 - a code-split chunk loaded, and a file of yours ran for the first time;
-- a factory or a loop made another store, `$items #2`;
+- a factory or a loop made another store, `$items [store] #2`;
 - a `$`-named binding adopted a store some other code built;
 - `trackStores` ran after `connectDevtools`, which is the usual shape for a dependency's stores.
 
@@ -461,12 +485,12 @@ relative to that root and a file outside it arrives relative to `projectRoot`. I
 is displayed. A hot reload still clears a module by its real path, so two files sharing one display
 key cannot delete each other's stores.
 
-**Two files mapped to one home keep both stores.** When each of them holds a `$counter`, both
-entries say which file they came from: `$counter (a.ts)` next to `$counter (b.ts)`. Where the two
-files carry the same name, the suffix takes as much of the path as it takes to tell them apart,
-`$counter (a/store.ts)`. It comes from the file alone, so a hot reload and the other load order
-both give the same two names, and you are warned once for each name two files write. Every other
-name stays exactly as it is: a name only one of the files writes needs nothing added to it.
+**Two files mapped to one home keep both stores.** When each of them holds a `$counter`, both keys
+say which file they came from: `$counter [store] (a.ts)` next to `$counter [store] (b.ts)`. Where
+the two files carry the same name, the key takes as much of the path as it takes to tell them
+apart, `$counter [store] (a/store.ts)`. It comes from the file alone, so a hot reload and the other
+load order both give the same two keys, and you are warned once for each name two files write.
+Every other key stays exactly as it is: a name only one of the files writes needs nothing added.
 
 We do not cut the shared start of your file paths for you, because that shared part changes as
 routes load. Cutting it would rename every key in the tree at once, and the extension reads that

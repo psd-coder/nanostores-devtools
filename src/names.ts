@@ -7,15 +7,15 @@ import {
   type NameHolder,
   type SiteState,
 } from "./global.ts";
-import { getEntry, makeLabel, registerStore, renameEntry } from "./registry.ts";
+import { getEntry, makeLabel, type NameParts, registerStore, renameEntry } from "./registry.ts";
 import { warnOnce } from "./warn.ts";
 
 /** What decides a name: the display home the entry sits in, and the module that wrote it. */
 export type NameSource = { home: string; moduleKey: string };
 
-/** `$items #3`: the number every store of a site past the first carries. */
-export function numbered(display: string, made: number): string {
-  return made === 1 ? display : `${display} #${made}`;
+/** What one store of a site shows beside its name: where the site is, and which store this is. */
+export function siteParts(state: SiteState, number: number): NameParts {
+  return { file: state.file, place: state.placed ? placeOf(state) : null, number };
 }
 
 /**
@@ -37,11 +37,11 @@ export function claimSiteName(scope: ModuleScope, state: SiteState, module: Name
 }
 
 /**
- * What a top-level binding of the developer's own names its store. The binding's own name, unless a
- * second module sharing this home holds that name too, which is what makes the file part of it.
- * The store is held from here on, so a second module arriving later renames it as well.
+ * The file a top-level binding of the developer's own has to show, which is none unless a second
+ * module sharing this home holds that name too. The store is held from here on, so a second module
+ * arriving later renames it as well.
  */
-export function claimBindingName(module: NameSource, store: Store, name: string): string {
+export function claimBindingFile(module: NameSource, store: Store, name: string): string | null {
   const holder = holdName(module, name);
 
   /** A reload leaves the stores of the run before it behind, and only the registry knows they went. */
@@ -52,12 +52,12 @@ export function claimBindingName(module: NameSource, store: Store, name: string)
   });
   holder.bound.push(new WeakRef(store));
 
-  return withSuffix(name, holder.file);
+  return holder.file;
 }
 
 /**
  * The names a module gives up when its body runs again. The module keeps its hold on each one, so
- * a file it already names it still names on the run after: a suffix that came and went on every
+ * a file it already names it still names on the run after: a file part that came and went on every
  * save would give the developer a new tree every time.
  */
 export function releaseSiteNames(scope: ModuleScope, module: NameSource): void {
@@ -73,8 +73,8 @@ export function releaseSiteNames(scope: ModuleScope, module: NameSource): void {
 }
 
 /**
- * Two source lines wanting one name is a real clash, so both sides take the place suffix: one
- * bare `$counter` next to `$counter (line 20)` does not say which of the two lines it came from.
+ * Two source lines wanting one name is a real clash, so both sides show their place: one bare
+ * `$counter` next to `$counter (line 20)` does not say which of the two lines it came from.
  */
 function claimInModule(scope: ModuleScope, state: SiteState, home: string): void {
   const owner = scope.claims.get(state.name);
@@ -129,7 +129,7 @@ function holdName(module: NameSource, name: string): NameHolder {
 }
 
 /**
- * Every module holding the name says which file it came from. The suffix is read off the module
+ * Every module holding the name says which file it came from. The file part is read off the module
  * key alone, so a reload and the other load order both give the same name, and a third module
  * joining later can only lengthen it where two file names are the same.
  */
@@ -159,7 +159,7 @@ function nameFiles(claim: NameClaim, home: string, name: string): void {
 
       /** Anything drawn elsewhere or under another name since has a better one than this. */
       if (store !== undefined && entry?.home === home && entry.name === name) {
-        renameEntry(store, withSuffix(name, file), home);
+        renameEntry(store, name, home, file);
       }
     }
   }
@@ -190,16 +190,8 @@ function namePlace(state: SiteState, home: string): void {
   redisplay(state, home);
 }
 
-/** The site under a new name, which every store it already handed the old one takes as well. */
+/** The site under new parts, which every store it already registered takes as well. */
 function redisplay(state: SiteState, home: string): void {
-  const display = withSuffix(state.name, suffixOf(state));
-
-  if (display === state.display) {
-    return;
-  }
-
-  state.display = display;
-
   for (const held of state.stores) {
     const entry = getEntry(held.store);
 
@@ -207,31 +199,16 @@ function redisplay(state: SiteState, home: string): void {
     if (entry?.home === home) {
       registerStore({
         store: held.store,
-        name: numbered(state.display, held.number),
-        ownerName: state.display,
+        name: state.name,
         home,
         type: entry.type,
         origin: "plugin",
         external: entry.external,
         fn: state.fn,
+        ...siteParts(state, held.number),
       });
     }
   }
-}
-
-/** The file first, because it says where to look before the line says where in the file. */
-function suffixOf(state: SiteState): string | null {
-  const place = state.placed ? placeOf(state) : null;
-
-  if (state.file === null) {
-    return place;
-  }
-
-  return place === null ? state.file : `${state.file}, ${place}`;
-}
-
-function withSuffix(name: string, suffix: string | null): string {
-  return suffix === null ? name : `${name} (${suffix})`;
 }
 
 function placeOf(state: SiteState): string {

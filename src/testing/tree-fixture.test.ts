@@ -95,11 +95,12 @@ async function drive(server: ViteDevServer): Promise<void> {
   }
 }
 
-function entryNamed(name: string): StoreEntry {
-  const entry = listEntries().find((one) => one.name === name);
+/** One store of a creation site, which the registry keeps under one name and its own number. */
+function entryNamed(name: string, number = 1): StoreEntry {
+  const entry = listEntries().find((one) => one.name === name && one.number === number);
 
   if (entry === undefined) {
-    throw new Error(`no store named "${name}" is registered`);
+    throw new Error(`no store named "${name}" #${number} is registered`);
   }
 
   return entry;
@@ -191,7 +192,7 @@ describe("the fixture drawn by the shipped code", () => {
       "$timeline [store]": { entries: [""], index: 0 },
     });
     /** The registry still numbers the second instance, and only the key its owner uses does not. */
-    expect(entryNamed("$timeline #2")).toMatchObject({ home: UNDO_HOME, ownerName: "$timeline" });
+    expect(entryNamed("$timeline", 2)).toMatchObject({ home: UNDO_HOME, ownerName: "$timeline" });
   });
 
   it("keeps the developer's name for an alias, and a second placement on its owner", () => {
@@ -320,8 +321,8 @@ describe("the fixture drawn by the shipped code", () => {
     );
     const past = Object.fromEntries(
       Array.from({ length: 5 }, (_, index) => [
-        [`open #${30 + index} [store]`, false],
-        [`width #${30 + index} [store]`, 320],
+        [`open [store] #${30 + index}`, false],
+        [`width [store] #${30 + index}`, 320],
       ]).flat(),
     );
 

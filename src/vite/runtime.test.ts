@@ -4,7 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectDevtools } from "../connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
 import { nodeInfoOf, ownerOf } from "../placement.ts";
-import { getEntry, listEntries, trackStores, unregisterStore, untrack } from "../registry.ts";
+import {
+  getEntry,
+  listEntries,
+  qualify,
+  trackStores,
+  unregisterStore,
+  untrack,
+} from "../registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import { keepHooks } from "../unhook.ts";
 import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";
@@ -19,7 +26,13 @@ function site(overrides: Partial<CreationSite> = {}): CreationSite {
   return { name: "$items", fn: null, line: 3, type: "atom", ...overrides };
 }
 
+/** The qualified name, which is what the label is built from and what tells two entries apart. */
 function names(): string[] {
+  return listEntries().map((entry) => qualify(entry.name, entry));
+}
+
+/** The name the developer wrote, which the entry carries on its own and the timeline draws. */
+function plainNames(): string[] {
   return listEntries().map((entry) => entry.name);
 }
 
@@ -93,7 +106,7 @@ describe("store", () => {
     scope.store($hits, site({ name: "$hits", fn: "track", line: 3 }));
     scope.store(atom(0), site({ name: "$hits", fn: "sample", line: 9 }));
 
-    expect(getEntry($hits)).toMatchObject({ name: "$hits (track, line 3)", fn: "track" });
+    expect(getEntry($hits)).toMatchObject({ name: "$hits", place: "track, line 3", fn: "track" });
   });
 
   it("carries where the file sits, so a store from somebody else's file says so", () => {
@@ -188,13 +201,30 @@ describe("store", () => {
 });
 
 describe("a name two source lines claim", () => {
-  it("suffixes both entries with the enclosing function and the line", () => {
+  it("qualifies both entries with the enclosing function and the line", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
     scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
 
     expect(names()).toEqual(["$counter (makeCart, line 12)", "$counter (line 20)"]);
+  });
+
+  it("keeps the plain name on both, so the two share the row name the timeline writes", async () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $first = atom(0);
+    const $second = atom(0);
+
+    scope.store($first, site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store($second, site({ name: "$counter", line: 20 }));
+    await listen();
+
+    $first.listen(() => {});
+    $second.listen(() => {});
+    await endOfTurn();
+
+    expect(plainNames()).toEqual(["$counter", "$counter"]);
+    expect(rowNames()).toEqual(["$counter/mount", "$counter/mount"]);
   });
 
   it("warns once and names both places", () => {
@@ -280,8 +310,8 @@ describe("a name two modules mapped to one home claim", () => {
     b.store($second, site({ name: "$counter" }));
     b.own([["$counter", $second, true]]);
 
-    expect(getEntry($first)).toMatchObject({ name: "$counter (a.ts)" });
-    expect(getEntry($second)).toMatchObject({ name: "$counter (b.ts)" });
+    expect(getEntry($first)).toMatchObject({ name: "$counter", file: "a.ts" });
+    expect(getEntry($second)).toMatchObject({ name: "$counter", file: "b.ts" });
   });
 
   it("gives the same two names whichever module runs first", () => {
@@ -396,8 +426,8 @@ describe("a name two modules mapped to one home claim", () => {
     await endOfTurn();
 
     expect(names()).toEqual(["$counter (b.ts)", "$counter (a.ts)"]);
-    expect(getEntry($kept)).toMatchObject({ name: "$counter (b.ts)" });
-    expect(rowNames()).toEqual(["$counter (a.ts)/hotReload"]);
+    expect(getEntry($kept)).toMatchObject({ name: "$counter", file: "b.ts" });
+    expect(rowNames()).toEqual(["$counter/hotReload"]);
     expect(console.warn).toHaveBeenCalledTimes(1);
   });
 });
@@ -447,7 +477,7 @@ describe("the per-site cap", () => {
 
     scope.store($third, site());
 
-    expect(getEntry($third)).toMatchObject({ name: "$items #3" });
+    expect(getEntry($third)).toMatchObject({ name: "$items", number: 3 });
     expect(names()).toEqual(["$items #2", "$items #3"]);
   });
 
@@ -831,13 +861,13 @@ describe("the rows a change draws", () => {
 
     await endOfTurn();
 
-    expect(rowNames()).toEqual(["$items #2/register"]);
+    expect(rowNames()).toEqual(["$items/register"]);
 
     scope.clear();
 
     await endOfTurn();
 
-    expect(rowNames()).toEqual(["$items #2/register", "$items #2/unregister"]);
+    expect(rowNames()).toEqual(["$items/register", "$items/unregister"]);
   });
 
   it("draws one hot reload row for a module that clears and runs again in one turn", async () => {
