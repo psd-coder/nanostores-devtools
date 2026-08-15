@@ -612,7 +612,11 @@ Other things values do:
   every error, and a devtools with no stack traces is worth less than the risk. Reading it can run
   `Error.prepareStackTrace` if the app installed one, and it makes V8 read `name` and `message` off
   the error.
-- **A function arrives with its body stripped.**
+- **A method is left out.** An object's own property holding a function does not reach the panel:
+  `{ id, $checked, toggle, add }` arrives as `{ id, $checked }`. The panel draws state, and a
+  method beside the stores it writes says nothing your source does not. A value that is itself a
+  function still arrives, with its body stripped, and so does a function at an array index, because
+  there the position is part of the shape.
 - **`-0` arrives as `0`.**
 - **A custom serializer has no reviver.** The bridge encodes only, and v1 never reads state back.
 - **A labelled value inside a `Map` or a `Set` keeps its wrapper**, so you read

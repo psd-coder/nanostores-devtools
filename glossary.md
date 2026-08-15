@@ -107,8 +107,12 @@ the extension. It is a jsan **replacer**, passed to the extension as
 replacing it. It handles only what jsan handles badly: `Error` (jsan keeps the message alone),
 class instances (jsan loses the name), typed arrays, `BigInt` (jsan throws), DOM nodes and
 getter-only objects. Everything else it returns untouched for jsan to encode. It takes
-user-supplied serializers, never shortens a value, and encodes only: there is no reviver of
-ours.
+user-supplied serializers and encodes only: there is no reviver of ours.
+
+It leaves one thing out. **A method is not drawn**: an object's own property holding a function is
+left out of the copy, because the panel draws state and a method is behaviour the source already
+spells. A value that is itself a function is untouched, and so is a function sitting at an array
+index, where the position is part of the shape.
 
 **Wrapper** — the extension's own `{ data, __serializedType__ }` shape, not a shape of ours.
 `data` holds what survived and `__serializedType__` names it. The panel's reviver unwraps it and

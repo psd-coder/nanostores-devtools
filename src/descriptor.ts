@@ -1,8 +1,8 @@
 export type Fields = Record<string, unknown>;
 
 /**
- * Own enumerable string keys that hold data. A getter can run app code, so it is skipped rather
- * than called, and a symbol key is skipped rather than walked.
+ * Own enumerable string keys that hold state. A getter can run app code, so it is skipped rather
+ * than called, a symbol key is skipped rather than walked, and a method is left out.
  *
  * Listing the keys and reading each descriptor are both trapped on a `Proxy`, and a trap of the
  * app's may throw instead of answering. A value that refuses gives up nothing at all, half an
@@ -65,13 +65,18 @@ export function ownIndexes(value: readonly unknown[], upTo?: number): unknown[] 
   return copy;
 }
 
-/** An accessor is passed over rather than called, so its key never appears. */
+/**
+ * An accessor is passed over rather than called, so its key never appears. A method is passed over
+ * too: the panel draws state, and `toggle`, `add` and `remove` beside the stores they write say
+ * nothing a reader of the source does not already know. A value that is itself a function is
+ * untouched, because then the function is the state.
+ */
 export function copyData(
   fields: Fields,
   key: string,
   descriptor: PropertyDescriptor | undefined,
 ): void {
-  if (descriptor && "value" in descriptor) {
+  if (descriptor && "value" in descriptor && typeof descriptor.value !== "function") {
     fields[key] = descriptor.value;
   }
 }

@@ -164,6 +164,16 @@ describe("createReplacer", () => {
       expect(write({ b: 1, a: { c: [2, 3] } })).toBe('{"b":1,"a":{"c":[2,3]}}');
     });
 
+    it("leaves out a method, so a model object shows the state it holds and nothing else", () => {
+      const node = { id: "node-1", $open: atom(false), toggle: () => {}, add(): void {} };
+
+      expect(Object.keys(replacer("n", node) as object)).toEqual(["id", "$open"]);
+    });
+
+    it("leaves a method inside an array where it sits, because an index is a position", () => {
+      expect(write([1, () => {}, 3])).toBe('[1,{"$jsan":"f() => { /* ... */ }"},3]');
+    });
+
     it("shows what the value holds now on a second write", () => {
       const value: Record<string, unknown> = { a: 1, gone: 2 };
 
@@ -414,6 +424,23 @@ describe("createReplacer", () => {
       expect(replacer("e", new Empty())).toEqual({
         data: { "(value)": "[object Object]" },
         __serializedType__: "Empty",
+      });
+    });
+
+    it("leaves out an own method field, and takes the rescue when that is all there was", () => {
+      class Cart {
+        $total = atom(0);
+        clear = (): void => {};
+      }
+
+      class Actions {
+        run = (): void => {};
+      }
+
+      expect(markedKeys(replacer("c", new Cart()))).toEqual(["$total"]);
+      expect(replacer("a", new Actions())).toEqual({
+        data: { "(value)": "[object Object]" },
+        __serializedType__: "Actions",
       });
     });
 
