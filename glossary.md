@@ -79,8 +79,9 @@ made it, and ignores it if it is not a store at all. It carries a name, never a 
 the file imported from `nanostores`, renamed imports included. Adoption only handles what
 this misses.
 
-Four mechanisms decide where a store is drawn. Adoption and callee matching decide whether a
-store reaches the tree at all; these four decide its **owner** once it is in.
+Three mechanisms decide where a store is drawn. Adoption and callee matching decide whether a
+store reaches the tree at all; these three decide its **owner** once it is in. A store none of them
+places is drawn nowhere.
 
 **Binding scan** — one call appended at the end of a module body, listing that module's
 top-level `const`, `let` and `var` names. At load the bridge walks each value one holds. A store
@@ -99,10 +100,6 @@ anywhere until it did.
 **`this` in a class field** — a field initializer runs with `this` bound to the new instance, so
 the transform hands it over. A static field's `this` is the constructor instead, which is why a
 static store belongs to the class. It is also the only way to reach a private field.
-
-**Enclosing-function fallback** — the last resort, for a store no other mechanism placed: the
-function it was made inside holds it, keyed `track()`. A store made at module level has no
-enclosing function and stays flat, because its home is already its only holding.
 
 **Converter** — our code that turns a store value into something that survives the trip to
 the extension. It is a jsan **replacer**, passed to the extension as
@@ -158,6 +155,13 @@ placements: the home the developer chose for it, drawn flat, and the name its ow
 drawn under the owner. They choose a home two ways, a top-level binding of their own and an
 explicit registration, and either one beats the owner the ownership walk recorded.
 
+A store may also have none. One made inside a function and placed by nothing is that function's own
+working state: what the function returned is what the app holds, and the tree draws that already, so
+the store itself is left out. A store made at module level always keeps a placement, because it has
+no function it could belong to and the file it was written in is its only holding. Being left out of
+the tree changes nothing else: the store stays in the registry, keeps its hooks, and a write to it
+still opens a timeline entry, because that write is often what makes a drawn value change.
+
 **Written name** — a name that exists in the developer's source: a binding, a property key, an
 array index, a `Map` key. It beats any name we derive.
 
@@ -182,7 +186,9 @@ home takes the group then and the place steps aside, so a key carries one group 
 
 **Lifecycle row** — a timeline entry for something other than a value change: a store
 joining or leaving the registry, or mounting and unmounting. All four are on by default,
-because a tree that changes without a row would drift into the next write's diff.
+because a tree that changes without a row would drift into the next write's diff. A store with no
+placement gets none of the four: the row is there to explain a tree that changed shape, and a store
+the tree does not draw changes no shape.
 
 **The hard rule** — the bridge must not change how the app behaves. Above all, watching
 a store must not mount it.

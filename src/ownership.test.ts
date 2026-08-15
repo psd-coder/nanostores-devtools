@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDevtoolsGlobal, peekDevtoolsGlobal, resetDevtoolsGlobal } from "./global.ts";
 import {
   beginFrame,
-  enclosingNode,
   endFrame,
   MAX_MEMBERS,
   noteBirth,
@@ -1067,42 +1066,6 @@ describe("the creation frame", () => {
     expect(book).toHaveBeenCalledTimes(1);
 
     book.mockRestore();
-  });
-});
-
-describe("enclosingNode", () => {
-  beforeEach(() => {
-    resetDevtoolsGlobal();
-  });
-
-  afterEach(() => {
-    resetDevtoolsGlobal();
-  });
-
-  it("keys the node by the function name with parentheses after it, and labels it with nothing", () => {
-    const node = enclosingNode(FROM, "track");
-
-    expect(nodeInfoOf(node)).toEqual({
-      home: HOME,
-      external: false,
-      name: "track()",
-      ours: true,
-      numbered: false,
-      type: undefined,
-      parent: undefined,
-      skipped: 0,
-    });
-  });
-
-  it("hands one function in one file the same node every time", () => {
-    expect(enclosingNode(FROM, "track")).toBe(enclosingNode(FROM, "track"));
-  });
-
-  it("keeps two functions apart, and two files of one function name apart", () => {
-    const node = enclosingNode(FROM, "track");
-
-    expect(enclosingNode(FROM, "sample")).not.toBe(node);
-    expect(enclosingNode({ home: "src/other.ts", external: false }, "track")).not.toBe(node);
   });
 });
 

@@ -142,12 +142,6 @@ export type DevtoolsGlobal = {
   bound: WeakMap<Store, boolean>;
   /** The nodes drawing has made, which hold stores the registry keeps no place for. */
   nodes: Nodes;
-  /**
-   * The node standing for one enclosing function, keyed by its home and its name, so every store
-   * that function made and nothing else placed lands in one node. Held strongly: a marker object
-   * is what the node is, so nothing else keeps it alive.
-   */
-  functions: Map<string, object>;
   /** The creation frames open right now, the innermost last. Empty between two ticks. */
   frames: OpenFrame[];
   bridge?: Bridge | undefined;
@@ -188,7 +182,6 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     owners: new WeakMap(),
     bound: new WeakMap(),
     nodes: new WeakMap(),
-    functions: new Map(),
     frames: [],
   };
 

@@ -1,4 +1,5 @@
 import type { Bridge } from "./connect.ts";
+import { isPlaced } from "./placement.ts";
 import type { RegistryChange, StoreEntry } from "./registry.ts";
 import { type Change, listeningBridge, openLifecycleRow, sendLifecycleRow } from "./timeline.ts";
 
@@ -75,11 +76,18 @@ export function noteUnmount(entry: StoreEntry): void {
   drawRow(entry, "unmount");
 }
 
-/** One row each, because a mount and an unmount are real app events and happen far apart. */
+/**
+ * One row each, because a mount and an unmount are real app events and happen far apart.
+ *
+ * A store the tree draws nowhere gets none. A lifecycle row is there to explain a tree that changed
+ * shape, and a store with no place in it changes no shape, so the row would be a line the developer
+ * cannot follow to anything. Read at the moment the row would go out, which is late enough for every
+ * store made at runtime and one beat early for a store that mounts inside its own module body.
+ */
 function drawRow(entry: StoreEntry, op: "mount" | "unmount"): void {
   const bridge = drawingBridge();
 
-  if (bridge) {
+  if (bridge && isPlaced(entry)) {
     openLifecycleRow(bridge, `${entry.name}/${op}`, [{ label: entry.label, op }]);
   }
 }
@@ -90,6 +98,11 @@ function drawingBridge(): Bridge | undefined {
   return bridge?.lifecycle.enabled && bridge.lifecycle.initSent ? bridge : undefined;
 }
 
+/**
+ * Placement is read here and not where the change was noted: the binding scan runs at the end of a
+ * module body, so a store noted while that body was still running has not been placed yet. This
+ * flush is a microtask later, by which time every mechanism has had its turn.
+ */
 function flushPending(bridge: Bridge): void {
   const pending = bridge.lifecycle.pending.splice(0);
 
@@ -97,7 +110,7 @@ function flushPending(bridge: Bridge): void {
     return;
   }
 
-  for (const group of groupPending(pending)) {
+  for (const group of groupPending(pending.filter(({ entry }) => isPlaced(entry)))) {
     sendLifecycleRow(bridge, group.type, group.changes);
   }
 }

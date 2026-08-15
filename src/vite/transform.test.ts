@@ -1,5 +1,5 @@
 import { decode } from "@jridgewell/sourcemap-codec";
-import { describe, expect, it, type Mock, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { loadParser } from "./parser.ts";
 import type { CreationSite } from "./runtime.ts";
@@ -19,7 +19,6 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     external: false,
     maxStoresPerSite: 50,
     adoptFactories: true,
-    parseEveryFile: true,
     parser,
     ...overrides,
   });
@@ -104,43 +103,6 @@ describe("the pre-parse test", () => {
     const result = transform(`import { atom } from "nanostores";\nconst $c = atom(;\n`);
 
     expect(result.changed).toBe(false);
-  });
-
-  /** The narrow gate, which is what a very large repository turns the wide one back off for. */
-  describe("with parseEveryFile off", () => {
-    function spied(code: string): { parseSync: Mock; result: StoreTransform } {
-      const parseSync = vi.fn();
-      const result = transform(code, {
-        parseEveryFile: false,
-        parser: { ...parser, parseSync },
-      });
-
-      return { parseSync, result };
-    }
-
-    it("never parses a file that imports no creator and binds no $ name", () => {
-      const { parseSync, result } = spied(
-        `import { useStore } from "@nanostores/react";\nconst theme = useStore($cart);\n`,
-      );
-
-      expect(parseSync).not.toHaveBeenCalled();
-      expect(result.changed).toBe(false);
-    });
-
-    it("never parses for a $ name that adoption cannot reach", () => {
-      const { parseSync } = spied(
-        `const read = ($cart) => $cart.get();\nconst same = $a === $b;\n`,
-      );
-
-      expect(parseSync).not.toHaveBeenCalled();
-    });
-
-    it("leaves the factory call the wide gate reaches unparsed", () => {
-      const { parseSync, result } = spied(FACTORY_CALL);
-
-      expect(parseSync).not.toHaveBeenCalled();
-      expect(result.changed).toBe(false);
-    });
   });
 });
 

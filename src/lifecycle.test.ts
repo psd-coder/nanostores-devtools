@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./connect.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
+import { ownBindings } from "./ownership.ts";
 import { getEntry, registerStore, type StoreType, unregisterStore } from "./registry.ts";
 import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
 
@@ -335,6 +336,108 @@ describe("register, unregister and hot reload rows", () => {
     await endOfTurn();
 
     expect(rowNames()).toEqual(["$count/hotReload", "$other/register"]);
+  });
+});
+
+describe("a store the tree draws nowhere", () => {
+  /** A store the plugin registered from a creation site inside a function, placed by nothing. */
+  function registerMadeIn(name: string, store: Store, fn: string): void {
+    registerStore({
+      store,
+      name,
+      home: HOME,
+      type: "atom",
+      origin: "plugin",
+      external: false,
+      fn,
+    });
+  }
+
+  it("draws no register row for it, and still draws one for the stores beside it", async () => {
+    await listen();
+
+    registerMadeIn("$hits", atom(0), "track");
+    register("$count", atom(1));
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["$count/register"]);
+  });
+
+  it("draws no register row at all when nothing in the turn is placed", async () => {
+    await listen();
+
+    registerMadeIn("$hits", atom(0), "track");
+    registerMadeIn("$misses", atom(1), "track");
+
+    await endOfTurn();
+
+    expect(fake.sends).toHaveLength(0);
+  });
+
+  it("draws no mount or unmount row for it", async () => {
+    const $hits = atom(0);
+
+    registerMadeIn("$hits", $hits, "track");
+    await listen();
+
+    const unbind = $hits.listen(() => {});
+
+    unbind();
+
+    await endOfTurn();
+
+    expect(fake.sends).toHaveLength(0);
+  });
+
+  /** The flag is not a row: the marker a value carries reads it, so the skip must not touch it. */
+  it("still records that it was mounted, which the tree reads", async () => {
+    const $hits = atom(0);
+
+    registerMadeIn("$hits", $hits, "track");
+    await listen();
+
+    $hits.listen(() => {})();
+
+    expect(getEntry($hits)?.everMounted).toBe(true);
+  });
+
+  it("draws its write row, because that write is what changed the tree", async () => {
+    const $hits = atom(0);
+
+    registerMadeIn("$hits", $hits, "track");
+    await listen();
+
+    $hits.set(1);
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["$hits/set"]);
+  });
+
+  /**
+   * A hot reload takes a whole module in one turn, and the owner may go first. The store it held
+   * then has no drawn owner left, so the row names the owner alone. That is the whole of what left
+   * the tree: a store drawn under an owner leaves the tree with it, and the diff shows both.
+   */
+  it("names the owner alone when a reload takes it before the store it held", async () => {
+    const $canUndo = atom(false);
+    const $draft = Object.assign(atom(""), { $canUndo });
+
+    registerMadeIn("$canUndo", $canUndo, "withUndo");
+    register("$draft", $draft);
+    ownBindings({ home: HOME, external: false, moduleKey: HOME }, [["$draft", $draft, true]]);
+    await listen();
+
+    unregisterStore($draft);
+    unregisterStore($canUndo);
+
+    await endOfTurn();
+
+    expect(fake.sends[0]?.action["action"]).toEqual({
+      type: "$draft/unregister",
+      changes: [{ label: `${HOME}/$draft`, op: "unregister" }],
+    });
   });
 });
 

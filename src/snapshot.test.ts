@@ -1539,18 +1539,18 @@ describe("buildSnapshot", () => {
       });
     });
 
-    describe("the enclosing function", () => {
+    describe("a store made inside a function", () => {
       /** A store the plugin registered from a creation site inside a function of the app's own. */
       function madeIn(fn: string, store: Store, name: string, home = HOME): void {
         registerStore({ store, name, home, type: "atom", origin: "plugin", external: false, fn });
       }
 
-      it("draws a store nothing else placed under the function that built it", () => {
+      it("draws nothing at all for one nothing else placed", () => {
         const $hits = atom(0);
 
         madeIn("track", $hits, "$hits");
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { "track()": { "$hits [store]": 0 } } });
+        expect(buildSnapshot()).toEqual({});
       });
 
       it("keeps a store made at module level flat at the file level", () => {
@@ -1561,30 +1561,19 @@ describe("buildSnapshot", () => {
         expect(buildSnapshot()).toEqual({ [HOME]: { "$hits [store]": 0 } });
       });
 
-      it("holds everything one function made in one node", () => {
+      it("leaves a home out entirely when every store in it was made inside a function", () => {
         madeIn("track", atom(0), "$hits");
         madeIn("track", atom(1), "$misses");
+        madeIn("sample", atom(2), "$rate", "src/other.ts");
 
-        expect(buildSnapshot()).toEqual({
-          [HOME]: { "track()": { "$hits [store]": 0, "$misses [store]": 1 } },
-        });
+        expect(buildSnapshot()).toEqual({});
       });
 
-      it("gives each file its own node for a function of the same name", () => {
+      it("still draws the rest of a home the function's own stores left", () => {
         madeIn("track", atom(0), "$hits");
-        madeIn("track", atom(1), "$rate", "src/other.ts");
+        track(atom(1), "$typed");
 
-        expect(buildSnapshot()).toEqual({
-          [HOME]: { "track()": { "$hits [store]": 0 } },
-          "src/other.ts": { "track()": { "$rate [store]": 1 } },
-        });
-      });
-
-      it("numbers a function node only where the name repeats", () => {
-        madeIn("track", atom(0), "$hits");
-        madeIn("sample", atom(1), "$rate");
-
-        expect(Object.keys(buildSnapshot()[HOME] ?? {})).toEqual(["sample()", "track()"]);
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$typed [store]": 1 } });
       });
 
       it("leaves a store the frame placed where the frame put it", () => {
@@ -1633,15 +1622,15 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("draws every registry entry exactly once, a function's own included", () => {
+      it("draws every registry entry at most once, and a function's own not at all", () => {
         madeIn("track", atom(0), "$hits");
         madeIn("track", atom(1), "$hits #2");
         track(atom(2), "$typed");
 
-        expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([0, 1, 2]);
+        expect(numbersIn(buildSnapshot())).toEqual([2]);
       });
 
-      it("keeps a store the developer bound at the top level out of the function's node", () => {
+      it("draws one the developer bound at the top level, however it was made", () => {
         const $hits = atom(0);
 
         madeIn("makeHits", $hits, "$hits");

@@ -1,10 +1,50 @@
 import type { Store } from "nanostores";
 
 import { type NodeInfo, peekDevtoolsGlobal } from "./global.ts";
+import { getEntry, isStore, type StoreEntry } from "./registry.ts";
+
+/**
+ * Whether the tree draws the store anywhere at all.
+ *
+ * A store made inside a function and placed by nothing is that function's own working state: what
+ * the function returned is what the app holds, and the tree draws that already. One made at module
+ * level has no function it could belong to, and the file it was written in is already its only
+ * holding, so it stays flat there.
+ *
+ * One test for the tree and for the timeline both, or the two would disagree about which stores
+ * exist and a row would announce a store the developer cannot find.
+ */
+export function isPlaced(entry: StoreEntry): boolean {
+  return entry.fn === null || placedByDeveloper(entry) || drawnOwner(entry.store) !== undefined;
+}
+
+/**
+ * A home the developer chose: a group they registered the store into, or a top-level name they
+ * bound it to. Either one beats the owner the ownership walk recorded.
+ */
+export function placedByDeveloper(entry: StoreEntry): boolean {
+  return entry.origin === "explicit" || namedByBinding(entry.store);
+}
 
 /** Whether a top-level binding of the developer's own names the store, which draws it flat. */
 export function namedByBinding(store: Store): boolean {
   return peekDevtoolsGlobal()?.bound.has(store) ?? false;
+}
+
+/**
+ * The owner a store is drawn under, with the key that owner knows it by. A store owner the registry
+ * lost holds no place in the tree, so a store under it would be drawn nowhere at all and is drawn at
+ * its own home instead.
+ */
+export function drawnOwner(store: Store): LiveOwnerLink | undefined {
+  const link = ownerLinkOf(store);
+
+  return link !== undefined && drawable(link.owner) ? link : undefined;
+}
+
+/** Whether the tree has a place for the owner itself, which is what a store under it hangs from. */
+export function drawable(owner: object): boolean {
+  return isStore(owner) ? getEntry(owner) !== undefined : nodeInfoOf(owner) !== undefined;
 }
 
 /**

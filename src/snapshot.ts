@@ -1,11 +1,8 @@
-import type { Store } from "nanostores";
-
 import type { NodeInfo } from "./global.ts";
 import { mark, VALUE_KEY } from "./marker.ts";
-import { enclosingNode, MAX_MEMBERS } from "./ownership.ts";
-import { type LiveOwnerLink, namedByBinding, nodeInfoOf, ownerLinkOf } from "./placement.ts";
+import { MAX_MEMBERS } from "./ownership.ts";
+import { drawable, drawnOwner, isPlaced, nodeInfoOf, placedByDeveloper } from "./placement.ts";
 import {
-  getEntry,
   isStore,
   listEntries,
   qualify,
@@ -73,56 +70,30 @@ export function buildSnapshot(): Snapshot {
  * They choose it two ways: a group they registered the store into by hand, and a top-level name
  * they bound it to in a file of their own. Either one beats the owner the ownership walk recorded,
  * because both say where this store belongs and an owner only says where the walk reached it from.
- * A store they placed is theirs to hold, so the function it was made inside no longer holds it.
  */
 function place(tree: Tree, entry: StoreEntry): void {
-  const placedByDeveloper = entry.origin === "explicit" || namedByBinding(entry.store);
-  const drawn = drawnOwner(entry.store);
-  const owner = drawn?.owner ?? (placedByDeveloper ? undefined : enclosingOwner(entry));
-
-  if (placedByDeveloper || owner === undefined) {
-    collect(tree.homes, entry.home, { kind: "store", entry });
-  }
-
-  if (owner === undefined) {
+  if (!isPlaced(entry)) {
     return;
   }
 
-  /** The key belongs to the owner the link named, so the function fallback above takes none. */
-  const key = drawn?.key;
+  const chosen = placedByDeveloper(entry);
+  const drawn = drawnOwner(entry.store);
 
-  collect(
-    tree.children,
-    owner,
-    placedByDeveloper ? { kind: "second", entry, key } : { kind: "store", entry, key },
-  );
-  attach(tree, owner);
-}
+  if (chosen || drawn === undefined) {
+    collect(tree.homes, entry.home, { kind: "store", entry });
+  }
 
-/**
- * The owner a store is drawn under, with the key that owner knows it by. A store owner the registry
- * lost holds no place in the tree, so a store under it would be drawn nowhere at all and is drawn at
- * its own home instead.
- */
-function drawnOwner(store: Store): LiveOwnerLink | undefined {
-  const link = ownerLinkOf(store);
+  if (drawn === undefined) {
+    return;
+  }
 
-  return link !== undefined && drawable(link.owner) ? link : undefined;
-}
+  /** The key belongs to the owner the link named, so a store no link placed takes none. */
+  const held: Held = chosen
+    ? { kind: "second", entry, key: drawn.key }
+    : { kind: "store", entry, key: drawn.key };
 
-/**
- * The last resort, reached only by a store every other mechanism left alone: the function it was
- * made inside holds it. One made at module level has no enclosing function and stays flat, which is
- * the right answer, because the file it was written in is already its only holding.
- */
-function enclosingOwner(entry: StoreEntry): object | undefined {
-  return entry.fn === null
-    ? undefined
-    : enclosingNode({ home: entry.home, external: entry.external }, entry.fn);
-}
-
-function drawable(owner: object): boolean {
-  return isStore(owner) ? getEntry(owner) !== undefined : nodeInfoOf(owner) !== undefined;
+  collect(tree.children, drawn.owner, held);
+  attach(tree, drawn.owner);
 }
 
 /**

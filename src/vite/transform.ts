@@ -27,8 +27,6 @@ export type TransformInput = {
   external: boolean;
   maxStoresPerSite: number;
   adoptFactories: boolean;
-  /** Whether every file is parsed, rather than only one that looks like it holds a store. */
-  parseEveryFile: boolean;
   parser: Parser;
 };
 
@@ -48,21 +46,6 @@ const CREATORS: ReadonlyMap<string, StoreType> = new Map<string, StoreType>([
   ["computed", "computed"],
   ["batched", "batched"],
 ]);
-
-/**
- * A file that binds nothing from `"nanostores"` can make no store through callee matching. This is
- * the narrow gate, which `parseEveryFile` skips: on its own it leaves a component that only reads
- * stores unparsed, which is most of an app, and `const panel = createPanel()` unparsed with it.
- */
-const IMPORTS_NANOSTORES = /from\s*["']nanostores["']/;
-
-/**
- * A `$`-prefixed name bound to something, which is what adoption needs and the only reason to
- * parse a file that imports no creator. `=>` and `==` are left out, so an arrow parameter and a
- * comparison cost no parse. The colon is in, because a type annotation sits between the name
- * and the `=`.
- */
-const BINDS_DOLLAR_NAME = /\$[\w$]*\s*(?::|=(?![=>]))/;
 
 /**
  * A name frame carries what a store born under it is called; a function frame ends that reach.
@@ -105,11 +88,6 @@ type TopLevel = Program["body"][number];
 
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
-
-  if (!input.parseEveryFile && !IMPORTS_NANOSTORES.test(input.code) && !mayAdopt(input)) {
-    return { changed: false, warnings: [] };
-  }
-
   const parsed = input.parser.parseSync(input.moduleKey, input.code);
 
   if (parsed.errors.length > 0) {
@@ -517,11 +495,6 @@ function bared(node: Written): Written {
     default:
       return node;
   }
-}
-
-/** The second half of the pre-parse test: a file importing no creator can still be adopted from. */
-function mayAdopt(input: TransformInput): boolean {
-  return input.adoptFactories && BINDS_DOLLAR_NAME.test(input.code);
 }
 
 function exportName(name: ModuleExportName): string {

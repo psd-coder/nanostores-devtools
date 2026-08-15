@@ -337,8 +337,9 @@ describe("the fixture drawn by the shipped code", () => {
     });
   });
 
-  it("falls back to the enclosing function for a store nothing else names", () => {
-    expect(homeOf(TRACKER_HOME)).toEqual({ "track()": { "$hits [store]": 0 } });
+  it("draws nothing for a store nothing else names, so its file is no home at all", () => {
+    expect(buildSnapshot()[TRACKER_HOME]).toBeUndefined();
+    expect(listEntries().some((entry) => entry.home === TRACKER_HOME)).toBe(true);
   });
 
   it("keeps a module-level library store flat, and sorts every external file last", () => {
@@ -348,7 +349,6 @@ describe("the fixture drawn by the shipped code", () => {
       MODEL_HOME,
       WORKSPACE_HOME,
       SHARED_HOME,
-      TRACKER_HOME,
     ]);
   });
 });
@@ -399,7 +399,7 @@ describe("the draw-once invariant", () => {
     return new Map(tokens.map(([label, token]) => [label, drawn.split(token).length - 1]));
   }
 
-  it("draws every store exactly once, plus one for each second placement", () => {
+  it("draws every store it draws at all once, plus one for each second placement", () => {
     /** One note, whatever else happens: silence would read as "this is all of it". */
     expect(JSON.stringify(buildSnapshot()).split('"…"').length - 1).toBe(1);
     expect(listEntries()).toHaveLength(107);
@@ -409,15 +409,21 @@ describe("the draw-once invariant", () => {
 
     /** One label per entry, so a label two entries shared would drop the count below 107. */
     expect(counts.size).toBe(107);
-    /** Draw-once, the first form: no store is drawn twice over, and none is lost. */
-    expect(placements.filter((times) => times !== 1).length).toBe(9);
-    expect(placements.filter((times) => times === 0)).toEqual([]);
+    /** Draw-once, the first form: no store is drawn twice over. */
+    expect(placements.filter((times) => times > 2)).toEqual([]);
+    /**
+     * The one store the tree draws nowhere: `track()` keeps it in a closure and hands back a
+     * function, so nothing places it and what the function returned holds no state to see it by.
+     */
+    expect([...counts].filter(([, times]) => times === 0).map(([label]) => label)).toEqual([
+      `${TRACKER_HOME}/$hits`,
+    ]);
     /**
      * Draw-once, the second form. A store the developer bound to a top-level name of their own is
-     * drawn once at that name and once more under its owner, so 107 is the count without those
-     * second placements and 116 with them.
+     * drawn once at that name and once more under its owner, so 106 is the count of the stores
+     * drawn at all and 115 with those second placements.
      */
-    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(116);
+    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(115);
     expect(
       [...counts]
         .filter(([, times]) => times === 2)
@@ -488,27 +494,6 @@ describe("reloading a module", () => {
   });
 });
 
-describe("the narrow parse gate", () => {
-  let server: ViteDevServer;
-
-  beforeAll(async () => {
-    server = await serve({ parseEveryFile: false });
-    await server.ssrLoadModule(WORKSPACE);
-  });
-
-  afterAll(async () => {
-    await server.close();
-    resetDevtoolsGlobal();
-  });
-
-  it("never sees the file, so every store the factory made stays under the factory", () => {
-    expect(Object.keys(buildSnapshot())).toEqual([PANEL_HOME]);
-    expect(Object.keys(into(homeOf(PANEL_HOME), "createPanel()"))).toHaveLength(68);
-    /** The gate moves where a store is drawn and never whether it is registered at all. */
-    expect(listEntries()).toHaveLength(68);
-  });
-});
-
 /**
  * Three cases the main load leaves out. The last two are behaviour the tree depends on that no spec
  * line asks for, so each gets a case of its own.
@@ -538,8 +523,8 @@ describe("an await, a helper and two functions of one name", () => {
     expect(entryNamed("$flag").fn).toBeNull();
   });
 
-  it("keys a function node by its name alone, so two functions of one name share it", () => {
-    expect(homeOf(HELPERS_HOME)["build()"]).toEqual({ "$one [store]": 1, "$two [store]": 2 });
+  it("draws nothing for the stores two functions of one name kept in a closure", () => {
+    expect(Object.keys(homeOf(HELPERS_HOME))).toEqual(["$flag [store]"]);
   });
 });
 

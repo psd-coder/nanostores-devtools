@@ -132,8 +132,6 @@ app/model.ts
   counter [store]: { (value): 0, $doubled [computed] }     <- a store with no $ that owns others
 app/workspace.ts
   panel: { open [store]: false, width [store]: 320 }       <- what a factory returned
-vendor/tracker.ts
-  track(): { $hits [store]: 0 }                            <- a store nothing else could place
 ```
 
 #### `(value)`: a store that owns others
@@ -144,7 +142,7 @@ something is wrapped, so a value you can read today stays readable.
 
 #### What becomes a node
 
-A **node** holds others and has no value of its own. Five things become one:
+A **node** holds others and has no value of its own. Four things become one:
 
 | what it is                   | its key                                | its type label         |
 | ---------------------------- | -------------------------------------- | ---------------------- |
@@ -152,7 +150,6 @@ A **node** holds others and has no value of its own. Five things become one:
 | an object a factory returned | the binding that holds it, `panel`     | none, when it is plain |
 | an array, `Map` or `Set`     | the binding, then one child per member | `Array`, `Map`, …      |
 | a class's static fields      | the class name, `Editor`               | none                   |
-| a store nothing else placed  | the function that built it, `track()`  | none                   |
 
 A member that is itself an object is keyed by a name you could write to reach it: `[0]` for an array
 or a `Set`, and `["scratch"]` for a `Map`. A node may sit inside a node, which is how an array's
@@ -176,7 +173,7 @@ they number across the file rather than per class.
 
 #### How a store finds its owner
 
-Four mechanisms, and each covers what the others miss.
+Three mechanisms, and each covers what the others miss.
 
 - **The binding scan.** The plugin appends one call at the end of each module body listing that
   module's top-level `const`, `let` and `var` names, and we walk what each one holds. This is what
@@ -190,9 +187,16 @@ Four mechanisms, and each covers what the others miss.
   `new`, and closed on the value it returned. A plain store creator needs none, and neither does an
   initializer holding an `await`, which a frame must never span. It is the only thing that reaches a
   store a library kept in a closure, such as the `$timeline` inside `pipe(atom(""), withUndo())`.
-- **The enclosing function.** Last resort. A store nothing else placed sits under the function it
-  was made inside, keyed `track()`. A store made at module level has no enclosing function and
-  stays flat, which is right: its home is already its only holding.
+
+**A store none of the three places is drawn nowhere at all.** One made inside a function and kept
+there is that function's own working state: what the function returned is what your app holds, and
+the tree draws that already. A store made at module level always keeps a place, because it has no
+function it could belong to and the file it was written in is its only holding.
+
+Nothing else changes for a store the tree leaves out. It stays in the registry, we still watch it,
+and a write to it still opens a timeline entry, because that write is often what makes a value you
+can see change. Only the lifecycle rows go: a row saying a store joined or mounted is there to
+explain a tree that changed shape, and this one changes no shape.
 
 The scan and a class field both know a property name, so either may correct a frame, which only
 knows that a store was born while some expression ran. Neither corrects the other. A store is never
@@ -472,7 +476,6 @@ registry holds strong references on purpose, so nothing leaves it on its own.
 | `adoptFactories`   | `true`                    | wrap `$`-named calls the plugin does not recognise |
 | `maxStoresPerSite` | `50`                      | live stores one creation site may hold, 1 or more  |
 | `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from |
-| `parseEveryFile`   | `true`                    | parse every source file, not only a likely one     |
 
 `maxStoresPerSite` keeps the last 50 live stores of a site. It evicts unmounted stores first,
 oldest of those first, and never the store just made. So **a table with 200 rows, one store per
@@ -508,15 +511,11 @@ lockfile or a workspace file. That is right for a real app: a linked package the
 long. It changes no path inside the Vite root. A file the project root cannot reach either keeps its
 full path, which still opens in an editor.
 
-**`parseEveryFile` defaults to `true`.** Parsing costs about 0.02 ms per file, paid once per file
-per dev server run, because Vite caches the transform. Turning it off restores v1's quick text test
-before the parse, and **nothing else**: a file is then parsed only when it imports `"nanostores"`,
-or binds a `$` name while `adoptFactories` is on, and a file that passes that test still gets its
-bindings scanned as before. What
-you lose is the file that passes neither test, such as `export const panel = createPanel()` in a
-file that imports no nanostores. Its stores are still registered, but nothing there says the factory
-result holds them, so they stay under the factory's own file and under the function that built them.
-Turn it off in a very large repository, where 0.02 ms per file adds up.
+**Every source file is parsed, and there is no option to stop it.** Parsing costs about 0.02 ms per
+file, paid once per file per dev server run, because Vite caches the transform. That buys the file
+whose own text says nothing about stores, such as `export const panel = createPanel()` in a file
+that imports no nanostores: nothing else says the factory result holds those stores, and a store
+nothing places is drawn nowhere, so skipping that file would lose it rather than move it.
 
 On **Vite 8** the plugin costs you nothing extra: Vite re-exports the parser it needs. On **Vite 6
 and 7** it needs `oxc-parser` as a dev dependency, declared here as an optional peer.

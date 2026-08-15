@@ -292,13 +292,12 @@ describe("a file that imports no nanostores creator", () => {
 });
 
 /**
- * The two cases only the wide parse gate reaches: `workspace.ts` imports no nanostores and binds no
- * `$` name, so the narrow gate never parses it. Its factory results stay under the file that holds
- * the factory, and the instance it hides in a `WeakMap` under the file that declares the class.
+ * The two cases parsing every file is there for: `workspace.ts` imports no nanostores and binds no
+ * `$` name, so nothing in the text of it says it holds stores at all. Only the scan appended to its
+ * body puts the factory results under `panel` and reaches the instance it hides in a `WeakMap`.
+ * Unparsed, none of these five stores would be drawn anywhere.
  */
 const WORKSPACE_HOME = "fixture/workspace.ts";
-const PANEL_HOME = "fixture/panel.ts";
-const EDITOR_HOME = "fixture/editor.ts";
 const WORKSPACE = `${FIXTURE_DIR}/workspace.ts`;
 
 const GATE_FILES: Record<string, string> = {
@@ -320,10 +319,10 @@ const GATE_FILES: Record<string, string> = {
     `export const hidden = new WeakMap([[{}, new Editor()]]);\n`,
 };
 
-describe("a file the narrow parse gate never sees", () => {
+describe("a file that says nothing about stores in its own text", () => {
   let server: ViteDevServer;
 
-  async function load(options: VitePluginOptions): Promise<void> {
+  async function load(options: VitePluginOptions = {}): Promise<void> {
     resetDevtoolsGlobal();
     server = await createServer({
       configFile: false,
@@ -342,7 +341,7 @@ describe("a file the narrow parse gate never sees", () => {
   });
 
   it("attributes what it binds, and draws every registry entry exactly once", async () => {
-    await load({});
+    await load();
 
     expect(buildSnapshot()).toEqual({
       [WORKSPACE_HOME]: {
@@ -350,23 +349,6 @@ describe("a file the narrow parse gate never sees", () => {
         sidebar: panelNode(240),
         hidden: labelled("WeakMap", { "ref#1": labelled("Editor", { "$value [store]": "draft" }) }),
       },
-    });
-    expect(listEntries()).toHaveLength(5);
-  });
-
-  it("leaves both cases under the files that built them with the wide gate turned off", async () => {
-    await load({ parseEveryFile: false });
-
-    expect(buildSnapshot()).toEqual({
-      [PANEL_HOME]: {
-        "createPanel()": {
-          "open [store]": false,
-          "open [store] #2": false,
-          "width [store]": 320,
-          "width [store] #2": 240,
-        },
-      },
-      [EDITOR_HOME]: { "ref#1": labelled("Editor", { "$value [store]": "draft" }) },
     });
     expect(listEntries()).toHaveLength(5);
   });

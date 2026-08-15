@@ -231,12 +231,12 @@ describe("a name two source lines claim", () => {
     scope.store($second, site({ name: "$counter", line: 20 }));
     await listen();
 
-    $first.listen(() => {});
-    $second.listen(() => {});
+    $first.set(1);
+    $second.set(1);
     await endOfTurn();
 
     expect(plainNames()).toEqual(["$counter", "$counter"]);
-    expect(rowNames()).toEqual(["$counter/mount", "$counter/mount"]);
+    expect(rowNames()).toEqual(["$counter/set", "$counter/set"]);
   });
 
   it("warns once and names both places", () => {

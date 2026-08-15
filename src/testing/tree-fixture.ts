@@ -174,9 +174,10 @@ export const $lastError = atom<string | null>(null);
 import { atom } from "nanostores";
 
 /**
- * The last unowned case. \`$hits\` lives in a closure and \`track\` hands back a function rather
- * than a store, so the frame has nothing to make a parent out of and the binding scan has
- * nothing to walk. All that is left is the name of the function that built it.
+ * The one store the tree draws nowhere. \`$hits\` lives in a closure and \`track\` hands back a
+ * function rather than a store, so the frame has nothing to make a parent out of and the binding
+ * scan has nothing to walk. What the function returned holds no state, so there is nothing to read
+ * \`$hits\` by and the file is no home at all.
  */
 export function track() {
   const $hits = atom(0);
@@ -396,8 +397,9 @@ function makeFlag() {
 export const $flag = makeFlag();
 
 /**
- * A function node is keyed by home plus function name, so two functions of one name in one file
- * share one node and no ordinal is ever added to a function node.
+ * Two closures a binding holds and no walk can open. \`readOne\` is a function, so the frame around
+ * it has nothing to make a parent out of and the scan has nothing to walk, which leaves both stores
+ * placed by nothing at all and drawn nowhere.
  */
 export function firstRound(): () => number {
   function build() {
