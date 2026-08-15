@@ -785,11 +785,13 @@ describe("buildSnapshot", () => {
       trackStores("cart", { $inner });
 
       const drawn = readNode(drawnTree(), "cart")["$inner [store]"];
-      const inside = Reflect.get(Object(Reflect.get(Object(drawn), "(value)")), "self");
+      const held = Object(Reflect.get(Object(drawn), "(value)"));
 
       expect(labelOf(drawn)).toBe("not mounted, may be stale");
       expect(Object.keys(Object(drawn))).toEqual(["(value)"]);
-      expect(labelOf(inside)).toBe("not mounted, may be stale");
+      /** The key says which store, and the wrapper beside it says why the value cannot be read. */
+      expect(Object.keys(held)).toEqual(["self [store]"]);
+      expect(labelOf(held["self [store]"])).toBe("not mounted, may be stale");
     });
 
     it("marks a store that mounted and unmounted before connect as may be stale", () => {
@@ -988,9 +990,9 @@ describe("buildSnapshot", () => {
       ownBindings(FROM, [["$draft", $draft]]);
 
       const node = readNode(readNode(drawnTree(), HOME), "$draft [store]");
-      const held = readNode(node["(value)"], "from");
+      const held = readNode(node["(value)"], "from [store]");
 
-      expect(labelOf(held)).toBe("store");
+      expect(labelOf(held)).toBeUndefined();
       expect(Object.keys(held)).toEqual(["total"]);
       expect(node["$canUndo [store]"]).toEqual({ total: 12 });
       expect(labelOf(node["$canUndo [store]"])).toBeUndefined();

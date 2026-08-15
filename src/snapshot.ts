@@ -1,15 +1,8 @@
 import type { NodeInfo } from "./global.ts";
-import { mark, VALUE_KEY } from "./marker.ts";
+import { keepBuilt, mark, VALUE_KEY } from "./marker.ts";
 import { MAX_MEMBERS } from "./ownership.ts";
 import { drawable, drawnOwner, isPlaced, nodeInfoOf, placedByDeveloper } from "./placement.ts";
-import {
-  isStore,
-  listEntries,
-  qualify,
-  type StoreEntry,
-  type StoreType,
-  storeWord,
-} from "./registry.ts";
+import { isStore, listEntries, noted, qualify, type StoreEntry } from "./registry.ts";
 import { staleNote, storeValue } from "./slot.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
@@ -50,7 +43,7 @@ export function buildSnapshot(): Snapshot {
     place(tree, entry);
   }
 
-  const snapshot: Snapshot = {};
+  const snapshot: Snapshot = keepBuilt({});
 
   for (const [home, held] of sortHomes(tree.homes)) {
     const pass: Pass = { tree, named: 0 };
@@ -154,10 +147,10 @@ function draw(pass: Pass, held: Held): unknown {
 
     return children === undefined
       ? slotFor(held.entry)
-      : {
+      : keepBuilt({
           [VALUE_KEY]: slotFor(held.entry),
           ...drawAll(pass, childPlacements(pass, children, undefined)),
-        };
+        });
   }
 
   const node = drawAll(
@@ -181,7 +174,7 @@ function draw(pass: Pass, held: Held): unknown {
 }
 
 function drawAll(pass: Pass, placements: readonly Placement[]): Record<string, unknown> {
-  const node: Record<string, unknown> = {};
+  const node: Record<string, unknown> = keepBuilt({});
 
   for (const placement of placements) {
     node[placement.key] = draw(pass, placement.held);
@@ -370,10 +363,6 @@ function countKeys(placements: readonly Placement[]): Map<string, number> {
  */
 function displayName(entry: StoreEntry): string {
   return qualify(noted(entry.name, entry.type), entry);
-}
-
-function noted(name: string, type: StoreType): string {
-  return `${name} [${storeWord(type)}]`;
 }
 
 function slotFor(entry: StoreEntry): unknown {

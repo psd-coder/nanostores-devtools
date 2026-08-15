@@ -167,7 +167,7 @@ describe("createReplacer", () => {
     it("leaves out a method, so a model object shows the state it holds and nothing else", () => {
       const node = { id: "node-1", $open: atom(false), toggle: () => {}, add(): void {} };
 
-      expect(Object.keys(replacer("n", node) as object)).toEqual(["id", "$open"]);
+      expect(Object.keys(replacer("n", node) as object)).toEqual(["id", "$open [store]"]);
     });
 
     it("leaves a method inside an array where it sits, because an index is a position", () => {
@@ -225,14 +225,12 @@ describe("createReplacer", () => {
       expect(read).not.toHaveBeenCalled();
     });
 
-    it("marks a store the copy holds", () => {
+    it("puts the type of a store the copy holds in the key, and its value in bare", () => {
       const $inner = atom(1);
 
       register($inner, "atom", "$inner");
 
-      expect(write({ inner: $inner })).toBe(
-        '{"inner":{"data":{"(value)":1},"__serializedType__":"store"}}',
-      );
+      expect(write({ inner: $inner })).toBe('{"inner [store]":1}');
     });
   });
 
@@ -437,7 +435,7 @@ describe("createReplacer", () => {
         run = (): void => {};
       }
 
-      expect(markedKeys(replacer("c", new Cart()))).toEqual(["$total"]);
+      expect(markedKeys(replacer("c", new Cart()))).toEqual(["$total [store]"]);
       expect(replacer("a", new Actions())).toEqual({
         data: { "(value)": "[object Object]" },
         __serializedType__: "Actions",
@@ -656,20 +654,32 @@ describe("createReplacer", () => {
 
       register($inner, "atom");
 
-      const rows: [string, unknown][] = [
+      const wrapped: [string, unknown][] = [
         ["an array member", [$inner]],
-        ["a plain object property", { held: $inner }],
         ["a Map value", new Map([["held", $inner]])],
         ["a Map key", new Map([[$inner, "held"]])],
         ["a Set member", new Set([$inner])],
-        ["a class instance field", new Field($inner)],
-        ["an Error's own field", Object.assign(new Error("boom"), { held: $inner })],
       ];
 
-      for (const [where, holder] of rows) {
+      for (const [where, holder] of wrapped) {
         expect(unescaped(write(holder)), where).toContain(
           '{"data":{"(value)":"Berlin"},"__serializedType__":"store"}',
         );
+      }
+
+      /** A name the app wrote is ours to spell, so these three take the key instead. */
+      const keyed: [string, unknown, string][] = [
+        ["a plain object property", { held: $inner }, '"held [store]":"Berlin"'],
+        ["a class instance field", new Field($inner), '"$held [store]":"Berlin"'],
+        [
+          "an Error's own field",
+          Object.assign(new Error("boom"), { held: $inner }),
+          '"held [store]":"Berlin"',
+        ],
+      ];
+
+      for (const [where, holder, drawn] of keyed) {
+        expect(unescaped(write(holder)), where).toContain(drawn);
       }
     });
 
@@ -680,10 +690,7 @@ describe("createReplacer", () => {
       register($leaf, "atom", "$leaf");
       register($branch, "atom", "$branch");
 
-      expect(write({ $branch })).toBe(
-        '{"$branch":{"data":{"$leaf":{"data":{"(value)":"deep"},' +
-          '"__serializedType__":"store"}},"__serializedType__":"store"}}',
-      );
+      expect(write({ $branch })).toBe('{"$branch [store]":{"$leaf [store]":"deep"}}');
     });
 
     it("gives a computed, a map and a deepMap each their own type", () => {
@@ -804,10 +811,7 @@ describe("createReplacer", () => {
       register($a, "atom", "$a");
       register($b, "atom", "$b");
 
-      expect(write({ $a, $b })).toBe(
-        '{"$a":{"data":{"total":12},"__serializedType__":"store"},' +
-          '"$b":{"data":{"total":12},"__serializedType__":"store"}}',
-      );
+      expect(write({ $a, $b })).toBe('{"$a [store]":{"total":12},"$b [store]":{"total":12}}');
     });
 
     it("boxes a value with more nodes than the walk may look at", () => {
@@ -886,10 +890,10 @@ describe("createReplacer", () => {
       register($rows, "atom", "$rows");
 
       expect(write({ $rows })).toBe(
-        '{"$rows":{"data":[' +
+        '{"$rows [store]":[' +
           '{"data":{"id":1,"name":"city","value":"Berlin"},"__serializedType__":"store"},' +
           '{"data":{"id":2,"name":"street","value":"Unter den Linden"},"__serializedType__":"store"}' +
-          '],"__serializedType__":"store"}}',
+          "]}",
       );
     });
   });
@@ -914,12 +918,17 @@ describe("createReplacer", () => {
       return typeof value === "object" && value !== null ? Object.keys(value) : [];
     }
 
+    /**
+     * A store at an array index, where the position is no name of ours to spell, so its type rides in
+     * the wrapper and the boxing rule is what keeps the label on. A store at a property of an object
+     * takes the key instead, and the two tests at the end of this block are that shape.
+     */
     function held(value: unknown): unknown {
       const $held = atom<unknown>(value);
 
       register($held, "atom", "$held");
 
-      return drawn($held);
+      return Reflect.get(Object(drawn([$held])), "0");
     }
 
     it("boxes every value that would otherwise arrive with the store's label gone", () => {
@@ -982,6 +991,33 @@ describe("createReplacer", () => {
       for (const [value, isItself] of rows) {
         expect(isItself(Reflect.get(Object(held(value)), "(value)")), String(value)).toBe(true);
       }
+    });
+
+    it("puts the type in the key at a property, so nothing is wrapped and nothing is boxed", () => {
+      const $cart = atom<unknown>({ total: 12 });
+      const $flag = atom<unknown>(false);
+
+      register($cart, "atom", "$cart");
+      register($flag, "atom", "$flag");
+
+      const tree = Object(parsePanel(write({ cart: $cart, flag: $flag })));
+
+      expect(Object.keys(tree)).toEqual(["cart [store]", "flag [store]"]);
+      expect(tree["cart [store]"]).toEqual({ total: 12 });
+      expect(labelOf(tree["cart [store]"])).toBeUndefined();
+      /** The whole point: a primitive arrives as itself, where the box cost it a click before. */
+      expect(tree["flag [store]"]).toBe(false);
+    });
+
+    it("keeps the marker at a property, with the type still in the key beside it", () => {
+      const $total = computed(atom(1), (count) => count + 1);
+
+      register($total, "computed", "$total");
+
+      const tree = Object(parsePanel(write({ total: $total })));
+
+      expect(Object.keys(tree)).toEqual(["total [computed]"]);
+      expect(labelOf(tree["total [computed]"])).toBe("not mounted, never computed");
     });
   });
 

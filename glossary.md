@@ -38,10 +38,12 @@ home. Below that a store sits under whatever built it, at any depth. The extensi
 root state; nanostores has none, so the bridge invents this. The home level exists to keep two
 stores with the same name apart.
 
-**Type note** — the store's type in square brackets behind its name in the tree,
-`$total [computed]`. Tree key only: the name and the label stay bare. Every store carries
-one, and an `atom` and an unknown type both read `store`. It sits straight behind the name, in
-front of anything else the key carries.
+**Type note** — the store's type in square brackets behind its name, `$total [computed]`. It rides
+on a key and never on the name or the label, which stay bare. Every store carries one, and an `atom`
+and an unknown type both read `store`. It sits straight behind the name, in front of anything else
+the key carries. Every key pointing at a store takes one: a tree key, and a key inside a value where
+the name is one the app wrote. An array index, a `Map` key and a `Set` position are not names, so a
+store there carries its type in a **wrapper** instead.
 
 **Timeline entry** — one row in the extension's list of changes. The extension calls
 these actions. Nanostores has no actions, so the bridge invents each entry from a store
@@ -109,10 +111,16 @@ class instances (jsan loses the name), typed arrays, `BigInt` (jsan throws), DOM
 getter-only objects. Everything else it returns untouched for jsan to encode. It takes
 user-supplied serializers and encodes only: there is no reviver of ours.
 
-It leaves one thing out. **A method is not drawn**: an object's own property holding a function is
-left out of the copy, because the panel draws state and a method is behaviour the source already
-spells. A value that is itself a function is untouched, and so is a function sitting at an array
-index, where the position is part of the shape.
+It changes two things about what it copies. **A method is not drawn**: an object's own property
+holding a function is left out, because the panel draws state and a method is behaviour the source
+already spells. A value that is itself a function is untouched, and so is a function sitting at an
+array index, where the position is part of the shape.
+
+And **a store at a name the app wrote takes the type note on its key**, with its value bare beneath
+it, the way the tree spells a slot. The wrapper is left for what only a wrapper can say: the marker.
+Two shapes keep the wrapper for the type as well: a store at a position rather than a name, and a
+store whose value can reach that store again, where the wrapper's own key is what keeps the encoder
+finding the loop.
 
 **Wrapper** — the extension's own `{ data, __serializedType__ }` shape, not a shape of ours.
 `data` holds what survived and `__serializedType__` names it. The panel's reviver unwraps it and
@@ -132,7 +140,7 @@ value, and a **node** holds slots and other nodes. A mounted store's slot holds 
 a marked one wraps. A store that owns others keeps its slot under `(value)`, so its children can
 sit beside it.
 
-**Marker** — what a slot carries when its store's value cannot be trusted, which is not the same
+**Marker** — what a key pointing at a store carries when the store's value cannot be trusted, which is not the same
 as "not mounted". An unmounted `atom`, `map` or `deepMap` holds a correct value and is left bare.
 Only a `computed`, a `batched` or an unknown-type store is marked, as
 `{ data: <the value>, __serializedType__: "not mounted, may be stale" }`. A `computed` or a

@@ -97,8 +97,15 @@ export const MAX_WALKED_NODES = 10_000;
  * of the app's is passed over rather than called, and a store contributes its value alone. The
  * visited set is what a value that merely repeats needs, and the stack is what a deep one needs,
  * because a call per level would end the stack first.
+ *
+ * A value too wide to walk answers yes, which is the safe answer both callers want: boxing costs one
+ * level, and a wrapper costs one level, while a missed loop costs the whole write.
  */
-function reachesStore(value: object, store: Store): boolean {
+export function reachesStore(value: unknown, store: Store): boolean {
+  return typeof value === "object" && value !== null && walkToStore(value, store);
+}
+
+function walkToStore(value: object, store: Store): boolean {
   const pending: unknown[] = [value];
   const seen = new WeakSet<object>();
   let budget = MAX_WALKED_NODES;

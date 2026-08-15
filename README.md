@@ -630,22 +630,46 @@ name. A typed array, a `BigInt` and a DOM node each keep something readable. A v
 while being converted puts `ConversionError` in that one slot and everything else still goes.
 
 **A store held inside another store's value is drawn as a store**, wherever it sits: in an array, in
-a plain object, in a `Map`, in a `Set`, in a class instance field, or on an error. You see the kind
-of store in front of its own value, and never the nanostores keys behind it. Inside a `Map` or a
-`Set` the label stays wrapped, as the bullet above says, so you read `{ data, __serializedType__ }`
-there, with the store's value under `data`.
+a plain object, in a `Map`, in a `Set`, in a class instance field, or on an error. You never see the
+nanostores keys behind it, and `.value` is the whole read, as it is everywhere else, so watching a
+store still never mounts it.
+
+**Where the store sits at a name your source wrote, the kind goes in the key** and the value goes in
+bare beneath it, exactly as the tree spells a store's own slot:
 
 ```
-$rows
+$root [store]
+  id: "node-1"
+  label: "root"
+  $children [store]:      [ … ]
+  $checked [computed]:    false
+  $indeterminate [computed]: false
+```
+
+That covers a property of a plain object, a class instance field and an error's own field. It costs
+no wrapper and no `(value)` box, so a plain `false` reads as `false` instead of a node you have to
+open.
+
+**An array index, a `Map` key and a `Set` position are not names**, so a store sitting at one keeps
+the kind in front of its value instead:
+
+```
+$rows [store]
   0  store { id: 1, name: "city", value: "Berlin" }
   1  store { id: 2, name: "street", value: "Unter den Linden" }
 ```
 
+Inside a `Map` or a `Set` that label stays wrapped, as the bullet above says, so you read
+`{ data, __serializedType__ }` there, with the store's value under `data`.
+
 The word is the kind the bridge knows: `map`, `deepMap`, `computed` or `batched`. An `atom`, and a
-store whose kind the bridge never learned, both say the plain word `store`, exactly as the tree key
-does: both places read the same. `.value` is the whole read, as it is everywhere else, so watching a
-store still never mounts it. An unmounted store keeps the note it gets at the top level,
-`not mounted, may be stale`, instead of its kind: the note says more, and only one of the two fits.
+store whose kind the bridge never learned, both say the plain word `store`. An unmounted store keeps
+its note, `$total [computed]: not mounted, may be stale { … }` at a name, and the note alone in
+front of the value where there is no name to carry the kind.
+
+One shape is left over. **A store whose value can reach that store again keeps the wrapper**, with
+the kind in front of the value and no kind in the key. That loop is what the extension's encoder
+finds by the path it built, and it only finds it while the wrapper's own key stands in that path.
 
 ### A follower can name the wrong source
 

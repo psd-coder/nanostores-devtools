@@ -97,6 +97,14 @@ export function makeLabel(home: string, name: string): string {
 }
 
 /**
+ * A name with the store's type behind it, `$total [computed]`. Every key pointing at a store carries
+ * one, in the tree and inside a value alike, so a store reads the same wherever it is drawn.
+ */
+export function noted(name: string, type: StoreType): string {
+  return `${name} [${storeWord(type)}]`;
+}
+
+/**
  * `$counter (a.ts, makeCart, line 12) #2`: a head, then everything that tells this store from
  * another one the same name was given. The file first, because it says where to look before the
  * line says where in the file, and the number last, spaced, so it never reads as part of the place.

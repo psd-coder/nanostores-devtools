@@ -1,9 +1,9 @@
 import type { Store } from "nanostores";
 
 import { chainDescriptor, copyData, type Fields, ownFields, ownIndexes } from "./descriptor.ts";
-import { box, mark, type Marked } from "./marker.ts";
-import { getEntry, isStore, storeWord } from "./registry.ts";
-import { dataForMark, staleNote, storeValue } from "./slot.ts";
+import { box, isBuilt, mark, type Marked } from "./marker.ts";
+import { getEntry, isStore, noted, storeWord } from "./registry.ts";
+import { dataForMark, reachesStore, staleNote, storeValue } from "./slot.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /**
@@ -322,7 +322,8 @@ function refuseUnlistable(value: object): void {
  * order they arrive.
  */
 function copyFields(kept: Kept, source: object): Fields {
-  const fields = ownFields(source);
+  const raw = ownFields(source);
+  const fields = isBuilt(source) ? raw : slotted(kept, raw);
   const known = kept.fields.get(source);
 
   if (known === undefined) {
@@ -384,7 +385,12 @@ function convertValue(value: unknown, kept: Kept): unknown {
   }
 
   if (value instanceof Error) {
-    return markOnce(kept.wrappers, value, constructorName(value, "Error"), errorFields(value));
+    return markOnce(
+      kept.wrappers,
+      value,
+      constructorName(value, "Error"),
+      errorFields(kept, value),
+    );
   }
 
   if (isTypedArray(value)) {
@@ -416,16 +422,76 @@ function convertValue(value: unknown, kept: Kept): unknown {
   }
 
   const name = constructorName(value, "Object");
-  const fields = ownFields(value);
+  const fields = slotted(kept, ownFields(value));
   const data = Object.keys(fields).length > 0 ? fields : box(String(value));
 
   return markOnce(kept.wrappers, value, name, data);
 }
 
 /**
- * A store held inside another store's value. `value` is the whole read, the same read the tree
- * does: `get()` mounts an unmounted store. A store that is not mounted says so instead of naming
- * its type, because that note says more and a mark cannot sit inside another mark.
+ * The keys of an object whose members are stores, spelled the way the tree spells a slot: the type
+ * goes in the key, `$checked [computed]`, and what the store holds goes in beneath it. One store
+ * then reads the same wherever it is drawn, and a plain `false` costs neither a wrapper nor the
+ * `(value)` box a wrapper needs to carry a label. The wrapper is left for the one thing only a
+ * wrapper can say, a value that cannot be trusted, and the key still carries the type beside it.
+ *
+ * An array index and a `Map` key are positions rather than names of ours, so a store sitting at one
+ * keeps the wrapper for its type as well.
+ *
+ * jsan never meets a store this replaced, so a serializer of the developer's does not either. That
+ * is what the tree already does with a store's own slot, where the value goes in and the store does
+ * not, so the two paths agree rather than one of them being an exception.
+ */
+function slotted(kept: Kept, fields: Fields): Fields {
+  const named: Fields = {};
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (isStore(value)) {
+      const [slotKey, slot] = storeSlot(kept, key, value);
+
+      named[slotKey] = slot;
+
+      continue;
+    }
+
+    named[key] = value;
+  }
+
+  return named;
+}
+
+/**
+ * One store member, as a key and what sits under it.
+ *
+ * A value that can reach its own store back keeps the whole wrapper, key included. jsan finds a loop
+ * by comparing the path it is on with the path it first met the value at, and it only counts the two
+ * as a loop when one path is spelled inside the other. The wrapper's own `data` key is what puts a
+ * `.` in that path: without it a key of ours, which is never a plain word, hides the ancestor and
+ * jsan walks the loop until the stack ends.
+ */
+function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
+  const entry = getEntry(store);
+  const note = staleNote(store, entry);
+
+  if (note !== undefined) {
+    return [
+      noted(key, entry?.type ?? "unknown"),
+      markOnce(kept.wrappers, store, note.label, note.data),
+    ];
+  }
+
+  const value = storeValue(store);
+
+  return reachesStore(value, store)
+    ? [key, markStore(kept.wrappers, store)]
+    : [noted(key, entry?.type ?? "unknown"), value];
+}
+
+/**
+ * A store at a key that is not ours to rename: an array index, a `Map` key, or one handed straight
+ * to the replacer. `value` is the whole read, the same read the tree does: `get()` mounts an
+ * unmounted store. A store that is not mounted says so instead of naming its type, because that
+ * note says more and a mark cannot sit inside another mark.
  */
 function markStore(wrappers: Wrappers, store: Store): Marked {
   const entry = getEntry(store);
@@ -443,7 +509,7 @@ function markStore(wrappers: Wrappers, store: Store): Marked {
  * `message` and `cause` are own on every engine we know, and the same walk costs nothing and covers
  * an app that moved them. A field whose descriptor is refused is left out rather than shown empty.
  */
-function errorFields(error: Error): Fields {
+function errorFields(kept: Kept, error: Error): Fields {
   const fields: Fields = {};
 
   copyData(fields, "name", chainDescriptor(error, "name"));
@@ -459,7 +525,7 @@ function errorFields(error: Error): Fields {
     copyData(fields, "cause", chainDescriptor(error, "cause"));
   }
 
-  return Object.assign(fields, ownFields(error));
+  return slotted(kept, Object.assign(fields, ownFields(error)));
 }
 
 /**
