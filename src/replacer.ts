@@ -131,7 +131,7 @@ export function createReplacer(
           holdPairs(jsanPairs, value);
         }
 
-        return convertValue(value, kept);
+        return convertValue(value, kept, true);
       }
 
       /**
@@ -139,7 +139,7 @@ export function createReplacer(
        * serializer of the developer's is meant to see them.
        */
       if (isWalkable(value) && jsanPairs.has(value)) {
-        return convertValue(value, kept);
+        return convertValue(value, kept, true);
       }
 
       const left = slots.get(value) ?? 0;
@@ -339,9 +339,30 @@ function copyFields(kept: Kept, source: object): Fields {
   return Object.assign(known, fields);
 }
 
-/** The same rule for an array, whose members jsan reads by index. A hole stays where it sits. */
-function copyIndexes(kept: Kept, source: readonly unknown[]): unknown[] {
-  const indexes = ownIndexes(source);
+/**
+ * An array holding at least one store, spelled the way the tree spells a collection: one key per
+ * position, `[0]`, so the store at it can carry its type, `[0] [store]`. It costs the array shape,
+ * which is why only an array holding a store takes it: a list of plain data stays a list.
+ *
+ * The panel is the whole reason. A type carried in a wrapper is drawn in the item string, and the
+ * State tab hides that string while the node is expanded and drops it from a collapsed parent's
+ * preview, so on an array member there is no moment it can be read. A key is always drawn.
+ *
+ * The `Array` mark says what it was while the node is collapsed, and its own `data` key is what
+ * keeps jsan finding a loop through here, the same reason a store that holds itself keeps a wrapper.
+ */
+function positioned(members: readonly unknown[]): Fields {
+  const fields: Fields = {};
+
+  for (let index = 0; index < members.length; index += 1) {
+    fields[`[${index}]`] = members[index];
+  }
+
+  return fields;
+}
+
+/** The same rule for an array of no stores, whose members jsan reads by index. A hole stays put. */
+function copyIndexes(kept: Kept, source: readonly unknown[], indexes: unknown[]): unknown[] {
   const known = kept.indexes.get(source);
 
   if (known === undefined) {
@@ -359,8 +380,13 @@ function copyIndexes(kept: Kept, source: readonly unknown[]): unknown[] {
   return known;
 }
 
-/** Named apart from a `Serializer.convert`, which is the user's rule and runs before this. */
-function convertValue(value: unknown, kept: Kept): unknown {
+/**
+ * Named apart from a `Serializer.convert`, which is the user's rule and runs before this.
+ *
+ * `encoders` says the array in hand is one jsan built to write a `Map` or a `Set`, so its positions
+ * are jsan's own and keying them would break the shape it is halfway through writing.
+ */
+function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
   if (typeof value === "bigint") {
     /**
      * jsan throws outright on a BigInt, so it has to be taken before jsan sees it. A plain mark: a
@@ -402,7 +428,12 @@ function convertValue(value: unknown, kept: Kept): unknown {
   }
 
   if (Array.isArray(value)) {
-    return copyIndexes(kept, value);
+    /** Read once, through the descriptors, so no accessor of the app's runs while we choose. */
+    const members = ownIndexes(value);
+
+    return !encoders && members.some(isStore)
+      ? markOnce(kept.wrappers, value, "Array", slotted(kept, positioned(members)))
+      : copyIndexes(kept, value, members);
   }
 
   /** Before the class instance rule, or jsan never gets to render these four natively. */

@@ -655,7 +655,6 @@ describe("createReplacer", () => {
       register($inner, "atom");
 
       const wrapped: [string, unknown][] = [
-        ["an array member", [$inner]],
         ["a Map value", new Map([["held", $inner]])],
         ["a Map key", new Map([[$inner, "held"]])],
         ["a Set member", new Set([$inner])],
@@ -667,8 +666,9 @@ describe("createReplacer", () => {
         );
       }
 
-      /** A name the app wrote is ours to spell, so these three take the key instead. */
+      /** A name the app wrote, and an array position, are ours to spell, so these take the key. */
       const keyed: [string, unknown, string][] = [
+        ["an array member", [$inner], '"[0] [store]":"Berlin"'],
         ["a plain object property", { held: $inner }, '"held [store]":"Berlin"'],
         ["a class instance field", new Field($inner), '"$held [store]":"Berlin"'],
         [
@@ -890,10 +890,10 @@ describe("createReplacer", () => {
       register($rows, "atom", "$rows");
 
       expect(write({ $rows })).toBe(
-        '{"$rows [store]":[' +
-          '{"data":{"id":1,"name":"city","value":"Berlin"},"__serializedType__":"store"},' +
-          '{"data":{"id":2,"name":"street","value":"Unter den Linden"},"__serializedType__":"store"}' +
-          "]}",
+        '{"$rows [store]":{"data":{' +
+          '"[0] [store]":{"id":1,"name":"city","value":"Berlin"},' +
+          '"[1] [store]":{"id":2,"name":"street","value":"Unter den Linden"}' +
+          '},"__serializedType__":"Array"}}',
       );
     });
   });
@@ -903,32 +903,26 @@ describe("createReplacer", () => {
       vi.stubGlobal("Node", FakeNode);
     });
 
-    /**
-     * The label lives on the object the reviver writes it onto, so a wire shape can be right while
-     * the label the developer reads is gone. Only a round trip catches that.
-     */
-    function drawn(value: unknown): unknown {
-      const tree = parsePanel(write({ k: value }));
-
-      return typeof tree === "object" && tree !== null ? Reflect.get(tree, "k") : undefined;
-    }
-
     /** The keys the panel shows, which tell a boxed value from a bare one. */
     function drawnKeys(value: unknown): string[] {
       return typeof value === "object" && value !== null ? Object.keys(value) : [];
     }
 
     /**
-     * A store at an array index, where the position is no name of ours to spell, so its type rides in
-     * the wrapper and the boxing rule is what keeps the label on. A store at a property of an object
-     * takes the key instead, and the two tests at the end of this block are that shape.
+     * A store handed straight to the encoder, which is the one place left where a wrapper is the only
+     * place a type can go, so the boxing rule below is what keeps the label on. A store at a name the
+     * app wrote, or at an array position, takes the key instead, and the two tests at the end of this
+     * block are that shape.
+     *
+     * The round trip is the whole point: the label lives on the object the reviver writes it onto, so
+     * a wire shape can be right while the label the developer reads is gone.
      */
     function held(value: unknown): unknown {
       const $held = atom<unknown>(value);
 
       register($held, "atom", "$held");
 
-      return Reflect.get(Object(drawn([$held])), "0");
+      return parsePanel(write($held));
     }
 
     it("boxes every value that would otherwise arrive with the store's label gone", () => {

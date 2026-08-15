@@ -41,9 +41,10 @@ stores with the same name apart.
 **Type note** — the store's type in square brackets behind its name, `$total [computed]`. It rides
 on a key and never on the name or the label, which stay bare. Every store carries one, and an `atom`
 and an unknown type both read `store`. It sits straight behind the name, in front of anything else
-the key carries. Every key pointing at a store takes one: a tree key, and a key inside a value where
-the name is one the app wrote. An array index, a `Map` key and a `Set` position are not names, so a
-store there carries its type in a **wrapper** instead.
+the key carries. Every key pointing at a store takes one: a tree key, a key inside a value where the
+name is one the app wrote, and an array position, `[0] [store]`, spelled the way the tree spells a
+collection member. A `Map` key and a `Set` position keep the type in a **wrapper** instead, because
+the encoder writes those two out itself and no key of ours reaches inside.
 
 **Timeline entry** — one row in the extension's list of changes. The extension calls
 these actions. Nanostores has no actions, so the bridge invents each entry from a store
@@ -116,11 +117,16 @@ holding a function is left out, because the panel draws state and a method is be
 already spells. A value that is itself a function is untouched, and so is a function sitting at an
 array index, where the position is part of the shape.
 
-And **a store at a name the app wrote takes the type note on its key**, with its value bare beneath
-it, the way the tree spells a slot. The wrapper is left for what only a wrapper can say: the marker.
-Two shapes keep the wrapper for the type as well: a store at a position rather than a name, and a
-store whose value can reach that store again, where the wrapper's own key is what keeps the encoder
-finding the loop.
+And **a store takes the type note on its key** wherever a key of ours reaches it, with its value bare
+beneath it, the way the tree spells a slot. That is a name the app wrote, and an array position: an
+array holding at least one store goes out as an object keyed `[0]`, `[1]`, marked `Array`, and an
+array of plain data stays an array. The panel is the reason and it is not a matter of taste: a type
+in a **wrapper** is drawn in the item string, which the panel hides while the node is expanded and
+leaves out of a collapsed parent's preview, so on a member there is no moment it can be read.
+
+The wrapper is left for what only a wrapper can say, the marker, and for two shapes no key of ours
+reaches: a `Map` key or a `Set` position, and a store whose value can reach that store again, where
+the wrapper's own key is what keeps the encoder finding the loop.
 
 **Wrapper** — the extension's own `{ data, __serializedType__ }` shape, not a shape of ours.
 `data` holds what survived and `__serializedType__` names it. The panel's reviver unwraps it and

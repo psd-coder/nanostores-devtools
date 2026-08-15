@@ -650,22 +650,31 @@ That covers a property of a plain object, a class instance field and an error's 
 no wrapper and no `(value)` box, so a plain `false` reads as `false` instead of a node you have to
 open.
 
-**An array index, a `Map` key and a `Set` position are not names**, so a store sitting at one keeps
-the kind in front of its value instead:
+**An array holding at least one store is keyed too**, `[0]`, `[1]`, the same way the tree spells a
+collection member. It goes out as an object rather than a list, labelled `Array` so a collapsed node
+still says what it was:
 
 ```
-$rows [store]
-  0  store { id: 1, name: "city", value: "Berlin" }
-  1  store { id: 2, name: "street", value: "Unter den Linden" }
+$rows [store]   Array
+  [0] [store]:  { id: 1, name: "city", value: "Berlin" }
+  [1] [store]:  { id: 2, name: "street", value: "Unter den Linden" }
 ```
 
-Inside a `Map` or a `Set` that label stays wrapped, as the bullet above says, so you read
-`{ data, __serializedType__ }` there, with the store's value under `data`.
+**An array of plain data stays a list.** Only an array that holds a store pays for the key, so
+`$fields [store]: [ {…}, {…} ]` right beside it is untouched.
+
+This is not a matter of taste. A kind carried in a wrapper is drawn in the panel's **item string**,
+and the State tab sets `display: none` on that string while the node is expanded and leaves it out
+of a collapsed parent's preview. On a member there is no moment you can read it. A key is always
+drawn.
+
+**A `Map` key and a `Set` position keep the wrapper**, as the bullet above says, so you read
+`{ data, __serializedType__ }` there with the store's value under `data`. The encoder writes those
+two containers itself and no key of ours reaches inside them.
 
 The word is the kind the bridge knows: `map`, `deepMap`, `computed` or `batched`. An `atom`, and a
 store whose kind the bridge never learned, both say the plain word `store`. An unmounted store keeps
-its note, `$total [computed]: not mounted, may be stale { … }` at a name, and the note alone in
-front of the value where there is no name to carry the kind.
+its note beside the kind, `$total [computed]: not mounted, may be stale { … }`.
 
 One shape is left over. **A store whose value can reach that store again keeps the wrapper**, with
 the kind in front of the value and no kind in the key. That loop is what the extension's encoder
