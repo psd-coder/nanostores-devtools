@@ -188,10 +188,17 @@ Three mechanisms, and each covers what the others miss.
   initializer holding an `await`, which a frame must never span. It is the only thing that reaches a
   store a library kept in a closure, such as the `$timeline` inside `pipe(atom(""), withUndo())`.
 
+**All three run on your own files only.** A library binds its working state to its own top-level
+names too, and a `$active` that a ref count inside `history.ts` writes is that library's business,
+not a thing you can act on. What you got out of that library is bound in a file of yours, and that
+binding is what draws it.
+
 **A store none of the three places is drawn nowhere at all.** One made inside a function and kept
 there is that function's own working state: what the function returned is what your app holds, and
 the tree draws that already. A store made at module level always keeps a place, because it has no
-function it could belong to and the file it was written in is its only holding.
+function it could belong to and the file it was written in is its only holding. That last rule is
+what keeps a library's own `export const $route = atom("/")` on the tree, under its own file, even
+though nothing in your code placed it.
 
 Nothing else changes for a store the tree leaves out. It stays in the registry, we still watch it,
 and a write to it still opens a timeline entry, because that write is often what makes a value you
@@ -228,8 +235,8 @@ owner keeping the second placement. The group is a home you chose by hand, so it
 the walk found.
 
 Two bindings holding one store: the exported one wins, whichever is scanned first. Two of the same
-kind pick one arbitrarily. **A binding inside somebody else's file claims nothing**, because that
-is no name you chose.
+kind pick one arbitrarily. **A binding inside somebody else's file places nothing**, neither a name
+nor a node, because that is no name you chose.
 
 #### Numbers under an owner
 

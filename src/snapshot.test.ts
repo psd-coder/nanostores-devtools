@@ -1328,11 +1328,19 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("sorts a home holding only a node of somebody else's after the developer's own", () => {
+      it("draws no node for a binding in somebody else's file, so its working state is gone", () => {
         const panel = { $open: atom(false) };
 
         track(atom("x"), "$typed");
-        track(panel.$open, "$open");
+        registerStore({
+          store: panel.$open,
+          name: "$open",
+          home: "node_modules/panel/index.ts",
+          type: "atom",
+          origin: "plugin",
+          external: true,
+          fn: "panel",
+        });
         ownBindings(
           {
             home: "node_modules/panel/index.ts",
@@ -1342,7 +1350,7 @@ describe("buildSnapshot", () => {
           [["panel", panel]],
         );
 
-        expect(Object.keys(buildSnapshot())).toEqual([HOME, "node_modules/panel/index.ts"]);
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$typed [store]": "x" } });
       });
 
       describe("a class field", () => {
@@ -1729,7 +1737,7 @@ describe("buildSnapshot", () => {
         expect(buildSnapshot()).toEqual({ [HOME]: { "$value [store]": "" } });
       });
 
-      it("lets no binding in somebody else's file name the store it holds", () => {
+      it("lets a binding in somebody else's file neither name nor nest the store it holds", () => {
         const $canUndo = atom(false);
         const $draft = holder("", { $canUndo });
 
@@ -1744,7 +1752,7 @@ describe("buildSnapshot", () => {
         );
 
         expect(buildSnapshot()).toEqual({
-          [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
+          [HOME]: { "$canUndo [store]": false, "$draft [store]": "" },
         });
       });
 

@@ -85,8 +85,12 @@ type Scan = { module: ModuleHome; binding: string; seen: Set<object> };
  * entry it already has is called.
  */
 export function ownBindings(module: BindingHome, bindings: readonly Binding[]): void {
+  if (placesNothing(module)) {
+    return;
+  }
+
   for (const [name, value, exported = false] of bindings) {
-    if (!module.external && isStore(value)) {
+    if (isStore(value)) {
       claimName(module, value, name, exported);
     }
 
@@ -94,6 +98,19 @@ export function ownBindings(module: BindingHome, bindings: readonly Binding[]): 
       walk({ module, binding: name, seen: new Set() }, value, name, undefined, 0);
     }
   }
+}
+
+/**
+ * A file of somebody else's places nothing at all: not a name, not a node, not a store under one.
+ * A library binds its own working state to its own top-level names too, and `resource` holding a
+ * `$active` a ref count writes is the library's business, not a thing the app can act on. What the
+ * app got out of that library is bound in a file of the developer's own, and that binding draws it.
+ *
+ * A store the file made at module level is drawn flat at its home even so, because it is what the
+ * library hands out on purpose and no mechanism here is what puts it there.
+ */
+function placesNothing(module: ModuleHome): boolean {
+  return module.external;
 }
 
 /**
@@ -155,6 +172,11 @@ export function endFrame(module: ModuleHome, value: unknown, name: string | null
     return;
   }
 
+  /** The pop and the hand-up above still run, or a later frame of ours would close the wrong one. */
+  if (placesNothing(module)) {
+    return;
+  }
+
   const holder = frameHolder(module, value, name);
 
   if (holder === undefined) {
@@ -176,6 +198,10 @@ export function endFrame(module: ModuleHome, value: unknown, name: string | null
  * runs, so the node is `ref` until the binding scan corrects it.
  */
 export function ownField(module: ModuleHome, store: Store, owner: object): void {
+  if (placesNothing(module)) {
+    return;
+  }
+
   const statics = typeof owner === "function";
   const written = statics ? classKey(owner) : undefined;
 
@@ -196,8 +222,7 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
 /**
  * A store the developer bound to a top-level name in a file of their own. They wrote that name, so
  * it beats the one the creation site gave: `export const $undoable = $draft2.$canUndo` is drawn
- * nowhere at all under a rule that only follows the path to an owner. A binding inside somebody
- * else's file is no name the developer chose, so it claims nothing.
+ * nowhere at all under a rule that only follows the path to an owner.
  *
  * An exported binding is the name the rest of the app knows the store by, so it wins whatever order
  * the two bindings are scanned in. Two bindings of the same kind pick one arbitrarily, and the last

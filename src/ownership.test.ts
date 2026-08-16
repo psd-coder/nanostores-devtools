@@ -566,11 +566,21 @@ describe("a node", () => {
   it("draws a node in the file its binding was written in, whoever made the value", () => {
     const created = panel();
 
+    ownBindings({ home: "src/panel.ts", external: false, moduleKey: "src/panel.ts" }, [
+      ["panel", created],
+    ]);
+
+    expect(nodeInfoOf(created)).toMatchObject({ home: "src/panel.ts", external: false });
+  });
+
+  it("draws no node at all for a binding in somebody else's file", () => {
+    const created = panel();
+
     ownBindings({ home: "vendor/panel.ts", external: true, moduleKey: "vendor/panel.ts" }, [
       ["panel", created],
     ]);
 
-    expect(nodeInfoOf(created)).toMatchObject({ home: "vendor/panel.ts", external: true });
+    expect(nodeInfoOf(created)).toBeUndefined();
   });
 
   it("holds a node's parent weakly, so it keeps no instance alive", () => {
@@ -834,9 +844,17 @@ describe("ownField", () => {
   it("draws the node in the module the field was written in", () => {
     const editorOne = new Editor();
 
+    ownField({ home: "src/editor.ts", external: false }, editorOne.$value, editorOne);
+
+    expect(nodeInfoOf(editorOne)).toMatchObject({ home: "src/editor.ts", external: false });
+  });
+
+  it("draws no node for a class in somebody else's file", () => {
+    const editorOne = new Editor();
+
     ownField({ home: "vendor/editor.ts", external: true }, editorOne.$value, editorOne);
 
-    expect(nodeInfoOf(editorOne)).toMatchObject({ home: "vendor/editor.ts", external: true });
+    expect(nodeInfoOf(editorOne)).toBeUndefined();
   });
 
   it("registers nothing, so a field's store gains no entry of its own", () => {
@@ -910,6 +928,32 @@ describe("the creation frame", () => {
 
     expect(ownerLinkOf($timeline)?.owner).toBe(model);
     expect(nodeInfoOf(model)).toMatchObject({ name: "model", ours: false, type: undefined });
+  });
+
+  it("places nothing when the frame ran in somebody else's file", () => {
+    const $active = atom(false);
+    const resource = { acquire: () => {} };
+
+    beginFrame();
+    born($active);
+    endFrame({ home: "vendor/history.ts", external: true }, resource, "resource");
+
+    expect(ownerLinkOf($active)).toBeUndefined();
+    expect(nodeInfoOf(resource)).toBeUndefined();
+  });
+
+  it("still hands its stores up to an outer frame from somebody else's file", () => {
+    const $active = atom(false);
+    const model = { title: "" };
+    const resource = { acquire: () => {} };
+
+    beginFrame();
+    beginFrame();
+    born($active);
+    endFrame({ home: "vendor/history.ts", external: true }, resource, "resource");
+    endFrame(FROM, model, "model");
+
+    expect(ownerLinkOf($active)?.owner).toBe(model);
   });
 
   it("keys the node with ours when the binding gave it no name", () => {

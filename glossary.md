@@ -180,6 +180,13 @@ no function it could belong to and the file it was written in is its only holdin
 the tree changes nothing else: the store stays in the registry, keeps its hooks, and a write to it
 still opens a timeline entry, because that write is often what makes a drawn value change.
 
+Every mechanism that places a store runs on the developer's own files only. **Somebody else's file
+places nothing**: no name, no node, and no store under one. A library holds its working state at its
+own top-level names as much as in a closure, and neither is a thing the app can act on. What the app
+took out of that library is bound in a file of the developer's own, and that binding draws it. The
+module-level rule above still holds there, so a store a library exports on purpose keeps its
+placement at its own file.
+
 **Written name** — a name that exists in the developer's source: a binding, a property key, an
 array index, a `Map` key. It beats any name we derive.
 
