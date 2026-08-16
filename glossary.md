@@ -79,9 +79,17 @@ store every time it runs, which is how a factory or a loop behaves. The unit for
 repeats and for the per-site bound.
 
 **Adoption** — the second way the plugin gets a store, for calls whose callee it cannot
-recognise. A `$`-named binding is wrapped, and at runtime the bridge renames whatever comes
-back if it is already a registered store, registers it as `unknown` if nothing instrumented
-made it, and ignores it if it is not a store at all. It carries a name, never a type.
+recognise. A call standing under a `$`-named binding is wrapped, and at runtime the bridge renames
+whatever comes back if it is already a registered store, registers it as `unknown` if nothing
+instrumented made it, and ignores it if it is not a store at all. It carries a name, never a type.
+
+**Unassigned store** — one written inside a binding's initializer and assigned to no name of its own,
+`eventAtom(root, "up")` inside `merged([…])`. It takes the binding's name and a number counting
+them in source order, `$pointerEnd unassigned 1`. The number is what tells two of them apart: a store's
+identity is its home, name, file, line and per-site count, and two written on one line share all
+five, so without it the second takes the first one's place. An array names its members by index
+instead, but only where the array is the value the binding holds, because only then is `$totals[0]`
+a name that reaches the store.
 
 **Callee matching** — the first way, and the one that gives a type: the call names something
 the file imported from `nanostores`, renamed imports included. Adoption only handles what

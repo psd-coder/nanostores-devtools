@@ -65,9 +65,39 @@ own variable name. It finds a store in two ways:
   renamed imports included. This is the way that gives a store its type. It works at any depth:
   variable declarations, object properties, class fields, array elements, inside factories, loops
   and methods.
-- **By adoption.** A call bound to a `$`-prefixed name, whatever the call is. This catches a
+- **By adoption.** A call standing under a `$`-prefixed name, whatever the call is. This catches a
   codebase that wraps store creation, such as `const $theme = persistentAtom("theme", "dark")` in
-  a file that never imports `"nanostores"`. Adoption carries a name, never a type.
+  a file that never imports `"nanostores"`. Adoption carries a name, never a type. A call written
+  inside another one is adopted as well, because what it hands back is yours either way.
+
+**A store written inside a binding's initializer and assigned to no name of its own takes the
+binding's name and a number.**
+
+```js
+const $pointerEnd = merged([eventAtom(root, "up"), eventAtom(root, "cancel")]);
+const $candidate  = filtered(computed([$username, $format], pick), long, "");
+```
+
+```
+$pointerEnd [store]                 <- what merged returned
+$pointerEnd unassigned 1 [store]    <- eventAtom(root, "up")
+$pointerEnd unassigned 2 [store]    <- eventAtom(root, "cancel")
+$candidate [store]                  <- what filtered returned
+$candidate unassigned 1 [computed]  <- the computed written inside it
+```
+
+The number counts them in source order and is what tells them apart. Without it two stores written
+on one line share a name, a file and a line, which is the whole of a store's identity, and the
+second silently takes the first one's place in the registry.
+
+An array is the one exception, and only where the array is the value the binding holds:
+
+```js
+const $totals = [atom(0), atom(1)];   // $totals[0], $totals[1]
+```
+
+There `$totals[0]` is something you can type and get that store back. In `merged([…])` the array is
+handed away and `$pointerEnd` is the atom that came out, so an index off it would point at nothing.
 
 A codebase that does not use the `$` prefix still gets normal discovery. It only loses the factory
 and the dependency cases. You can turn adoption off with `adoptFactories: false`.

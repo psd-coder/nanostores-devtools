@@ -110,6 +110,8 @@ export function transformStores(input: TransformInput): StoreTransform {
   /** Which of them the developer exported, which is the name the app knows a store by. */
   const exported = new Set<string>();
   const initializers: FramedInit[] = [];
+  /** How many unassigned stores a binding's initializer has already held, keyed by the binding. */
+  const unassigned = new Map<string, number>();
   /** Where an `await` stands, which drops the frame around it once the walk has been through. */
   const awaits: number[] = [];
 
@@ -141,10 +143,6 @@ export function transformStores(input: TransformInput): StoreTransform {
     stack.pop();
   }
 
-  function nameAt(start: number): string | null {
-    return namedValues.has(start) ? (namedValues.get(start) ?? null) : currentName();
-  }
-
   function readImport(node: ImportDeclaration): void {
     if (node.source.value !== "nanostores" || node.importKind === "type") {
       return;
@@ -171,14 +169,57 @@ export function transformStores(input: TransformInput): StoreTransform {
     }
   }
 
+  /**
+   * An array something named holds its members under an index, and `$totals[0]` is then a name the
+   * developer can type and get that store back. An array standing in an argument is nobody's value:
+   * `merged([eventAtom(a), eventAtom(b)])` hands the whole array over and keeps the atom it built,
+   * so an index off the binding would point at a member `$pointerEnd` does not have. Those members
+   * fall through to `callName`, which numbers them as unassigned instead.
+   */
   function readArray(node: ArrayExpression): void {
-    const base = nameAt(node.start);
+    if (!namedValues.has(node.start)) {
+      return;
+    }
+
+    const base = namedValues.get(node.start) ?? null;
 
     node.elements.forEach((element, index) => {
       if (element !== null && element.type !== "SpreadElement") {
         namedValues.set(bared(element).start, base === null ? null : `${base}[${index}]`);
       }
     });
+  }
+
+  /**
+   * The name a store this call makes is known by, or `null` where nothing reaches it.
+   *
+   * A binding, a property, or an index of an array one of those holds names the call outright. Every
+   * other call is written inside somebody's initializer and bound to nothing, so it has no name of
+   * its own: it takes the binding's, plus a number saying which one it is in source order.
+   *
+   * That number is what keeps two of them apart. A label is the home, the name, the file, the line
+   * and the site's own count, and `combine(atom(1), atom(2))` gave both atoms every one of those,
+   * so the second quietly took the first one's place in the registry.
+   *
+   * Counted here rather than at the visit, so it runs 1, 2, 3 with no gaps: a call that books no
+   * store never asks.
+   */
+  function callName(start: number): string | null {
+    if (namedValues.has(start)) {
+      return namedValues.get(start) ?? null;
+    }
+
+    const base = currentName();
+
+    if (base === null) {
+      return null;
+    }
+
+    const next = (unassigned.get(base) ?? 0) + 1;
+
+    unassigned.set(base, next);
+
+    return `${base} unassigned ${next}`;
   }
 
   function siteAt(start: number, name: string | null, type: StoreType): CreationSite {
@@ -202,20 +243,26 @@ export function transformStores(input: TransformInput): StoreTransform {
         start: node.start,
         end: node.end,
         call: "store",
-        site: siteAt(node.start, nameAt(node.start), type),
+        site: siteAt(node.start, callName(node.start), type),
         self: currentSelf(),
       });
 
       return;
     }
 
-    const name = namedValues.get(node.start);
+    if (!input.adoptFactories) {
+      return;
+    }
+
+    const name = callName(node.start);
 
     /**
-     * Only a call bound straight to a name, so a call standing in an argument is left alone: the
-     * name around it belongs to whatever the outer call returns.
+     * A call standing in an argument is adopted as much as one bound straight to a name: what it
+     * hands back is the developer's either way, and the name it carries says where they wrote it.
+     * `adopt` hands a value that is no store straight back, so a call that builds anything else
+     * costs one wrapper and nothing more.
      */
-    if (input.adoptFactories && name !== undefined && name !== null && name.startsWith("$")) {
+    if (name !== null && name.startsWith("$")) {
       adopts.push({
         start: node.start,
         end: node.end,

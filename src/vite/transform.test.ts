@@ -373,14 +373,23 @@ describe("adoption", () => {
     expect(metas(result)).toEqual([{ name: "$c", fn: null, line: 2, type: "atom" }]);
   });
 
-  it("keeps the inner type when a $ binding holds an instrumented call", () => {
+  /**
+   * The store the call hands back takes the binding, and the one written inside it is numbered.
+   * A wrapper that hands its own argument back meets both, and the second renames the first, which
+   * is what keeps the type the creator knew.
+   */
+  it("numbers the creator inside a call and keeps the binding for what the call returns", () => {
     const result = transform(
       `import { atom } from "nanostores";\nconst $c = withLogging(atom(0));\n`,
     );
 
-    expect(output(result)).not.toContain("__nsdt.adopt(");
     expect(output(result)).toContain(
-      `__nsdt.store(atom(0), {"name":"$c","fn":null,"line":2,"type":"atom"})`,
+      `__nsdt.store(atom(0), {"name":"$c unassigned 1","fn":null,"line":2,"type":"atom"})`,
+    );
+    expect(output(result)).toContain(
+      `__nsdt.adopt(withLogging(__nsdt.store(atom(0), ` +
+        `{"name":"$c unassigned 1","fn":null,"line":2,"type":"atom"})), ` +
+        `{"name":"$c","fn":null,"line":2,"type":"unknown"})`,
     );
   });
 
@@ -395,10 +404,55 @@ describe("adoption", () => {
     );
   });
 
-  it("leaves a call standing in an argument alone", () => {
+  /**
+   * A call standing in an argument is adopted too. What it hands back is the developer's, and on a
+   * util that builds a store of its own it is the only thing that ever reaches it: `filtered(...)`
+   * and `latched(...)` in the examples each hold a `computed` written right there.
+   */
+  it("adopts a call standing in an argument, numbered after the binding", () => {
     const result = transform(`const $theme = persistent(fallback("dark"));\n`);
 
-    expect(output(result)).toContain(`__nsdt.adopt(persistent(fallback("dark")), `);
+    expect(output(result)).toContain(
+      `__nsdt.adopt(persistent(__nsdt.adopt(fallback("dark"), ` +
+        `{"name":"$theme unassigned 1","fn":null,"line":1,"type":"unknown"})), ` +
+        `{"name":"$theme","fn":null,"line":1,"type":"unknown"})`,
+    );
+  });
+
+  it("numbers two calls in one initializer in source order, so neither takes the other's label", () => {
+    const result = transform(`const $pair = combine(fallback("a"), fallback("b"));\n`);
+
+    expect(output(result)).toContain(
+      `{"name":"$pair unassigned 1","fn":null,"line":1,"type":"unknown"}`,
+    );
+    expect(output(result)).toContain(
+      `{"name":"$pair unassigned 2","fn":null,"line":1,"type":"unknown"}`,
+    );
+  });
+
+  it("keeps the index where the array is the value the binding holds", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nconst $totals = [atom(0), atom(1)];\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: "$totals[0]", fn: null, line: 2, type: "atom" },
+      { name: "$totals[1]", fn: null, line: 2, type: "atom" },
+    ]);
+  });
+
+  /** `$pointerEnd` is the atom `merged` built, and it holds no member at `[0]` to point at. */
+  it("numbers an array's members where the array only stands in an argument", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nconst $pointerEnd = merged([atom(0), atom(1)]);\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: "$pointerEnd unassigned 1", fn: null, line: 2, type: "atom" },
+      { name: "$pointerEnd unassigned 2", fn: null, line: 2, type: "atom" },
+      { name: "$pointerEnd", fn: null, line: 2, type: "unknown" },
+      { name: "$pointerEnd", fn: null, line: 2, type: "unknown" },
+    ]);
   });
 
   it("names an object property, a class field and an array element", () => {
@@ -623,8 +677,11 @@ describe("the creation frame", () => {
     const result = transform(`${IMPORT}const $draft = pipe(atom(""), withUndo());\n`);
 
     expect(output(result)).toContain(
-      `const $draft = ${OPENED}pipe(__nsdt.store(atom(""), ` +
-        `{"name":"$draft","fn":null,"line":2,"type":"atom"}), withUndo())), ` +
+      `const $draft = ${OPENED}__nsdt.adopt(pipe(__nsdt.store(atom(""), ` +
+        `{"name":"$draft unassigned 1","fn":null,"line":2,"type":"atom"}), ` +
+        `__nsdt.adopt(withUndo(), ` +
+        `{"name":"$draft unassigned 2","fn":null,"line":2,"type":"unknown"})), ` +
+        `{"name":"$draft","fn":null,"line":2,"type":"unknown"})), ` +
         `{"name":"$draft","fn":null,"line":2,"type":"unknown"});`,
     );
   });
