@@ -51,6 +51,10 @@ the encoder's own shape rather than one of ours.
 these actions. Nanostores has no actions, so the bridge invents each entry from a store
 change. One entry holds exactly one direct write and the followers it caused.
 
+A row calls a store whatever the tree calls it: the name the developer chose where they chose one,
+and otherwise the key its owner holds it under. The change inside the row keeps the store's label,
+which says which file it came from, and that is an identity rather than a name.
+
 **Direct write** — a change to an `atom`, `map` or `deepMap`. The app caused it, so it opens
 a new timeline entry and gives the entry its name.
 

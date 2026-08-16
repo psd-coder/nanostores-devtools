@@ -14,6 +14,27 @@ export function isDrawn(entry: StoreEntry): boolean {
 }
 
 /**
+ * What a row calls the store, which is the key the tree draws it under. A row names something the
+ * developer goes and looks up, so a name no key in the tree carries points at nothing: three lenses
+ * writing `$lens/set` say which store changed only to whoever wrote the util.
+ *
+ * A home of their own wins, as it does everywhere: a top-level binding or a group they registered by
+ * hand is drawn flat under that name, and the row says the same. Where nothing does, the store is
+ * drawn under its owner alone, and the owner's own key is the only name it has.
+ *
+ * This reads the placement rather than the entry, so the row and the tree cannot drift: the same
+ * link decides both. The entry's `label` is untouched, because a change carries it as an identity
+ * and not as a name, and it still says which file the store really came from.
+ */
+export function rowName(entry: StoreEntry): string {
+  if (placedByDeveloper(entry)) {
+    return entry.name;
+  }
+
+  return drawnOwner(entry.store)?.key ?? entry.name;
+}
+
+/**
  * Whether the tree draws the store anywhere at all.
  *
  * A store made inside a function and placed by nothing is that function's own working state: what

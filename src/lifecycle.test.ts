@@ -69,6 +69,24 @@ describe("mount and unmount rows", () => {
     });
   });
 
+  it("names a mount row after the key its owner holds the store under", async () => {
+    const $lens = atom("");
+
+    register("$lens", $lens);
+    ownBindings({ home: HOME, external: false, moduleKey: HOME }, [
+      ["fields", { username: $lens }],
+    ]);
+    await listen();
+
+    const unbind = $lens.listen(() => {});
+
+    await endOfTurn();
+    unbind();
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["username/mount", "username/unmount"]);
+  });
+
   it("coalesces nothing: mounting three stores draws three rows", async () => {
     const $first = atom(0);
     const $second = atom(0);

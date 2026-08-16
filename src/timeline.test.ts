@@ -193,6 +193,68 @@ describe("direct write rows", () => {
       expect(fake.sends[0]?.state).toEqual({ cart: { "$undoable [store]": true } });
     });
 
+    it("names a row after the key its owner holds the store under", async () => {
+      const $lens = atom("");
+      const fields = { username: $lens };
+
+      register("$lens", $lens);
+      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [["fields", fields]]);
+      await listen();
+
+      $lens.set("ada");
+
+      await endOfTurn();
+
+      expect(fake.sends[0]?.action["type"]).toBe("username/set");
+      expect(fake.sends[0]?.state).toEqual({ cart: { fields: { "username [store]": "ada" } } });
+    });
+
+    it("keeps the binding's name over the key, so the flat placement still wins", async () => {
+      const $lens = atom("");
+      const fields = { username: $lens };
+
+      register("$lens", $lens);
+      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+        ["fields", fields],
+        ["$username", $lens, true],
+      ]);
+      await listen();
+
+      $lens.set("ada");
+
+      await endOfTurn();
+
+      expect(fake.sends[0]?.action["type"]).toBe("$username/set");
+    });
+
+    /** The change carries where the store came from, which a name the owner chose does not say. */
+    it("leaves the change's label pointing at the file the store was born in", async () => {
+      const $lens = atom("");
+
+      registerStore({
+        store: $lens,
+        name: "$lens",
+        home: "vendor/lensed.ts",
+        type: "atom",
+        origin: "plugin",
+        external: true,
+        fn: "focus",
+      });
+      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+        ["fields", { username: $lens }],
+      ]);
+      await listen();
+
+      $lens.set("ada");
+
+      await endOfTurn();
+
+      expect(fake.sends[0]?.action["action"]).toEqual({
+        type: "username/set",
+        changes: [{ label: "vendor/lensed.ts/$lens", op: "set" }],
+      });
+    });
+
     it("names a deepMap write after the dotted path", async () => {
       const $settings = deepMap<{ theme: { color: string } }>({ theme: { color: "red" } });
 

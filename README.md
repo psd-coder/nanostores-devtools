@@ -265,8 +265,11 @@ second, the name you chose is lost: `export const $undoable = $draft2.$canUndo` 
 because the extension's encoder writes a repeat again rather than as a pointer. On the tree we
 measured that cost about 11% more bytes.
 
-The flat placement owns the name for every other purpose, timeline rows included, so a store
-renamed by your own binding has its rows renamed too: `$undoable/set`, not `$canUndo/set`.
+**A row calls the store whatever the tree calls it.** A home you chose wins, so a store renamed by
+your own binding has its rows renamed too: `$undoable/set`, not `$canUndo/set`. A store only its
+owner holds takes that owner's key, so the row says `username/set` where the tree says `username`.
+The change inside the row still carries `lensed.ts/$lens`, because that says which file the store
+came from and a name its owner chose does not.
 
 **The second key is the property the owner really holds the store at**, not the name the store was
 born with. The two agree wherever a util calls its own field what it hands it out as, which is most

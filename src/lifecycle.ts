@@ -1,5 +1,5 @@
 import type { Bridge } from "./connect.ts";
-import { isPlaced } from "./placement.ts";
+import { isPlaced, rowName } from "./placement.ts";
 import type { RegistryChange, StoreEntry } from "./registry.ts";
 import { type Change, listeningBridge, openLifecycleRow, sendLifecycleRow } from "./timeline.ts";
 
@@ -88,7 +88,7 @@ function drawRow(entry: StoreEntry, op: "mount" | "unmount"): void {
   const bridge = drawingBridge();
 
   if (bridge && isPlaced(entry)) {
-    openLifecycleRow(bridge, `${entry.name}/${op}`, [{ label: entry.label, op }]);
+    openLifecycleRow(bridge, `${rowName(entry)}/${op}`, [{ label: entry.label, op }]);
   }
 }
 
@@ -140,7 +140,7 @@ function homeMoves(homes: Map<string, HomeMoves>, entry: StoreEntry): HomeMoves 
 
   const created: HomeMoves = {
     home: entry.home,
-    name: entry.name,
+    name: rowName(entry),
     joining: false,
     leaving: false,
     ops: new Map(),

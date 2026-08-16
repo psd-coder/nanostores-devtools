@@ -1,7 +1,7 @@
 import { catchAndWarn } from "./catch-and-warn.ts";
 import type { Bridge } from "./connect.ts";
 import { peekDevtoolsGlobal } from "./global.ts";
-import { isDrawn } from "./placement.ts";
+import { isDrawn, rowName } from "./placement.ts";
 import type { StoreEntry } from "./registry.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
@@ -114,7 +114,7 @@ export function appendFollower(entry: StoreEntry): void {
   }
 
   /** A follower that finds no open row is a row of its own, named after the store. */
-  openRow(bridge, `${entry.name}/computed`, [{ label: entry.label, op: "computed" }]);
+  openRow(bridge, `${rowName(entry)}/computed`, [{ label: entry.label, op: "computed" }]);
 }
 
 export function flushOpenRow(): void {
@@ -210,10 +210,12 @@ function describeWrite(
   entry: StoreEntry,
   changed: string | undefined,
 ): { type: string; change: Change } {
+  const name = rowName(entry);
+
   return changed === undefined
-    ? { type: `${entry.name}/set`, change: { label: entry.label, op: "set" } }
+    ? { type: `${name}/set`, change: { label: entry.label, op: "set" } }
     : {
-        type: `${entry.name}/setKey:${changed}`,
+        type: `${name}/setKey:${changed}`,
         change: { label: entry.label, op: "setKey", path: changed },
       };
 }
