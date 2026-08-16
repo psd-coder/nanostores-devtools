@@ -675,6 +675,24 @@ describe("computed follower rows", () => {
     });
   });
 
+  it("names that row after the key its owner holds the follower under", async () => {
+    const $source = atom(1);
+    const $total = computed($source, (source) => source * 2);
+
+    register("$total", $total, "computed");
+    ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+      ["totals", { doubled: $total }],
+    ]);
+    mount($total);
+    await listen();
+
+    $source.set(2);
+
+    await endOfTurn();
+
+    expect(fake.sends[0]?.action["type"]).toBe("doubled/computed");
+  });
+
   it("hands the panel no stack for a row a follower opened on its own", async () => {
     const $source = atom(1);
     const $total = computed($source, (source) => source * 2);

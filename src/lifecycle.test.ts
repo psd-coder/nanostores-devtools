@@ -237,6 +237,20 @@ describe("register, unregister and hot reload rows", () => {
     expect(fake.sends[0]?.state).toEqual({ [HOME]: { "$late [store]": 0 } });
   });
 
+  it("names a register row after the key its owner holds the one store under", async () => {
+    const $lens = atom("");
+
+    await listen();
+    register("$lens", $lens);
+    ownBindings({ home: HOME, external: false, moduleKey: HOME }, [
+      ["fields", { username: $lens }],
+    ]);
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["username/register"]);
+  });
+
   it("coalesces one module's registrations into one row naming each store", async () => {
     await listen();
     register("$first", atom(1));
