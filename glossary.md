@@ -183,9 +183,9 @@ explicit registration, and either one beats the owner the ownership walk recorde
 A store may also have none. One made inside a function and placed by nothing is that function's own
 working state: what the function returned is what the app holds, and the tree draws that already, so
 the store itself is left out. A store made at module level always keeps a placement, because it has
-no function it could belong to and the file it was written in is its only holding. Being left out of
-the tree changes nothing else: the store stays in the registry, keeps its hooks, and a write to it
-still opens a timeline entry, because that write is often what makes a drawn value change.
+no function it could belong to and the file it was written in is its only holding. A store left out
+of the tree stays in the registry and keeps its hooks, and it draws no **timeline row** of its own
+either, whatever the row would have said.
 
 Every mechanism that places a store runs on the developer's own files only. **Somebody else's file
 places nothing**: no name, no node, and no store under one. A library holds its working state at its
@@ -193,6 +193,13 @@ own top-level names as much as in a closure, and neither is a thing the app can 
 took out of that library is bound in a file of the developer's own, and that binding draws it. The
 module-level rule above still holds there, so a store a library exports on purpose keeps its
 placement at its own file.
+
+**Drawn** — whether a developer can see a store at all, which is what decides its timeline rows.
+Two things make it true and **placement** is only one: a key of its own in the tree, or a value the
+panel shows holding it, which the **converter** draws with no placement involved. A store neither
+reaches is one no row can point at, so its rows are dropped rather than sent with a diff showing
+nothing. The second half is a note the converter fills while it writes a snapshot, so it is one
+snapshot behind: a store put into a drawn value and written in the same tick loses that one row.
 
 **Written name** — a name that exists in the developer's source: a binding, a property key, an
 array index, a `Map` key. It beats any name we derive.

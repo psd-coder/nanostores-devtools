@@ -200,10 +200,27 @@ function it could belong to and the file it was written in is its only holding. 
 what keeps a library's own `export const $route = atom("/")` on the tree, under its own file, even
 though nothing in your code placed it.
 
-Nothing else changes for a store the tree leaves out. It stays in the registry, we still watch it,
-and a write to it still opens a timeline entry, because that write is often what makes a value you
-can see change. Only the lifecycle rows go: a row saying a store joined or mounted is there to
-explain a tree that changed shape, and this one changes no shape.
+A store the tree leaves out stays in the registry and we still watch it, but it draws no timeline
+row of its own either: no register, no mount, no write. A row you cannot trace to anything on
+screen, with a diff showing nothing, teaches you to stop reading the timeline.
+
+**The test for that is "can you see it", not "is it in the tree".** Those differ. A store with no
+place of its own is still drawn wherever a value you can see holds it, and then its own write is the
+only thing that pushes the new tree, so it must keep its row. We note every store the converter draws
+inside a value while it writes a snapshot, and a store in neither the tree nor that note draws
+nothing:
+
+```
+$requested/set          <- you clicked Next
+$currentResource/set    <- the response arrived
+```
+
+rather than the same two with a `$inputs/set` between them, `$inputs` being a store some library
+keeps inside a factory and you have no way to look up.
+
+The note is one snapshot behind, so a store put into a drawn value and written in the same tick
+loses that first row. The write that put it there is a drawn store's own write, which sends a row
+and refreshes the note, so the window is one turn wide.
 
 The scan and a class field both know a property name, so either may correct a frame, which only
 knows that a store was born while some expression ran. Neither corrects the other. A store is never

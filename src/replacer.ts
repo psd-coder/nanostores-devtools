@@ -1,6 +1,7 @@
 import type { Store } from "nanostores";
 
 import { chainDescriptor, copyData, type Fields, ownFields, ownIndexes } from "./descriptor.ts";
+import { noteDrawn } from "./drawn.ts";
 import { box, isBuilt, keepBuilt, mark, type Marked } from "./marker.ts";
 import { getEntry, isStore, noted, storeWord } from "./registry.ts";
 import { dataForMark, reachesStore, staleNote, storeValue } from "./slot.ts";
@@ -555,6 +556,8 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
   const entry = getEntry(store);
   const note = staleNote(store, entry);
 
+  noteDrawn(store);
+
   if (note !== undefined) {
     return [
       noted(key, entry?.type ?? "unknown"),
@@ -578,6 +581,8 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
 function markStore(wrappers: Wrappers, store: Store): Marked {
   const entry = getEntry(store);
   const note = staleNote(store, entry);
+
+  noteDrawn(store);
 
   return note === undefined
     ? markOnce(wrappers, store, storeWord(entry?.type), dataForMark(store, storeValue(store)))

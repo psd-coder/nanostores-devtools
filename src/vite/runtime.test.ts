@@ -227,7 +227,8 @@ describe("a name two source lines claim", () => {
     const $first = atom(0);
     const $second = atom(0);
 
-    scope.store($first, site({ name: "$counter", fn: "makeCart", line: 12 }));
+    /** Both at module level, so both are drawn and both reach the timeline. */
+    scope.store($first, site({ name: "$counter", line: 12 }));
     scope.store($second, site({ name: "$counter", line: 20 }));
     await listen();
 

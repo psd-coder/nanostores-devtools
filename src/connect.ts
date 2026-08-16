@@ -1,3 +1,4 @@
+import { forgetDrawn } from "./drawn.ts";
 import {
   EXTENSION_SOURCE,
   type ExtensionConfig,
@@ -105,6 +106,9 @@ function openBridge(options?: DevtoolsOptions): Bridge | undefined {
   if (typeof extension?.connect !== "function") {
     return undefined;
   }
+
+  /** This connection draws its own first tree, so what a previous one drew counts for nothing. */
+  forgetDrawn();
 
   const timeline = createTimeline(
     options?.trace ?? DEFAULT_TRACE,

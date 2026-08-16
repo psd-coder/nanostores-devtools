@@ -1,3 +1,5 @@
+import { stringify } from "jsan";
+
 import {
   type ExtensionAction,
   type ExtensionConfig,
@@ -6,6 +8,7 @@ import {
   type ExtensionMessage,
   type ReduxDevtoolsExtension,
 } from "../extension.ts";
+import { EXTENSION_OPTIONS } from "./panel.ts";
 
 /**
  * Written out here rather than imported from `extension.ts`: a fake that reads the value under
@@ -48,12 +51,29 @@ export function installFakeExtension(): FakeExtension {
   let sendFailure: string | undefined;
   let initFailure: string | undefined;
 
+  /**
+   * The real extension runs the `serialize.replacer` it was handed, inside `init` and inside `send`,
+   * before the state leaves the page. The fake keeps the state itself unwritten, because a test
+   * reads it as an object, and still makes that pass happen: the converter records what it drew,
+   * and a fake that skipped the pass would leave that record empty and every row looking undrawn.
+   */
+  const serialize = (state: unknown): void => {
+    const configured = configs.at(-1)?.serialize;
+    const replacer =
+      typeof configured === "object" && configured !== null ? configured.replacer : undefined;
+
+    if (replacer) {
+      stringify(state, replacer, null, EXTENSION_OPTIONS);
+    }
+  };
+
   const connection: ExtensionConnection = {
     init(state, liftedData) {
       if (initFailure !== undefined) {
         throw new Error(initFailure);
       }
 
+      serialize(state);
       inits.push({ state, liftedData });
     },
     /** The real extension reads the stack inside `send`, so the fake has to read it there too. */
@@ -64,6 +84,7 @@ export function installFakeExtension(): FakeExtension {
 
       const trace = configs.at(-1)?.trace;
 
+      serialize(state);
       sends.push({ action, state, trace: typeof trace === "function" ? trace() : undefined });
     },
     subscribe(listener) {

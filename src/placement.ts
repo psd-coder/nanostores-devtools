@@ -1,7 +1,17 @@
 import type { Store } from "nanostores";
 
+import { drawnLately } from "./drawn.ts";
 import { type NodeInfo, peekDevtoolsGlobal } from "./global.ts";
 import { getEntry, isStore, type StoreEntry } from "./registry.ts";
+
+/**
+ * Whether a developer can see this store at all: at a key of its own, or inside the value of a
+ * store that has one. A store neither of those reaches is one no row can point at, so a row about
+ * it names something nobody can look up and its diff shows nothing.
+ */
+export function isDrawn(entry: StoreEntry): boolean {
+  return isPlaced(entry) || drawnLately(entry.store);
+}
 
 /**
  * Whether the tree draws the store anywhere at all.

@@ -1,6 +1,7 @@
 import type { Store } from "nanostores";
 
 import type { Bridge } from "./connect.ts";
+import { forgetDrawn } from "./drawn.ts";
 import type { RegistryChange, StoreEntry, StoreType } from "./registry.ts";
 
 export type ChangeListener = (change: RegistryChange) => void;
@@ -194,6 +195,12 @@ export function peekDevtoolsGlobal(): DevtoolsGlobal | undefined {
   return holder()[GLOBAL_KEY];
 }
 
+/**
+ * The drawn set lives in its own module rather than behind the shared key, because it is one
+ * connection's own record and not a shape two copies of the package have to agree on. It is dropped
+ * here even so, or a store the last run drew would still count as drawn for the next one.
+ */
 export function resetDevtoolsGlobal(): void {
   delete holder()[GLOBAL_KEY];
+  forgetDrawn();
 }

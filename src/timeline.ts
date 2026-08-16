@@ -1,6 +1,7 @@
 import { catchAndWarn } from "./catch-and-warn.ts";
 import type { Bridge } from "./connect.ts";
 import { peekDevtoolsGlobal } from "./global.ts";
+import { isDrawn } from "./placement.ts";
 import type { StoreEntry } from "./registry.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
@@ -53,7 +54,7 @@ export function openDirectRow(
 ): void {
   const bridge = listeningBridge();
 
-  if (!bridge) {
+  if (!bridge || !isDrawn(entry)) {
     return;
   }
 
@@ -93,7 +94,7 @@ export function sendLifecycleRow(bridge: Bridge, type: string, changes: Change[]
 export function appendFollower(entry: StoreEntry): void {
   const bridge = listeningBridge();
 
-  if (!bridge) {
+  if (!bridge || !isDrawn(entry)) {
     return;
   }
 

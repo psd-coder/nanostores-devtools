@@ -2,7 +2,7 @@ import { atom, computed, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./connect.ts";
-import { resetDevtoolsGlobal } from "./global.ts";
+import { peekDevtoolsGlobal, resetDevtoolsGlobal } from "./global.ts";
 import { ownBindings } from "./ownership.ts";
 import { getEntry, registerStore, type StoreType, unregisterStore } from "./registry.ts";
 import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
@@ -402,7 +402,7 @@ describe("a store the tree draws nowhere", () => {
     expect(getEntry($hits)?.everMounted).toBe(true);
   });
 
-  it("draws its write row, because that write is what changed the tree", async () => {
+  it("draws no write row either, because that write changed nothing anyone can see", async () => {
     const $hits = atom(0);
 
     registerMadeIn("$hits", $hits, "track");
@@ -412,7 +412,54 @@ describe("a store the tree draws nowhere", () => {
 
     await endOfTurn();
 
-    expect(rowNames()).toEqual(["$hits/set"]);
+    expect(fake.sends).toHaveLength(0);
+  });
+
+  /**
+   * The other half of the same rule, and the reason it is not `isPlaced`. A store with no
+   * placement holds no key of its own and is still drawn wherever a value the panel shows holds
+   * it, and then its own write is the only thing that pushes the new tree.
+   */
+  it("draws its write row once a drawn value holds it", async () => {
+    const $hits = atom(0);
+    const $panel = atom<unknown>(null);
+
+    registerMadeIn("$hits", $hits, "track");
+    register("$panel", $panel);
+    await listen();
+
+    $panel.set([$hits]);
+    await endOfTurn();
+
+    $hits.set(1);
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["$panel/set", "$hits/set"]);
+  });
+
+  it("goes quiet again for a new connection, which draws its own first tree", async () => {
+    const $hits = atom(0);
+    const $panel = atom<unknown>(null);
+
+    registerMadeIn("$hits", $hits, "track");
+    register("$panel", $panel);
+    await listen();
+
+    $panel.set([$hits]);
+    await endOfTurn();
+
+    peekDevtoolsGlobal()?.bridge?.handle.disconnect();
+
+    /** Out of the drawn value while nothing is listening, so no tree of this run ever held it. */
+    $panel.set(null);
+
+    await listen();
+    fake.sends.length = 0;
+
+    $hits.set(2);
+    await endOfTurn();
+
+    expect(fake.sends).toHaveLength(0);
   });
 
   /**
