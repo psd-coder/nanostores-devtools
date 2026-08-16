@@ -183,9 +183,26 @@ export function endFrame(module: ModuleHome, value: unknown, name: string | null
     return;
   }
 
-  for (const store of frame.stores) {
+  for (const store of frame.stores.filter(handedOver)) {
     hangUnder(devtools, holder, store);
   }
+}
+
+/**
+ * Whether the store the frame caught is one the library handed over, rather than one it kept.
+ *
+ * A frame catches every store born while a top-level expression of the developer's ran, however
+ * many files down. What the call gave back is adopted at that call site and takes the developer's
+ * file as its home, and so does anything the value it returned carries, which the binding scan
+ * reaches through a property. A store still homed in somebody else's file is one nothing there
+ * exposes: it is the util's own working state, `$inputs` inside `resourceAtom`, and drawing it
+ * says the app holds a store its author never handed out.
+ *
+ * The frame keeps its full reach inside the developer's own files, where a store born in a closure
+ * is theirs whether or not a property leads to it.
+ */
+function handedOver(store: Store): boolean {
+  return getEntry(store)?.external !== true;
 }
 
 /**

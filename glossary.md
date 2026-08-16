@@ -101,6 +101,12 @@ only way to reach a store kept in a closure, where no property walk can find it.
 opened across an `await`: it must close in the same tick or it would catch every store made
 anywhere until it did.
 
+A frame places nothing born in somebody else's file. It catches every store made while the
+expression ran, however many files down, and one still homed in a library is one that library kept:
+what it handed over is adopted at the call site and takes the developer's home, and what the
+returned value carries the binding scan reaches through a property. Inside the developer's own files
+the frame keeps its full reach.
+
 **`this` in a class field** — a field initializer runs with `this` bound to the new instance, so
 the transform hands it over. A static field's `this` is the constructor instead, which is why a
 static store belongs to the class. It is also the only way to reach a private field.

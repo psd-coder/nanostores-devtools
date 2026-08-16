@@ -397,6 +397,19 @@ function makeFlag() {
 export const $flag = makeFlag();
 
 /**
+ * A store this file keeps in a closure, which nothing at the end of the module body reaches. It is
+ * the developer's own, so the creation frame still places it under what the call handed back. Its
+ * value is a plain object, which draws exactly like a node until you read the key.
+ */
+function makeBoard() {
+  const $layout = atom({ columns: 2, gap: 8 });
+
+  return atom(\`\${$layout.get().columns} columns\`);
+}
+
+export const $board = makeBoard();
+
+/**
  * Two closures a binding holds and no walk can open. \`readOne\` is a function, so the frame around
  * it has nothing to make a parent out of and the scan has nothing to walk, which leaves both stores
  * placed by nothing at all and drawn nowhere.

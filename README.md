@@ -186,7 +186,15 @@ Three mechanisms, and each covers what the others miss.
 - **The creation frame.** A frame is opened around a top-level initializer that is a call or a
   `new`, and closed on the value it returned. A plain store creator needs none, and neither does an
   initializer holding an `await`, which a frame must never span. It is the only thing that reaches a
-  store a library kept in a closure, such as the `$timeline` inside `pipe(atom(""), withUndo())`.
+  store one of your own helpers kept in a closure, where no property leads to it.
+
+**A frame places nothing born in somebody else's file.** It catches every store made while your
+expression ran, however many files down, and a store still homed in a library is one that library
+kept rather than handed over: `$inputs` inside `resourceAtom`, `$timeline` inside `withUndo`. What a
+library does hand you is adopted at your call site and takes your file as its home, and whatever the
+returned value carries is reached by the scan through a property — `$value` and `$loading` on a
+resource stay exactly where they were. The frame keeps its full reach inside your own files, where a
+store in a closure is yours whether or not a property leads to it.
 
 **All three run on your own files only.** A library binds its working state to its own top-level
 names too, and a `$active` that a ref count inside `history.ts` writes is that library's business,

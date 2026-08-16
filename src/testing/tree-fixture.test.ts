@@ -2,6 +2,7 @@ import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
+import { ownerLinkOf } from "../placement.ts";
 import { listEntries, type StoreEntry } from "../registry.ts";
 import { buildSnapshot } from "../snapshot.ts";
 import { nanostoresDevtools, type VitePluginOptions } from "../vite/plugin.ts";
@@ -169,30 +170,33 @@ describe("the fixture drawn by the shipped code", () => {
     resetDevtoolsGlobal();
   });
 
-  it("opens a frame without an adopt call, and places a store held only in a closure", () => {
+  it("draws what the library handed over, and nothing it kept in a closure", () => {
     expect(homeOf(MODEL_HOME)["$draft [store]"]).toEqual({
       "(value)": TEXT,
       "$canRedo [computed]": NEVER_COMPUTED,
       "$canUndo [computed]": NEVER_COMPUTED,
       "$history [computed]": HISTORY,
       "$position [computed]": 5,
-      "$timeline [store]": { entries: HISTORY, index: 5 },
     });
-    /** Nothing in `model.ts` reaches `$timeline`: it was born in the library and drawn here. */
+
+    /**
+     * The four above sit on the atom `withUndo` gave back, so the binding scan reaches them
+     * through `$draft`. `$timeline` is the closure it kept, and only the frame ever reached it.
+     */
     expect(entryNamed("$timeline").home).toBe(UNDO_HOME);
+    expect(ownerLinkOf(entryNamed("$timeline").store)).toBeUndefined();
   });
 
-  it("drops the ordinal from a nested store, because the parent says which one it is", () => {
+  it("draws none of the second instance's closure either", () => {
     expect(homeOf(MODEL_HOME)["$draft2 [store]"]).toEqual({
       "(value)": "",
       "$canRedo [computed]": NEVER_COMPUTED,
       "$canUndo [computed]": NEVER_COMPUTED,
       "$history [computed]": NEVER_COMPUTED,
       "$position [computed]": NEVER_COMPUTED,
-      "$timeline [store]": { entries: [""], index: 0 },
     });
-    /** The registry still numbers the second instance, and only the key its owner uses does not. */
-    expect(entryNamed("$timeline", 2)).toMatchObject({ home: UNDO_HOME, ownerName: "$timeline" });
+    /** The registry still holds it and still numbers it; only the tree has no place for it. */
+    expect(entryNamed("$timeline", 2)).toMatchObject({ home: UNDO_HOME });
   });
 
   it("keeps the developer's name for an alias, and a second placement on its owner", () => {
@@ -305,11 +309,7 @@ describe("the fixture drawn by the shipped code", () => {
     expect(Object.keys(buildSnapshot())).not.toContain(PANEL_HOME);
   });
 
-  it("tells a store holding a plain object from a plain-object node", () => {
-    const draft = into(homeOf(MODEL_HOME), "$draft [store]");
-
-    /** Both draw an object and nothing else; only the word on the key says which is a store. */
-    expect(draft["$timeline [store]"]).toEqual({ entries: HISTORY, index: 5 });
+  it("tells a plain-object node from a store, which only the key word separates", () => {
     expect(homeOf(WORKSPACE_HOME)["panel"]).toEqual(PANEL_NODE);
     expect(Object.keys(homeOf(WORKSPACE_HOME))).toContain("panel");
   });
@@ -412,18 +412,23 @@ describe("the draw-once invariant", () => {
     /** Draw-once, the first form: no store is drawn twice over. */
     expect(placements.filter((times) => times > 2)).toEqual([]);
     /**
-     * The one store the tree draws nowhere: `track()` keeps it in a closure and hands back a
+     * The stores the tree draws nowhere. `track()` keeps its own in a closure and hands back a
      * function, so nothing places it and what the function returned holds no state to see it by.
+     * Both `$timeline`s are `withUndo`'s working state: the frame caught them, and a frame places
+     * nothing born in somebody else's file, because a store that file hands over is adopted at the
+     * call site and reached through a property instead.
      */
     expect([...counts].filter(([, times]) => times === 0).map(([label]) => label)).toEqual([
+      `${UNDO_HOME}/$timeline`,
+      `${UNDO_HOME}/$timeline #2`,
       `${TRACKER_HOME}/$hits`,
     ]);
     /**
      * Draw-once, the second form. A store the developer bound to a top-level name of their own is
-     * drawn once at that name and once more under its owner, so 106 is the count of the stores
-     * drawn at all and 115 with those second placements.
+     * drawn once at that name and once more under its owner, so 104 is the count of the stores
+     * drawn at all and 113 with those second placements.
      */
-    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(115);
+    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(113);
     expect(
       [...counts]
         .filter(([, times]) => times === 2)
@@ -523,8 +528,21 @@ describe("an await, a helper and two functions of one name", () => {
     expect(entryNamed("$flag").fn).toBeNull();
   });
 
+  /**
+   * The frame keeps its full reach inside the developer's own files. `$layout` is a closure of
+   * `makeBoard`, so no walk at the end of the module body finds it, and only the frame does. It
+   * also draws a plain object and nothing else, exactly as a node does, so the `[store]` on the key
+   * is the whole of what tells the two apart.
+   */
+  it("places a store this file kept in a closure, holding an object like a node", () => {
+    expect(homeOf(HELPERS_HOME)["$board [store]"]).toEqual({
+      "(value)": "2 columns",
+      "$layout [store]": { columns: 2, gap: 8 },
+    });
+  });
+
   it("draws nothing for the stores two functions of one name kept in a closure", () => {
-    expect(Object.keys(homeOf(HELPERS_HOME))).toEqual(["$flag [store]"]);
+    expect(Object.keys(homeOf(HELPERS_HOME))).toEqual(["$board [store]", "$flag [store]"]);
   });
 });
 

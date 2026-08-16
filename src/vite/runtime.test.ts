@@ -843,7 +843,13 @@ describe("begin and end", () => {
     expect(scope.end($draft, site({ name: "$draft" }))).toBe($draft);
   });
 
-  it("places a store one module's factory made for another under the binding that called it", () => {
+  /**
+   * The frame catches every store born while the expression ran, however many files down. One
+   * still homed in somebody else's file is one that file kept: what it handed over is adopted at
+   * the call site and takes the caller's home, and the binding scan reaches whatever that value
+   * carries. So the frame places nothing of the library's own.
+   */
+  it("places no store somebody else's factory kept, even under the binding that called it", () => {
     const caller = fileScope(MODULE_ID, HOME, CAP, false);
     const factory = fileScope("/repo/vendor/undo.ts", "vendor/undo.ts", CAP, true);
     const $draft = atom("");
@@ -858,8 +864,23 @@ describe("begin and end", () => {
     caller.store($draft, site({ name: "$draft" }));
     caller.end($draft, site({ name: "$draft", type: "unknown" }));
 
-    expect(ownerLinkOf($timeline)?.owner).toBe($draft);
+    expect(ownerLinkOf($timeline)).toBeUndefined();
     expect(names()).toEqual(["$timeline", "$draft"]);
+  });
+
+  it("places a store a factory of the developer's own kept, under the binding that called it", () => {
+    const caller = fileScope(MODULE_ID, HOME, CAP, false);
+    const helper = fileScope("/repo/src/helpers.ts", "src/helpers.ts", CAP, false);
+    const $draft = atom("");
+
+    caller.begin();
+
+    const $timeline = helper.store(atom<string[]>([]), site({ name: "$timeline", fn: "withUndo" }));
+
+    caller.store($draft, site({ name: "$draft" }));
+    caller.end($draft, site({ name: "$draft", type: "unknown" }));
+
+    expect(ownerLinkOf($timeline)?.owner).toBe($draft);
   });
 
   it("names the node after the binding, in the module the binding was written in", () => {
