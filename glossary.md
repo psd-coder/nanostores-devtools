@@ -42,9 +42,10 @@ stores with the same name apart.
 on a key and never on the name or the label, which stay bare. Every store carries one, and an `atom`
 and an unknown type both read `store`. It sits straight behind the name, in front of anything else
 the key carries. Every key pointing at a store takes one: a tree key, a key inside a value where the
-name is one the app wrote, and an array position, `[0] [store]`, spelled the way the tree spells a
-collection member. A `Map` key and a `Set` position keep the type in a **wrapper** instead, because
-the encoder writes those two out itself and no key of ours reaches inside.
+name is one the app wrote, and a collection position, `[0] [store]` and `["scratch"] [store]`,
+spelled the way the tree spells a collection member. The one place that keeps the type in a
+**wrapper** is the `[key]` half of a `Map` entry whose key is neither a string nor a number, which is
+the encoder's own shape rather than one of ours.
 
 **Timeline entry** — one row in the extension's list of changes. The extension calls
 these actions. Nanostores has no actions, so the bridge invents each entry from a store
@@ -108,9 +109,10 @@ static store belongs to the class. It is also the only way to reach a private fi
 the extension. It is a jsan **replacer**, passed to the extension as
 `serialize: { replacer, options: true }`, so it rides on the `serialize` option rather than
 replacing it. It handles only what jsan handles badly: `Error` (jsan keeps the message alone),
-class instances (jsan loses the name), typed arrays, `BigInt` (jsan throws), DOM nodes and
-getter-only objects. Everything else it returns untouched for jsan to encode. It takes
-user-supplied serializers and encodes only: there is no reviver of ours.
+class instances (jsan loses the name), typed arrays, `BigInt` (jsan throws), DOM nodes,
+getter-only objects, and `Map` and `Set` (the panel calls both of them `Iterable`). Everything else
+it returns untouched for jsan to encode. It takes user-supplied serializers and encodes only: there
+is no reviver of ours.
 
 It changes two things about what it copies. **A method is not drawn**: an object's own property
 holding a function is left out, because the panel draws state and a method is behaviour the source
@@ -118,15 +120,20 @@ already spells. A value that is itself a function is untouched, and so is a func
 array index, where the position is part of the shape.
 
 And **a store takes the type note on its key** wherever a key of ours reaches it, with its value bare
-beneath it, the way the tree spells a slot. That is a name the app wrote, and an array position: an
-array holding at least one store goes out as an object keyed `[0]`, `[1]`, marked `Array`, and an
-array of plain data stays an array. The panel is the reason and it is not a matter of taste: a type
-in a **wrapper** is drawn in the item string, which the panel hides while the node is expanded and
-leaves out of a collapsed parent's preview, so on a member there is no moment it can be read.
+beneath it, the way the tree spells a slot. That is a name the app wrote, and a collection position.
+The panel is the reason and it is not a matter of taste: a type in a **wrapper** is drawn in the item
+string, which the panel hides while the node is expanded and leaves out of a collapsed parent's
+preview, so on a member there is no moment it can be read.
+
+Which collection is keyed differs by kind, and by what the panel does to each. An array holding at
+least one store goes out as an object keyed `[0]`, `[1]`, marked `Array`, while an array of plain
+data stays an array, because an array reads correctly either way. A `Map` and a `Set` are keyed
+always, `["scratch"]` and `[0]`, because the panel draws both of them, and every other iterable,
+with one node kind that writes `Iterable` over the name it worked out.
 
 The wrapper is left for what only a wrapper can say, the marker, and for two shapes no key of ours
-reaches: a `Map` key or a `Set` position, and a store whose value can reach that store again, where
-the wrapper's own key is what keeps the encoder finding the loop.
+reaches: the `[key]` half of a `Map` entry we could not name, and a store whose value can reach that
+store again, where the wrapper's own key is what keeps the encoder finding the loop.
 
 **Wrapper** — the extension's own `{ data, __serializedType__ }` shape, not a shape of ours.
 `data` holds what survived and `__serializedType__` names it. The panel's reviver unwraps it and

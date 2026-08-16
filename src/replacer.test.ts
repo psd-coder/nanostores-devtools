@@ -99,8 +99,6 @@ describe("createReplacer", () => {
     it("returns every value jsan renders natively untouched", () => {
       const values: unknown[] = [
         new Date(0),
-        new Map([["a", 1]]),
-        new Set([1, 2]),
         /ab+c/gi,
         undefined,
         Number.NaN,
@@ -118,6 +116,53 @@ describe("createReplacer", () => {
       for (const value of values) {
         expect(replacer("k", value)).toBe(value);
       }
+    });
+
+    /**
+     * The panel draws one node kind for a `Map`, a `Set` and anything else iterable, and that node
+     * writes `Iterable` over the type it worked out, so a collection jsan renders natively cannot
+     * say which of the two it is. Keying it is what buys the name back.
+     */
+    it("keys a Map and a Set instead, so each one keeps its own name", () => {
+      expect(write(new Map([["a", 1]]))).toBe(
+        '{"data":{"[\\"a\\"]":1},"__serializedType__":"Map"}',
+      );
+      expect(write(new Set([1, 2]))).toBe('{"data":{"[0]":1,"[1]":2},"__serializedType__":"Set"}');
+    });
+
+    it("keys an empty collection too, so it still says what it is", () => {
+      expect(write(new Set())).toBe('{"data":{},"__serializedType__":"Set"}');
+      expect(write(new Map())).toBe('{"data":{},"__serializedType__":"Map"}');
+    });
+
+    it("keeps a Map key no name in the source can spell, in jsan's own shape", () => {
+      const key = { id: 1 };
+
+      expect(unescaped(write(new Map<unknown, unknown>([[key, "held"]])))).toContain(
+        '"[entry 0]":{"[key]":{"id":1},"[value]":"held"}',
+      );
+    });
+
+    it("numbers such an entry by its place among all of them, named ones included", () => {
+      const value = new Map<unknown, unknown>([
+        ["first", 1],
+        [{ id: 2 }, 2],
+      ]);
+
+      expect(unescaped(write(value))).toContain('"[entry 1]"');
+    });
+
+    it("reads both collections through the built-in forEach, so no override of theirs runs", () => {
+      const ran = vi.fn();
+
+      class Sneaky extends Set<number> {
+        override forEach(): void {
+          ran();
+        }
+      }
+
+      expect(write(new Sneaky([1]))).toBe('{"data":{"[0]":1},"__serializedType__":"Set"}');
+      expect(ran).not.toHaveBeenCalled();
     });
 
     it("leaves a wrapper the snapshot builder already made unmarked", () => {
@@ -654,11 +699,8 @@ describe("createReplacer", () => {
 
       register($inner, "atom");
 
-      const wrapped: [string, unknown][] = [
-        ["a Map value", new Map([["held", $inner]])],
-        ["a Map key", new Map([[$inner, "held"]])],
-        ["a Set member", new Set([$inner])],
-      ];
+      /** A `Map` key is jsan's own half of an entry we could not name, so a store there is wrapped. */
+      const wrapped: [string, unknown][] = [["a Map key", new Map([[$inner, "held"]])]];
 
       for (const [where, holder] of wrapped) {
         expect(unescaped(write(holder)), where).toContain(
@@ -666,9 +708,11 @@ describe("createReplacer", () => {
         );
       }
 
-      /** A name the app wrote, and an array position, are ours to spell, so these take the key. */
+      /** A name the app wrote, and a position of ours, are ours to spell, so these take the key. */
       const keyed: [string, unknown, string][] = [
         ["an array member", [$inner], '"[0] [store]":"Berlin"'],
+        ["a Map value", new Map([["held", $inner]]), '"["held"] [store]":"Berlin"'],
+        ["a Set member", new Set([$inner]), '"[0] [store]":"Berlin"'],
         ["a plain object property", { held: $inner }, '"held [store]":"Berlin"'],
         ["a class instance field", new Field($inner), '"$held [store]":"Berlin"'],
         [
@@ -974,16 +1018,30 @@ describe("createReplacer", () => {
       expect(drawnKeys(items)).toEqual(["0"]);
     });
 
-    it("gives a Date, a Map, a Set and a RegExp back as themselves inside the box", () => {
+    it("gives a Date and a RegExp back as themselves inside the box", () => {
       const rows: [unknown, (drawn: unknown) => boolean][] = [
         [new Date(0), (value) => value instanceof Date],
-        [new Map([["a", 1]]), (value) => value instanceof Map],
-        [new Set([1]), (value) => value instanceof Set],
         [/a/, (value) => value instanceof RegExp],
       ];
 
       for (const [value, isItself] of rows) {
         expect(isItself(Reflect.get(Object(held(value)), "(value)")), String(value)).toBe(true);
+      }
+    });
+
+    /**
+     * A collection we key carries its own label, and two labels cannot sit on one object, so the
+     * box is still what keeps the store's own label off it. The reason changed, the shape did not.
+     */
+    it("keeps a Map and a Set boxed, each one keeping its own label under the store's", () => {
+      for (const [value, type] of [
+        [new Set([1]), "Set"],
+        [new Map([["a", 1]]), "Map"],
+      ] as const) {
+        const drawn = held(value);
+
+        expect(labelOf(drawn), type).toBe("store");
+        expect(labelOf(Reflect.get(Object(drawn), "(value)")), type).toBe(type);
       }
     });
 
@@ -1189,71 +1247,69 @@ describe("createReplacer", () => {
     });
   });
 
-  describe("the list jsan builds out of a Map and a Set", () => {
+  /**
+   * jsan writes a `Map` and a `Set` by walking a list it builds out of them, and it only reaches
+   * that far for a collection a serializer of the developer's returned: every one the app holds is
+   * keyed here first, so jsan never sees it.
+   */
+  describe("a Map and a Set, and the list jsan builds out of a serializer's own", () => {
     const arrays: Serializer[] = [{ match: Array.isArray, convert: () => "converted" }];
     const points: Serializer[] = [
       { match: (value) => value instanceof Point, convert: () => "theirs" },
     ];
 
-    it("draws a Map and a Set with no serializer registered the way jsan alone draws them", () => {
-      expect(write(new Map([["a", 1]]))).toBe('{"$jsan":"m[[\\"a\\",1]]"}');
-      expect(write(new Set([1, 2]))).toBe('{"$jsan":"l[1,2]"}');
-    });
-
-    it("keeps a serializer matching arrays off the pairs of a Map", () => {
-      const value = new Map<string, unknown>([["a", 1]]);
-
-      expect(write(value, createReplacer(arrays))).toBe(write(value));
-    });
-
-    it("keeps a serializer matching arrays off the pairs of a Map a store holds", () => {
-      const $held = atom<unknown>(new Map([["a", 1]]));
-
-      register($held, "atom", "$held");
-
-      expect(write({ $held }, createReplacer(arrays))).toBe(write({ $held }));
-    });
-
-    it("keeps a serializer matching arrays off the list of a Set", () => {
-      const value = new Set([1, 2]);
-
-      expect(write(value, createReplacer(arrays))).toBe(write(value));
-    });
-
-    it("keeps them off both levels of a Map whose value is another Map", () => {
-      const value = new Map<string, unknown>([["outer", new Map([["inner", 1]])]]);
-
-      expect(write(value, createReplacer(arrays))).toBe(write(value));
-    });
-
     it("runs a serializer on a value the app holds inside a Map", () => {
       expect(unescaped(write(new Map([["p", new Point()]]), createReplacer(points)))).toContain(
-        '[["p","theirs"]]',
+        '"["p"]":"theirs"',
       );
     });
 
     it("runs a serializer on a key the app holds inside a Map", () => {
       expect(unescaped(write(new Map([[new Point(), 1]]), createReplacer(points)))).toContain(
-        '[["theirs",1]]',
+        '"[entry 0]":{"[key]":"theirs","[value]":1}',
       );
     });
 
     it("runs a serializer on a member the app holds inside a Set", () => {
       expect(unescaped(write(new Set([new Point()]), createReplacer(points)))).toContain(
-        '["theirs"]',
+        '"[0]":"theirs"',
       );
     });
 
     it("runs a serializer on an array the app holds inside a Map", () => {
       expect(unescaped(write(new Map([["a", [1, 2]]]), createReplacer(arrays)))).toContain(
-        '[["a","converted"]]',
+        '"["a"]":"converted"',
       );
     });
 
     it("runs a serializer on an array the app holds inside a Set", () => {
       expect(unescaped(write(new Set([[1, 2]]), createReplacer(arrays)))).toContain(
-        '["converted"]',
+        '"[0]":"converted"',
       );
+    });
+
+    /**
+     * We read both collections into an array of our own on the way to keying them. It never leaves
+     * this module, so a serializer of the developer's must never be asked about it.
+     */
+    it("shows a serializer matching arrays no array of ours", () => {
+      const rows: unknown[] = [
+        new Map<string, unknown>([["a", 1]]),
+        new Set([1, 2]),
+        new Map<string, unknown>([["outer", new Map([["inner", 1]])]]),
+      ];
+
+      for (const value of rows) {
+        expect(write(value, createReplacer(arrays)), String(value)).toBe(write(value));
+      }
+    });
+
+    it("shows it none inside a Map a store holds either", () => {
+      const $held = atom<unknown>(new Map([["a", 1]]));
+
+      register($held, "atom", "$held");
+
+      expect(write({ $held }, createReplacer(arrays))).toBe(write({ $held }));
     });
 
     it("keeps them off the pairs of a Map a serializer's own result holds", () => {
@@ -1300,6 +1356,35 @@ describe("createReplacer", () => {
       error.own = error;
 
       expect(write(error)).toContain('"own":{"$jsan":"$"}');
+    });
+
+    /**
+     * jsan writes a collection of its own by calling `stringify` again on a list built out of it,
+     * and that second call starts a fresh path of its own, so a loop leading back out of the
+     * collection is one it cannot see and it walks until the stack ends. Keying both collections
+     * keeps the whole tree inside one walk, which is the walk that spots the loop.
+     */
+    it("writes a loop through a Map or a Set instead of taking the tree down", () => {
+      const set = new Set<unknown>();
+      const map = new Map<unknown, unknown>();
+      const keyed = new Map<unknown, unknown>();
+      const holder: Record<string, unknown> = {};
+
+      set.add(set);
+      map.set("self", map);
+      keyed.set(holder, holder);
+      holder["back"] = keyed;
+
+      expect(write(set)).toBe('{"data":{"[0]":{"$jsan":"$"}},"__serializedType__":"Set"}');
+      expect(unescaped(write(map))).toBe(
+        '{"data":{"["self"]":{"$jsan":"$"}},"__serializedType__":"Map"}',
+      );
+      /** The key and the value are siblings, so jsan writes the second one again rather than as a
+       * pointer, and only the way back up to the collection is one. */
+      expect(unescaped(write(keyed))).toBe(
+        '{"data":{"[entry 0]":{"[key]":{"back":{"$jsan":"$"}},' +
+          '"[value]":{"back":{"$jsan":"$"}}}},"__serializedType__":"Map"}',
+      );
     });
 
     it("terminates on a loop three objects long", () => {

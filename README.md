@@ -464,11 +464,14 @@ property descriptors and never call a getter, so a value behind one is a value w
 of your serializers. A getter handing back the input converts it over and over; that one slot then
 shows `ConversionError` and the rest of the tree still reaches the panel.
 
-**A `Map` and a `Set` go out as a list the encoder builds, and your rules never see that list.** A
-`Map` becomes a list of `[key, value]` pairs and a `Set` a list of its members. Neither the list nor
-a pair inside it reaches your serializers, so a rule as wide as `match: Array.isArray` leaves a
-collection as it is. The keys, the values and the members inside one are your app's, and every rule
-you wrote still runs on them.
+**A `Map` and a `Set` are keyed by the bridge, and no list of ours reaches your rules.** We read
+both into an array on the way, and that array never leaves the bridge, so a rule as wide as
+`match: Array.isArray` leaves a collection as it is. The keys, the values and the members inside one
+are your app's, and every rule you wrote still runs on them.
+
+The one collection the encoder still writes by itself is one **your own `convert` returned**. It
+builds a list out of it there, and neither that list nor a `[key, value]` pair inside it reaches
+your serializers.
 
 ### `nanostoresDevtools(options?)`
 
@@ -611,8 +614,7 @@ Other things values do:
 - **A value that refers back to itself is written as a `$.path` pointer.** The extension's own
   encoder does this to make a loop safe to write. A plain repeat is not: the same object in two
   places is written out twice, because the option that would collapse it is off in the extension's
-  defaults. This is the price of letting a `Date`, a `Map` and a `Set` render as themselves in the
-  panel.
+  defaults. This is the price of letting a `Date` and a `RegExp` render as themselves in the panel.
 - **A getter is never read**, with one exception, because a getter can run app code. An object whose
   data lives entirely on its prototype, such as a `URL`, shows its `String()` form or nothing. The
   exception is the `stack` accessor V8 puts on an error itself: refusing it would drop the stack from
@@ -626,11 +628,12 @@ Other things values do:
   there the position is part of the shape.
 - **`-0` arrives as `0`.**
 - **A custom serializer has no reviver.** The bridge encodes only, and v1 never reads state back.
-- **A labelled value inside a `Map` or a `Set` keeps its wrapper**, so you read
+- **A labelled value inside a `Map` a `convert` of yours returned keeps its wrapper**, so you read
   `{ data, __serializedType__ }` there instead of a label in front of the value. The extension's
-  own encoder writes those two containers as one string and reads them back without its reviver, so
-  nothing inside them is ever unwrapped. It hits every labelled value: an `Error`, a class
-  instance, a typed array, a `BigInt`, a DOM node, a store, and a slot that failed to convert.
+  own encoder writes that collection as one string and reads it back without its reviver, so nothing
+  inside it is ever unwrapped. It hits every labelled value: an `Error`, a class instance, a typed
+  array, a `BigInt`, a DOM node, a store, and a slot that failed to convert. A `Map` or a `Set` your
+  app holds is keyed by the bridge instead and has no such problem.
 
 An `Error` keeps its name, message, stack, cause and own fields. A class instance keeps its class
 name. A typed array, a `BigInt` and a DOM node each keep something readable. A value that throws
@@ -675,9 +678,26 @@ and the State tab sets `display: none` on that string while the node is expanded
 of a collapsed parent's preview. On a member there is no moment you can read it. A key is always
 drawn.
 
-**A `Map` key and a `Set` position keep the wrapper**, as the bullet above says, so you read
-`{ data, __serializedType__ }` there with the store's value under `data`. The encoder writes those
-two containers itself and no key of ours reaches inside them.
+**A `Map` and a `Set` are keyed the same way**, and unconditionally, which is where they part from
+an array. `["scratch"]` for a `Map` key your source could write, `[0]` for a `Set` position:
+
+```
+$columns [store]   Set
+  [0]: "name"
+  [1]: "size"
+
+$editors [store]   Map
+  ["draft"] [store]:  "Berlin"
+```
+
+The reason is not the key, it is the label. The panel draws a `Map`, a `Set` and anything else with
+an iterator with one node kind, and that node writes **`Iterable`** over the name it worked out. A
+collection the encoder renders itself therefore cannot say which of the two it is. Keying it buys
+the name back, and costs the `2 entries` count the panel writes for that node kind alone.
+
+The one wrapper left is the `[key]` half of a `Map` entry whose key is not a string or a number.
+There is no name in your source for such a key, so the entry keeps the encoder's own shape,
+`[entry 0]: { [key]: …, [value]: … }`, and a store sitting in either half is wrapped there.
 
 The word is the kind the bridge knows: `map`, `deepMap`, `computed` or `batched`. An `atom`, and a
 store whose kind the bridge never learned, both say the plain word `store`. An unmounted store keeps
@@ -750,8 +770,9 @@ change, and a gap might.
 - **A `Promise`'s value**, which is reachable only through `then`.
 - **A symbol-keyed property, an inherited property, and a non-enumerable own property.** We read own
   enumerable data properties only.
-- **A `Map` key that is not a string or a number.** There is no name for it that exists in your
-  source, so that member is left out.
+- **A `Map` key that is not a string or a number, as a place in the tree.** There is no name for it
+  that exists in your source, so that member gets no node. The entry itself is still drawn inside
+  the value, key and all, as `[entry 0]: { [key]: …, [value]: … }`.
 
 **Bounded on purpose:**
 

@@ -52,9 +52,10 @@ export function staleNote(store: Store, entry: StoreEntry | undefined): Note | u
  * unless they are boxed first:
  *
  * - a primitive, which never unwraps at all, and `null`, which breaks the write the reviver makes;
- * - a `Date`, a `Map`, a `Set` and a `RegExp`, which travel as a `{ $jsan: … }` object, so decoding
- *   replaces the object the type was written onto and the type goes with it;
- * - anything we mark ourselves, which would carry two types on one object, and the outer one wins;
+ * - a `Date` and a `RegExp`, which travel as a `{ $jsan: … }` object, so decoding replaces the
+ *   object the type was written onto and the type goes with it;
+ * - anything we mark ourselves, a `Map` and a `Set` included, which would carry two types on one
+ *   object, and the outer one wins;
  * - a value that holds the store back, because then the mark sits inside the object it carries,
  *   jsan writes an object it is already inside as a pointer to that ancestor, and the type was
  *   written onto the object the pointer replaces.

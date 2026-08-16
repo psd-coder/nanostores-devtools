@@ -1,7 +1,7 @@
 import type { Store } from "nanostores";
 
 import { chainDescriptor, copyData, type Fields, ownFields, ownIndexes } from "./descriptor.ts";
-import { box, isBuilt, mark, type Marked } from "./marker.ts";
+import { box, isBuilt, keepBuilt, mark, type Marked } from "./marker.ts";
 import { getEntry, isStore, noted, storeWord } from "./registry.ts";
 import { dataForMark, reachesStore, staleNote, storeValue } from "./slot.ts";
 import { describeError, warnOnce } from "./warn.ts";
@@ -106,8 +106,8 @@ export function createReplacer(
 
   /**
    * Hands the value on and, where that value is a collection, notes the list jsan walks next. A
-   * collection reaches jsan from three places: a value of the app's, a value inside a serializer's
-   * result, and a result itself, and jsan writes all three the same way.
+   * serializer's own result is the one collection jsan still writes itself: every one the app holds
+   * is keyed below before jsan can see it.
    */
   const openList = (handed: unknown): unknown => {
     if (handed instanceof Map || handed instanceof Set) {
@@ -151,7 +151,7 @@ export function createReplacer(
       if (left > 0) {
         takeSlot(slots, value, left);
 
-        return openList(fillSlots(slots, convertValue(value, kept)));
+        return fillSlots(slots, convertValue(value, kept));
       }
 
       for (const serializer of serializers) {
@@ -165,7 +165,7 @@ export function createReplacer(
         }
       }
 
-      return openList(convertValue(value, kept));
+      return convertValue(value, kept);
     } catch (error) {
       const message = describeError(error);
 
@@ -361,6 +361,44 @@ function positioned(members: readonly unknown[]): Fields {
   return fields;
 }
 
+/**
+ * Both collections are read through the built-in `forEach` called against the value rather than
+ * through a method of the value's own, so a subclass that overrode iteration cannot run its code
+ * while a tree is written.
+ */
+function setMembers(value: Set<unknown>): unknown[] {
+  const members: unknown[] = [];
+
+  Set.prototype.forEach.call(value, (member: unknown) => {
+    members.push(member);
+  });
+
+  return members;
+}
+
+/**
+ * One key per entry, spelled the way the tree spells a `Map` key, `["scratch"]`. A key that is
+ * neither a string nor a number has no name in the source to spell, so its entry keeps jsan's own
+ * shape, `[entry 0]: { "[key]": …, "[value]": … }`: the key is as much state as the value is, and
+ * the tree may leave such a member out of a placement but a value may not lose it.
+ */
+function mapEntries(value: Map<unknown, unknown>): Fields {
+  const fields: Fields = {};
+  let index = 0;
+
+  Map.prototype.forEach.call(value, (member: unknown, key: unknown) => {
+    if (typeof key === "string" || typeof key === "number") {
+      fields[`[${JSON.stringify(key)}]`] = member;
+    } else {
+      fields[`[entry ${index}]`] = keepBuilt({ "[key]": key, "[value]": member });
+    }
+
+    index += 1;
+  });
+
+  return fields;
+}
+
 /** The same rule for an array of no stores, whose members jsan reads by index. A hole stays put. */
 function copyIndexes(kept: Kept, source: readonly unknown[], indexes: unknown[]): unknown[] {
   const known = kept.indexes.get(source);
@@ -436,14 +474,26 @@ function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
       : copyIndexes(kept, value, members);
   }
 
-  /** Before the class instance rule, or jsan never gets to render these four natively. */
-  if (
-    value instanceof Date ||
-    value instanceof Map ||
-    value instanceof Set ||
-    value instanceof RegExp
-  ) {
+  /** Before the class instance rule, or jsan never gets to render these two natively. */
+  if (value instanceof Date || value instanceof RegExp) {
     return value;
+  }
+
+  /**
+   * A `Map` and a `Set` are keyed rather than left to jsan, and unconditionally, which is where they
+   * part from an array. The panel draws one node kind for a `Map`, a `Set` and anything else with an
+   * iterator, and that node hard-codes its own name over the one it worked out, so every collection
+   * jsan renders natively reads `Iterable` and a developer cannot tell a `Map` from a `Set`. An array
+   * has no such problem and keeps its shape unless a store inside it needs a key.
+   *
+   * The cost is jsan's `3 entries` count, which the panel writes for a node of that kind alone.
+   */
+  if (value instanceof Set) {
+    return markOnce(kept.wrappers, value, "Set", slotted(kept, positioned(setMembers(value))));
+  }
+
+  if (value instanceof Map) {
+    return markOnce(kept.wrappers, value, "Map", slotted(kept, mapEntries(value)));
   }
 
   const prototype: unknown = Object.getPrototypeOf(value);
@@ -466,8 +516,9 @@ function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
  * `(value)` box a wrapper needs to carry a label. The wrapper is left for the one thing only a
  * wrapper can say, a value that cannot be trusted, and the key still carries the type beside it.
  *
- * An array index and a `Map` key are positions rather than names of ours, so a store sitting at one
- * keeps the wrapper for its type as well.
+ * Every position we spell ourselves takes the key too: an array index, a `Set` position and a `Map`
+ * key we could name. The one place left for a wrapper is the `[key]` half of a `Map` entry whose key
+ * has no name in the source, which is jsan's own shape rather than one of ours.
  *
  * jsan never meets a store this replaced, so a serializer of the developer's does not either. That
  * is what the tree already does with a store's own slot, where the value goes in and the store does
@@ -519,9 +570,9 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
 }
 
 /**
- * A store at a key that is not ours to rename: an array index, a `Map` key, or one handed straight
- * to the replacer. `value` is the whole read, the same read the tree does: `get()` mounts an
- * unmounted store. A store that is not mounted says so instead of naming its type, because that
+ * A store at a key that is not ours to rename: the `[key]` half of an unnamed `Map` entry, or one
+ * handed straight to the replacer. `value` is the whole read, the same read the tree does: `get()`
+ * mounts an unmounted store. A store that is not mounted says so instead of naming its type, because that
  * note says more and a mark cannot sit inside another mark.
  */
 function markStore(wrappers: Wrappers, store: Store): Marked {
