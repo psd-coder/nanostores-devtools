@@ -58,15 +58,7 @@ export type BindingHome = ModuleHome & NameSource;
  * What one value holds: the members the tree draws, and the ones its cap left out. A value read
  * holds members; a value that threw at us holds a reason and nothing else, so the two never mix.
  */
-type Members =
-  | {
-      read: true;
-      drawn: Binding[];
-      past: Binding[];
-      /** Whether a collection named these members itself, by a position or by a map key. */
-      collection: boolean;
-    }
-  | { read: false; reason: string };
+type Members = { read: true; drawn: Binding[]; past: Binding[] } | { read: false; reason: string };
 
 /**
  * One walk: the module it runs for, the top-level binding it started at, and what it has already
@@ -300,7 +292,7 @@ function walk(
 
   for (const [key, member] of members.drawn) {
     if (isStore(member)) {
-      recordOwner(member, value, "scan", members.collection ? key : undefined);
+      recordOwner(member, value, "scan", key);
     }
 
     if (canHold(member)) {
@@ -500,23 +492,18 @@ function membersOf(value: object): Members {
       return capped(walked((visit) => Set.prototype.forEach.call(value, visit), position));
     }
 
-    return { read: true, drawn: propertiesOf(value), past: [], collection: false };
+    return { read: true, drawn: propertiesOf(value), past: [] };
   } catch (error) {
     return { read: false, reason: describeError(error) };
   }
 }
 
 /**
- * Only a collection is capped, and only a collection names its members itself. A plain object's keys
- * are as many as the developer wrote, and each one already names the member it holds.
+ * Only a collection is capped. A plain object's keys are as many as the developer wrote, so a long
+ * one is a thing they can see in their own source, while a collection's length is data.
  */
 function capped(members: Binding[]): Members {
-  return {
-    read: true,
-    drawn: members.slice(0, MAX_MEMBERS),
-    past: members.slice(MAX_MEMBERS),
-    collection: true,
-  };
+  return { read: true, drawn: members.slice(0, MAX_MEMBERS), past: members.slice(MAX_MEMBERS) };
 }
 
 /**

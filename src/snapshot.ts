@@ -213,13 +213,18 @@ function childPlacements(
 }
 
 /**
- * A nested store is keyed by the name its owner knows it by, which carries no number: the parent
- * already says which one this is. Where several stores from one creation site land on one parent,
- * `keepApart` and `numberApart` below tell them apart again.
+ * A nested store is keyed by the name its owner really holds it under, which carries no number: the
+ * parent already says which one this is. Where several stores still land on one parent under one
+ * name, `keepApart` and `numberApart` below tell them apart again.
  *
- * A member of a collection takes the key that collection holds it under, because a position or a map
- * key is the only name that says which member it is: a tuple carries its meaning in the order, and
- * the name a store was born with says nothing about where it sits.
+ * The scan reads that name off the owner, so it is the key the developer wrote and not the name the
+ * store was born with. The two agree wherever a util calls its own field what it exposes it as, and
+ * only where they part does it matter: `{ username: focus($values, "username") }` reads as
+ * `username`, where the birth name says `$lens` and a second lens beside it says `$lens #2`.
+ *
+ * A frame and a class field carry no such name. Nothing there holds the store under a key: the frame
+ * only knows it was born while an expression ran. Those keep the name the creation site gave, and a
+ * store no site ever named keeps its registered one.
  *
  * On a collection that left members out, a store no member of it names takes the name it is
  * registered under instead, because the member it came from has no node here to say which one that

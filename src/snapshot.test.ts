@@ -1009,15 +1009,29 @@ describe("buildSnapshot", () => {
       expect(keysOf(HOME, "$draft2 [store]")).toEqual(["(value)", "$canUndo [store]"]);
     });
 
+    /**
+     * A frame is what still puts two children of one name on one parent. It holds them under no key
+     * of its own, so each falls back to the name its creation site gave, and two sites may agree.
+     */
+    function underFrame($parent: Store, ...born: Store[]): void {
+      beginFrame();
+
+      for (const store of born) {
+        noteBirth(store);
+      }
+
+      endFrame(FROM, $parent, "$draft");
+    }
+
     it("keeps the ordinal where one creation site put two stores on one parent", () => {
       const $first = atom(1);
       const $second = atom(2);
-      const $draft = holder("", { $first, $second });
+      const $draft = atom("");
 
       track($draft, "$draft");
       trackNumbered($first, "$row", 1);
       trackNumbered($second, "$row", 2);
-      ownBindings(FROM, [["$draft", $draft]]);
+      underFrame($draft, $first, $second);
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
         "(value)",
@@ -1029,12 +1043,12 @@ describe("buildSnapshot", () => {
     it("keeps two children of one name apart by the file each came from", () => {
       const $mine = atom(1);
       const $theirs = atom(2);
-      const $draft = holder("", { $mine, $theirs });
+      const $draft = atom("");
 
       track($draft, "$draft");
       track($mine, "$history");
       track($theirs, "$history", "vendor/withUndo.ts");
-      ownBindings(FROM, [["$draft", $draft]]);
+      underFrame($draft, $mine, $theirs);
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
         "(value)",
@@ -1046,17 +1060,34 @@ describe("buildSnapshot", () => {
     it("gives the home the one group, so no key of a home clash carries two", () => {
       const $mine = atom(1);
       const $theirs = atom(2);
-      const $draft = holder("", { $mine, $theirs });
+      const $draft = atom("");
 
       track($draft, "$draft");
       track($mine, "$history", HOME, "atom", "line 20");
       track($theirs, "$history", "vendor/withUndo.ts", "atom", "line 20");
-      ownBindings(FROM, [["$draft", $draft]]);
+      underFrame($draft, $mine, $theirs);
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
         "(value)",
         `$history [store] (${HOME})`,
         "$history [store] (vendor/withUndo.ts)",
+      ]);
+    });
+
+    it("keys a child by the property its owner holds it under, not the name it was born with", () => {
+      const $lens = atom("ada");
+      const $second = atom("");
+      const $form = holder("", { username: $lens, password: $second });
+
+      track($form, "$form");
+      trackNumbered($lens, "$lens", 1);
+      trackNumbered($second, "$lens", 2);
+      ownBindings(FROM, [["$form", $form]]);
+
+      expect(keysOf(HOME, "$form [store]")).toEqual([
+        "(value)",
+        "password [store]",
+        "username [store]",
       ]);
     });
 
@@ -1841,7 +1872,7 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("keys the second placement of a store no site ever named by its own name", () => {
+      it("keys the second placement by the property the owner holds it under, not the group", () => {
         const $route = atom("/");
         const router = holder("", { $route });
 
@@ -1851,7 +1882,27 @@ describe("buildSnapshot", () => {
 
         expect(buildSnapshot()).toEqual({
           debug: { "route [store]": stale("/") },
-          [HOME]: { "router [store]": { "(value)": "", "route [store]": stale("/") } },
+          [HOME]: { "router [store]": { "(value)": "", "$route [store]": stale("/") } },
+        });
+      });
+
+      /**
+       * A frame holds the store under no property, so nothing but the group key is left to name it.
+       * This is the one path the `ownerName` fallback still runs on.
+       */
+      it("falls back to the group key where a frame is what placed the store", () => {
+        const $route = atom("/");
+        const $router = atom("");
+
+        track($router, "$router");
+        trackStores("debug", { route: $route });
+        beginFrame();
+        noteBirth($route);
+        endFrame(FROM, $router, "$router");
+
+        expect(buildSnapshot()).toEqual({
+          debug: { "route [store]": stale("/") },
+          [HOME]: { "$router [store]": { "(value)": "", "route [store]": stale("/") } },
         });
       });
 

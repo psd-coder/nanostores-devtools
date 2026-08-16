@@ -396,9 +396,9 @@ describe("a node", () => {
     expect(nameOf(second)).toBe("[1]");
   });
 
-  it("records the key a collection holds a store under, and none for a written property", () => {
+  it("records the key its owner holds a store under, a collection's and a written one alike", () => {
     const $width = atom(320);
-    const panel = { $open: atom(false) };
+    const panel = { open: atom(false) };
 
     ownBindings(FROM, [
       ["bounds", [$width]],
@@ -406,8 +406,17 @@ describe("a node", () => {
     ]);
 
     expect(ownerLinkOf($width)?.key).toBe("[0]");
-    /** A property the developer wrote is already the name the store is drawn under. */
-    expect(ownerLinkOf(panel.$open)?.key).toBeUndefined();
+    /** The property the developer wrote, which is the name they can look the store up by. */
+    expect(ownerLinkOf(panel.open)?.key).toBe("open");
+  });
+
+  it("records a key that says nothing about the name the store was born with", () => {
+    const $lens = atom("");
+
+    track($lens, "$lens");
+    ownBindings(FROM, [["fields", { username: $lens }]]);
+
+    expect(ownerLinkOf($lens)?.key).toBe("username");
   });
 
   it("reads an array by index, so a method of its own never runs", () => {

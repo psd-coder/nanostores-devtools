@@ -183,7 +183,9 @@ v1 meaning, the name a developer passes to `trackStores()` and the unit `untrack
 
 **Placement** — one key in the tree pointing at a store. A store has one entry and may have two
 placements: the home the developer chose for it, drawn flat, and the name its owner knows it by,
-drawn under the owner. They choose a home two ways, a top-level binding of their own and an
+drawn under the owner. That second key is the property the owner really holds it at, and only where
+nothing holds it under a property, as under a creation frame, does it fall back to the name the
+store's creation site gave. They choose a home two ways, a top-level binding of their own and an
 explicit registration, and either one beats the owner the ownership walk recorded.
 
 A store may also have none. One made inside a function and placed by nothing is that function's own

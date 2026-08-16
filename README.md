@@ -255,6 +255,26 @@ measured that cost about 11% more bytes.
 The flat placement owns the name for every other purpose, timeline rows included, so a store
 renamed by your own binding has its rows renamed too: `$undoable/set`, not `$canUndo/set`.
 
+**The second key is the property the owner really holds the store at**, not the name the store was
+born with. The two agree wherever a util calls its own field what it hands it out as, which is most
+of the time. Where they part, the key you wrote wins:
+
+```js
+export const fields = {
+  username: focus($values, "username"),
+  password: focus($values, "password"),
+};
+```
+
+```
+fields: { username [store]: "ada", password [store]: "" }
+```
+
+The atom `focus` returns is called `$lens` inside its own file, and two of them side by side would
+read as `$lens [store]` and `$lens [store] #2`. Neither name is one you could look up. A frame and a
+class field hold the store under no property at all, so those still fall back to the name its
+creation site gave.
+
 **A store you passed to `trackStores` is drawn the same way**, at the group you named, with the
 owner keeping the second placement. The group is a home you chose by hand, so it beats any owner
 the walk found.
