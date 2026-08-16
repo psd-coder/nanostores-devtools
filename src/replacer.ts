@@ -1,6 +1,13 @@
 import type { Store } from "nanostores";
 
-import { chainDescriptor, copyData, type Fields, ownFields, ownIndexes } from "./descriptor.ts";
+import {
+  builtinFields,
+  chainDescriptor,
+  copyData,
+  type Fields,
+  ownFields,
+  ownIndexes,
+} from "./descriptor.ts";
 import { noteDrawn } from "./drawn.ts";
 import { box, isBuilt, keepBuilt, mark, type Marked } from "./marker.ts";
 import { getEntry, isStore, noted, storeWord } from "./registry.ts";
@@ -33,6 +40,13 @@ type Kept = {
   wrappers: Wrappers;
   fields: WeakMap<object, Fields>;
   indexes: WeakMap<object, unknown[]>;
+  /**
+   * Every object a built-in getter handed back, which is drawn by its class alone rather than read
+   * again. One expansion is what a developer asked for; a second is how `event.view` reaches
+   * `window` and the whole platform behind it, and a DOM node is the only such value already
+   * bounded, by its opening tag.
+   */
+  expanded: WeakSet<object>;
 };
 
 /** How many slots of a serializer's result hold this value, so how often jsan is yet to hand it back. */
@@ -64,7 +78,12 @@ export function createReplacer(
    * is what lets jsan see the repeat, and they live as long as the replacer, which is one
    * connection.
    */
-  const kept: Kept = { wrappers: new WeakMap(), fields: new WeakMap(), indexes: new WeakMap() };
+  const kept: Kept = {
+    wrappers: new WeakMap(),
+    fields: new WeakMap(),
+    indexes: new WeakMap(),
+    expanded: new WeakSet(),
+  };
   const slots: ResultSlots = new Map();
   const converted: Map<object, number> = new Map();
 
@@ -504,7 +523,7 @@ function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
   }
 
   const name = constructorName(value, "Object");
-  const fields = slotted(kept, ownFields(value));
+  const fields = slotted(kept, heldFields(kept, value));
   const data = Object.keys(fields).length > 0 ? fields : box(String(value));
 
   return markOnce(kept.wrappers, value, name, data);
@@ -654,6 +673,33 @@ function constructorName(value: object, fallback: string): string {
   const name: unknown = typeof built === "function" ? ownValue(built, "name") : undefined;
 
   return typeof name === "string" && name.length > 0 ? name : fallback;
+}
+
+/**
+ * What a class instance shows: its own data, and where it has none, what the getters of a built-in
+ * prototype hold. An object that keeps everything behind platform accessors used to read
+ * `[object PointerEvent]` and say nothing else, because own data is all the walk ever looked at.
+ *
+ * Own data first, so an object that has any is untouched. A getter runs only where nothing was
+ * written on the object itself, which is the shape this is for and keeps the reading cheap for every
+ * other value the panel draws.
+ */
+function heldFields(kept: Kept, value: object): Fields {
+  const own = ownFields(value);
+
+  if (Object.keys(own).length > 0 || kept.expanded.has(value)) {
+    return own;
+  }
+
+  const held = builtinFields(value);
+
+  for (const member of Object.values(held)) {
+    if (typeof member === "object" && member !== null) {
+      kept.expanded.add(member);
+    }
+  }
+
+  return held;
 }
 
 /** What an own data property holds. A getter is passed over rather than called. */

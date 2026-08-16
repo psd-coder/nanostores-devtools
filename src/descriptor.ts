@@ -1,4 +1,73 @@
+import { builtinPrototype } from "./builtins.ts";
+
 export type Fields = Record<string, unknown>;
+
+/**
+ * What an object keeps behind the getters of a built-in prototype, `clientX` on a `PointerEvent` or
+ * `width` on a `DOMRect`. Those objects hold no own data at all: every one of their fields is an
+ * accessor the platform put on the prototype, so the own-property rule finds nothing and the panel
+ * used to print `[object PointerEvent]` and stop there.
+ *
+ * A getter is run only where the prototype holding it is one a global constructor carries, which is
+ * the whole safety rule: the platform wrote that code, not the app. A getter the app declared, on a
+ * class of its own or straight onto an instance, is passed over exactly as before, because running
+ * it can compute, fetch, throw or change what the app does next.
+ *
+ * Only enumerable accessors, which is what an interface attribute is and what a hidden internal such
+ * as `Map.prototype.size` is not. A getter that throws gives up its own key and nothing else: a
+ * platform getter may still refuse on a detached or already-read object.
+ *
+ * The nearest holder wins, so a class of the app's shadowing a platform name keeps its own refusal.
+ */
+export function builtinFields(value: object): Fields {
+  const fields: Fields = {};
+  const seen = new Set<string>();
+
+  try {
+    /**
+     * The object itself first, and it is no built-in prototype, so every key written straight onto
+     * it lands in `seen` refused. That is what keeps the nearest holder winning: a getter the app
+     * put on the instance is what a real read would run, so the platform's own name for it further
+     * up the chain must not answer in its place.
+     */
+    let holder: object | null = value;
+
+    while (holder !== null && holder !== Object.prototype) {
+      const platform = builtinPrototype(holder);
+
+      for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(holder))) {
+        if (seen.has(key)) {
+          continue;
+        }
+
+        seen.add(key);
+
+        if (platform && descriptor.enumerable && typeof descriptor.get === "function") {
+          readGetter(fields, key, descriptor.get, value);
+        }
+      }
+
+      holder = Object.getPrototypeOf(holder);
+    }
+  } catch {
+    return {};
+  }
+
+  return fields;
+}
+
+/** A method handed back is left out, as it is everywhere else: the panel draws state. */
+function readGetter(fields: Fields, key: string, get: () => unknown, self: object): void {
+  try {
+    const held: unknown = get.call(self);
+
+    if (typeof held !== "function") {
+      fields[key] = held;
+    }
+  } catch {
+    /** One key gives up, and every other one this object holds is still worth drawing. */
+  }
+}
 
 /**
  * Own enumerable string keys that hold state. A getter can run app code, so it is skipped rather

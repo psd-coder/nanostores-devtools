@@ -487,10 +487,122 @@ describe("createReplacer", () => {
       });
     });
 
-    it("reads no getter, so a URL takes the String(value) rescue", () => {
-      expect(replacer("u", new URL("https://example.com/a?b=1"))).toEqual({
-        data: { "(value)": "https://example.com/a?b=1" },
-        __serializedType__: "URL",
+    /**
+     * Every field a `URL` has sits behind a getter on `URL.prototype`, so the own-property rule
+     * found nothing and the rescue printed the whole thing as one string.
+     */
+    it("reads what a built-in prototype keeps behind its getters", () => {
+      const drawn = replacer("u", new URL("https://example.com/a?b=1")) as {
+        data: Record<string, unknown>;
+        __serializedType__: string;
+      };
+
+      expect(drawn.__serializedType__).toBe("URL");
+      expect(drawn.data["host"]).toBe("example.com");
+      expect(drawn.data["pathname"]).toBe("/a");
+      expect(drawn.data["search"]).toBe("?b=1");
+      expect(drawn.data["(value)"]).toBeUndefined();
+    });
+
+    it("still takes the rescue where nothing at all could be read", () => {
+      class Empty {}
+
+      expect(replacer("e", new Empty())).toEqual({
+        data: { "(value)": "[object Object]" },
+        __serializedType__: "Empty",
+      });
+    });
+
+    it("reads no getter a class of the app's declared", () => {
+      class Cart {
+        get total(): number {
+          throw new Error("app code ran");
+        }
+      }
+
+      expect(replacer("c", new Cart())).toEqual({
+        data: { "(value)": "[object Object]" },
+        __serializedType__: "Cart",
+      });
+    });
+
+    /**
+     * `searchParams` is a `URLSearchParams`, whose own fields are behind getters too. Reading those
+     * as well is how one value reaches the platform behind it: `event.view` is `window`.
+     */
+    it("draws an object a built-in getter handed back by its class alone", () => {
+      const drawn = replacer("u", new URL("https://example.com/a?b=1")) as {
+        data: Record<string, unknown>;
+      };
+      const params = drawn.data["searchParams"] as object;
+
+      expect(replacer("s", params)).toEqual({
+        data: { "(value)": "b=1" },
+        __serializedType__: "URLSearchParams",
+      });
+    });
+
+    /** The shape this is all for: an event keeps every field behind a getter on its prototype. */
+    it("reads an event, which used to draw as one [object Event] string", () => {
+      const drawn = replacer("e", new Event("pointermove")) as {
+        data: Record<string, unknown>;
+        __serializedType__: string;
+      };
+
+      expect(drawn.__serializedType__).toBe("Event");
+      expect(drawn.data["type"]).toBe("pointermove");
+      expect(drawn.data["(value)"]).toBeUndefined();
+    });
+
+    it("keeps a subclass of the app's reading the platform half and refusing its own", () => {
+      class Tracked extends Event {
+        get secret(): string {
+          throw new Error("app code ran");
+        }
+      }
+
+      const drawn = replacer("t", new Tracked("tap")) as { data: Record<string, unknown> };
+
+      expect(drawn.data["type"]).toBe("tap");
+      expect(drawn.data).not.toHaveProperty("secret");
+    });
+
+    /**
+     * `ArrayBuffer.prototype.byteLength` is a getter the platform wrote and keeps off its own key
+     * list, which is what tells an interface field from a hidden internal.
+     */
+    it("reads no getter a built-in keeps off its own key list", () => {
+      expect(replacer("b", new ArrayBuffer(8))).toEqual({
+        data: { "(value)": "[object ArrayBuffer]" },
+        __serializedType__: "ArrayBuffer",
+      });
+    });
+
+    it("gives up one key where a built-in getter throws and keeps the rest", () => {
+      const url = new URL("https://example.com/a");
+
+      Object.defineProperty(url, "host", {
+        enumerable: true,
+        get: () => {
+          throw new Error("refused");
+        },
+      });
+
+      const drawn = replacer("u", url) as { data: Record<string, unknown> };
+
+      /** The own accessor is nearest, so it is refused outright rather than run. */
+      expect(drawn.data).not.toHaveProperty("host");
+      expect(drawn.data["pathname"]).toBe("/a");
+    });
+
+    it("leaves an object that already holds own data exactly as it was", () => {
+      class Marker extends Event {
+        id = "m1";
+      }
+
+      expect(replacer("m", new Marker("tap"))).toEqual({
+        data: { id: "m1" },
+        __serializedType__: "Marker",
       });
     });
 

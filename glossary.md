@@ -91,6 +91,12 @@ five, so without it the second takes the first one's place. An array names its m
 instead, but only where the array is the value the binding holds, because only then is `$totals[0]`
 a name that reaches the store.
 
+**Platform object** — one whose fields all sit behind getters on its prototype and which holds no
+own data: an event, a `URL`, a `DOMRect`. The bridge reads those getters, which it refuses to do for
+a getter the app wrote. The test is the prototype: one a global constructor carries was written by
+the platform, and a class declared in a module was not. An object such a getter hands back is drawn
+by its class alone, so one expansion never becomes a walk over the whole platform.
+
 **Callee matching** — the first way, and the one that gives a type: the call names something
 the file imported from `nanostores`, renamed imports included. Adoption only handles what
 this misses.

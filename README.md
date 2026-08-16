@@ -706,12 +706,13 @@ Other things values do:
   encoder does this to make a loop safe to write. A plain repeat is not: the same object in two
   places is written out twice, because the option that would collapse it is off in the extension's
   defaults. This is the price of letting a `Date` and a `RegExp` render as themselves in the panel.
-- **A getter is never read**, with one exception, because a getter can run app code. An object whose
-  data lives entirely on its prototype, such as a `URL`, shows its `String()` form or nothing. The
-  exception is the `stack` accessor V8 puts on an error itself: refusing it would drop the stack from
-  every error, and a devtools with no stack traces is worth less than the risk. Reading it can run
-  `Error.prepareStackTrace` if the app installed one, and it makes V8 read `name` and `message` off
-  the error.
+- **A getter the app wrote is never read**, because it can run app code. A getter on a built-in
+  prototype is read, and that is what draws an event, a `URL` or a `DOMRect` as its fields rather
+  than as `[object PointerEvent]`. See [what a platform object shows](#what-a-platform-object-shows).
+  One more exception is the `stack` accessor V8 puts on an error itself: refusing it would drop the
+  stack from every error, and a devtools with no stack traces is worth less than the risk. Reading it
+  can run `Error.prepareStackTrace` if the app installed one, and it makes V8 read `name` and
+  `message` off the error.
 - **A method is left out.** An object's own property holding a function does not reach the panel:
   `{ id, $checked, toggle, add }` arrives as `{ id, $checked }`. The panel draws state, and a
   method beside the stores it writes says nothing your source does not. A value that is itself a
@@ -798,6 +799,45 @@ One shape is left over. **A store whose value can reach that store again keeps t
 the kind in front of the value and no kind in the key. That loop is what the extension's encoder
 finds by the path it built, and it only finds it while the wrapper's own key stands in that path.
 
+### What a platform object shows
+
+An event, a `URL`, a `DOMRect`: these keep every field behind a getter on their prototype and hold no
+own data at all. The own-property rule found nothing on them, so the panel used to draw the whole
+thing as one string, `[object PointerEvent]`.
+
+**A getter is read where the prototype holding it belongs to a global constructor.** That is the
+whole test, and it is what separates the platform's code from yours: `PointerEvent.prototype` is
+`globalThis.PointerEvent.prototype`, while a class you declared in a module is no global. A getter
+you wrote, on a class of your own or straight onto an instance, is still refused.
+
+```
+$pointerMove [store]: <PointerEvent> {
+  type: "pointermove"
+  clientX: 412
+  clientY: 260
+  buttons: 1
+  target: "<div id=\"row-2\">"
+  view: <Window>
+}
+```
+
+The rest of the rule, and why each part is there:
+
+- **Own data wins.** An object that has any own data property is read exactly as before, so this
+  costs nothing for every other value on the page.
+- **Only fields the interface publishes.** The getter has to be enumerable, which an interface
+  attribute is and a hidden internal such as `Map.prototype.size` is not.
+- **The nearest holder still wins.** A getter you put on the instance, or on a subclass of your own,
+  refuses the key outright rather than letting the platform's version of that name answer instead.
+- **One getter that throws costs its own key**, not the whole object. A platform getter can refuse on
+  a detached or already-read value.
+- **An object a getter handed back is drawn by its class alone.** Expansions never chain. Without
+  that, `event.view` is `window` and the whole platform hangs off one row. A DOM node was already
+  bounded, by its opening tag.
+
+A class the page defines on `globalThis` after the first tree is written counts as yours, because
+the set of platform prototypes is built once. That costs a label, never correctness.
+
 ### A follower can name the wrong source
 
 A row is one direct write plus the recomputes it caused. Each follower carries a `from` field
@@ -843,10 +883,11 @@ change, and a gap might.
 
 **Refused, by the read-only rule:**
 
-- **A value behind a getter is never read.** A getter runs your code, and running it would change
-  how the app behaves. A store held only behind a getter still reaches the tree; it just sits where
-  it was made rather than under the object that holds it. An object whose data lives entirely on its
-  prototype is the same case.
+- **A value behind a getter of yours is never read.** A getter runs your code, and running it would
+  change how the app behaves. A store held only behind a getter still reaches the tree; it just sits
+  where it was made rather than under the object that holds it. A getter on a built-in prototype is
+  read instead, because the platform wrote that one; see
+  [what a platform object shows](#what-a-platform-object-shows).
 - **An array is read index by index through its own descriptors**, so a getter sitting at an index
   never runs and an index only its prototype holds is left out. If that fails, the array
   contributes nothing.
