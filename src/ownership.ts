@@ -395,6 +395,10 @@ function hangUnder(devtools: DevtoolsGlobal, holder: object, store: Store): void
   }
 
   if (isStore(top)) {
+    if (standsAlone(top)) {
+      return;
+    }
+
     recordOwner(top, holder, "frame");
 
     return;
@@ -405,6 +409,22 @@ function hangUnder(devtools: DevtoolsGlobal, holder: object, store: Store): void
   if (info !== undefined && !chainHolds(devtools, holder, top)) {
     info.parent = new WeakRef(holder);
   }
+}
+
+/**
+ * Whether the store already holds a place the frame cannot improve on: one made at a module-level
+ * site, which the tree draws flat at the file it was written in because it has no function it could
+ * belong to.
+ *
+ * What the frame knows is that the store was born while some expression ran, and that is a claim
+ * about when, not about what holds it. `merged([eventAtom(root, "pointerup"), …])` keeps its sources
+ * in a closure, so nothing on the atom it hands back leads to them, and nesting them inside it says
+ * that atom holds them. They are siblings of it, and flat is where they belong.
+ *
+ * A store the registry never saw has no site to stand at, so the frame is still all it has.
+ */
+function standsAlone(store: Store): boolean {
+  return getEntry(store)?.fn === null;
 }
 
 /** What holds a store at the very top of its chain, which is the store itself when nothing does. */

@@ -196,6 +196,19 @@ returned value carries is reached by the scan through a property — `$value` an
 resource stay exactly where they were. The frame keeps its full reach inside your own files, where a
 store in a closure is yours whether or not a property leads to it.
 
+**A frame places nothing that already stands at a site of its own.** A store made at module level is
+drawn flat at the file it was written in, because it has no function it could belong to. All the
+frame knows is that it was born while some expression ran, and that says when, not what holds it:
+
+```js
+const $pointerEnd = merged([eventAtom(root, "pointerup"), eventAtom(root, "pointercancel")]);
+```
+
+`merged` keeps its sources in a closure, so nothing on the atom it hands back leads to them. Drawing
+them inside it would say that atom holds them. They are siblings of it, and the tree draws all three
+flat. What is left for the frame is the case it exists for: a store your own code made **inside a
+function**, which nothing else would draw at all.
+
 **All three run on your own files only.** A library binds its working state to its own top-level
 names too, and a `$active` that a ref count inside `history.ts` writes is that library's business,
 not a thing you can act on. What you got out of that library is bound in a file of yours, and that

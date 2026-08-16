@@ -107,6 +107,11 @@ what it handed over is adopted at the call site and takes the developer's home, 
 returned value carries the binding scan reaches through a property. Inside the developer's own files
 the frame keeps its full reach.
 
+It also places nothing that already stands at a site of its own. A store made at module level is
+drawn flat at the file it was written in, so nesting it under whatever the expression around it
+returned would claim a holding that does not exist. What is left is a store made inside a function,
+which is the case the frame exists for.
+
 **`this` in a class field** — a field initializer runs with `this` bound to the new instance, so
 the transform hands it over. A static field's `this` is the constructor instead, which is why a
 static store belongs to the class. It is also the only way to reach a private field.

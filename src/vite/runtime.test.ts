@@ -888,7 +888,8 @@ describe("begin and end", () => {
     const model = { $open: atom(false) };
 
     scope.begin();
-    scope.store(model.$open, site({ name: "$open" }));
+    /** Made inside a function, or the store would stand at its own site and want no frame. */
+    scope.store(model.$open, site({ name: "$open", fn: "makeOpen" }));
     scope.end(model, site({ name: "model", type: "unknown" }));
 
     expect(ownerLinkOf(model.$open)?.owner).toBe(model);

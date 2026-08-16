@@ -23,7 +23,8 @@ function holder(value: unknown, held: Record<string, Store>): Store {
   return Object.assign(atom<unknown>(value), held);
 }
 
-function track(store: Store, name: string): void {
+/** `fn` is the function the store was made inside, and `null` for a site at module level. */
+function track(store: Store, name: string, fn: string | null = null): void {
   registerStore({
     store,
     name,
@@ -31,7 +32,7 @@ function track(store: Store, name: string): void {
     type: "atom",
     origin: "plugin",
     external: false,
-    fn: null,
+    fn,
   });
 }
 
@@ -925,6 +926,34 @@ describe("the creation frame", () => {
 
     expect(ownerLinkOf($timeline)?.owner).toBe($draft);
     expect(ownerLinkOf($draft)?.owner).toBeUndefined();
+  });
+
+  it("keeps placing a store its own file made inside a function", () => {
+    const $timeline = atom<string[]>([]);
+    const $draft = atom("");
+
+    track($timeline, "$timeline", "withUndo");
+    beginFrame();
+    born($timeline);
+    endFrame(FROM, $draft, "$draft");
+
+    expect(ownerLinkOf($timeline)?.owner).toBe($draft);
+  });
+
+  /**
+   * `merged([eventAtom(root, "pointerup"), …])`: the argument is its own site, and the atom `merged`
+   * hands back keeps its sources in a closure, so nothing on it leads to them.
+   */
+  it("leaves a store standing at a module-level site of its own where it is", () => {
+    const $source = atom<unknown>(undefined);
+    const $merged = atom<unknown>(undefined);
+
+    track($source, "$merged[0]");
+    beginFrame();
+    born($source);
+    endFrame(FROM, $merged, "$merged");
+
+    expect(ownerLinkOf($source)?.owner).toBeUndefined();
   });
 
   it("names a node after the binding when the expression returned anything else", () => {

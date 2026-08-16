@@ -818,12 +818,18 @@ describe("buildSnapshot", () => {
     const HOME = "src/model.ts";
     const FROM = { home: HOME, external: false, moduleKey: HOME };
 
+    /**
+     * `fn` is the function the store was made inside, `null` at module level. A store made at module
+     * level stands at a site of its own, so only one made inside a function needs a frame to place
+     * it, and a test about the frame has to say which it is.
+     */
     function track(
       store: Store,
       name: string,
       home = HOME,
       type: StoreType = "atom",
       place: string | null = null,
+      fn: string | null = null,
     ): StoreEntry {
       return registerStore({
         store,
@@ -833,7 +839,7 @@ describe("buildSnapshot", () => {
         place,
         origin: "plugin",
         external: false,
-        fn: null,
+        fn,
       });
     }
 
@@ -846,6 +852,7 @@ describe("buildSnapshot", () => {
       name: string,
       made: number,
       type: StoreType = "atom",
+      fn: string | null = null,
     ): StoreEntry {
       return registerStore({
         store,
@@ -855,7 +862,7 @@ describe("buildSnapshot", () => {
         type,
         origin: "plugin",
         external: false,
-        fn: null,
+        fn,
       });
     }
 
@@ -1012,6 +1019,7 @@ describe("buildSnapshot", () => {
     /**
      * A frame is what still puts two children of one name on one parent. It holds them under no key
      * of its own, so each falls back to the name its creation site gave, and two sites may agree.
+     * Every store it places was made inside a function, or the frame would leave it where it stands.
      */
     function underFrame($parent: Store, ...born: Store[]): void {
       beginFrame();
@@ -1029,8 +1037,8 @@ describe("buildSnapshot", () => {
       const $draft = atom("");
 
       track($draft, "$draft");
-      trackNumbered($first, "$row", 1);
-      trackNumbered($second, "$row", 2);
+      trackNumbered($first, "$row", 1, "atom", "makeRows");
+      trackNumbered($second, "$row", 2, "atom", "makeRows");
       underFrame($draft, $first, $second);
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
@@ -1046,8 +1054,8 @@ describe("buildSnapshot", () => {
       const $draft = atom("");
 
       track($draft, "$draft");
-      track($mine, "$history");
-      track($theirs, "$history", "vendor/withUndo.ts");
+      track($mine, "$history", HOME, "atom", null, "withUndo");
+      track($theirs, "$history", "vendor/withUndo.ts", "atom", null, "withUndo");
       underFrame($draft, $mine, $theirs);
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
@@ -1063,8 +1071,8 @@ describe("buildSnapshot", () => {
       const $draft = atom("");
 
       track($draft, "$draft");
-      track($mine, "$history", HOME, "atom", "line 20");
-      track($theirs, "$history", "vendor/withUndo.ts", "atom", "line 20");
+      track($mine, "$history", HOME, "atom", "line 20", "withUndo");
+      track($theirs, "$history", "vendor/withUndo.ts", "atom", "line 20", "withUndo");
       underFrame($draft, $mine, $theirs);
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
@@ -1883,26 +1891,6 @@ describe("buildSnapshot", () => {
         expect(buildSnapshot()).toEqual({
           debug: { "route [store]": stale("/") },
           [HOME]: { "router [store]": { "(value)": "", "$route [store]": stale("/") } },
-        });
-      });
-
-      /**
-       * A frame holds the store under no property, so nothing but the group key is left to name it.
-       * This is the one path the `ownerName` fallback still runs on.
-       */
-      it("falls back to the group key where a frame is what placed the store", () => {
-        const $route = atom("/");
-        const $router = atom("");
-
-        track($router, "$router");
-        trackStores("debug", { route: $route });
-        beginFrame();
-        noteBirth($route);
-        endFrame(FROM, $router, "$router");
-
-        expect(buildSnapshot()).toEqual({
-          debug: { "route [store]": stale("/") },
-          [HOME]: { "$router [store]": { "(value)": "", "route [store]": stale("/") } },
         });
       });
 
