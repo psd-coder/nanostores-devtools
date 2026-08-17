@@ -638,9 +638,9 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
   }
 
   /**
-   * The global object, drawn by its class and nothing else. Whatever an app parks on `window` is an
-   * own enumerable property, so one row holding a DOM event would otherwise carry the app's whole
-   * top-level state, and `event.view` is only one of the routes to it.
+   * The global object, drawn by its class over an empty object, the way any value with nothing to
+   * publish is drawn. Whatever an app parks on `window` is an own enumerable property, so one row
+   * holding it would otherwise carry the app's whole top-level state.
    *
    * Identity is the whole test for the window we run in, and `instanceof` adds a window carrying
    * that same `Window` at some other name. A window built in another realm carries that realm's
@@ -650,7 +650,7 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
    * Neither test reads a property of the value.
    */
   if (value === globalThis || (typeof Window !== "undefined" && value instanceof Window)) {
-    return markAt(kept, value, constructorName(value, "Object"), box("globalThis"), depth);
+    return markAt(kept, value, constructorName(value, "Object"), keepBuilt({}), depth);
   }
 
   refuseUnlistable(value);
@@ -694,7 +694,7 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
   }
 
   if (isDomNode(value)) {
-    return markAt(kept, value, constructorName(value, "Object"), box(openingTag(value)), depth);
+    return markAt(kept, value, constructorName(value, "Object"), nodeData(value), depth);
   }
 
   if (Array.isArray(value)) {
@@ -969,6 +969,16 @@ function isTypedArray(value: object): value is ArrayLike<number | bigint> {
 /** `instanceof` reads no property off the value, so no getter of the app's can run here. */
 function isDomNode(value: object): value is TaggedNode {
   return typeof Node !== "undefined" && value instanceof Node;
+}
+
+/**
+ * The opening tag, or nothing at all where the node has no tag. `#document`, `#text` and `#comment`
+ * are the DOM's own names for the three nodes written with no tag, and each one repeats the class
+ * the label already carries, so those draw their class over an empty object like any other value
+ * with nothing to publish.
+ */
+function nodeData(node: TaggedNode): object {
+  return node.nodeName.startsWith("#") ? keepBuilt({}) : box(openingTag(node));
 }
 
 /** The opening tag only: children can be a whole page, and `outerHTML` carries all of them. */

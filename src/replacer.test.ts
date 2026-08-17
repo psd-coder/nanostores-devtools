@@ -734,7 +734,7 @@ describe("createReplacer", () => {
 
       const drawn = replacer("g", globalThis) as { data: unknown; __serializedType__: string };
 
-      expect(drawn.data).toEqual({ "(value)": "globalThis" });
+      expect(drawn.data).toEqual({});
 
       /** `Window` in a page and `Object` under the test runner, so only the label's presence holds. */
       expect(drawn.__serializedType__.length).toBeGreaterThan(0);
@@ -743,10 +743,7 @@ describe("createReplacer", () => {
     it("stops a window of ours that is not the global object itself", () => {
       vi.stubGlobal("Window", Window);
 
-      expect(replacer("w", new Window())).toEqual({
-        data: { "(value)": "globalThis" },
-        __serializedType__: "Window",
-      });
+      expect(replacer("w", new Window())).toEqual({ data: {}, __serializedType__: "Window" });
     });
 
     it("stops before the keys are listed, so a window that refuses to list them still draws", () => {
@@ -758,10 +755,7 @@ describe("createReplacer", () => {
         },
       });
 
-      expect(replacer("w", refusing)).toEqual({
-        data: { "(value)": "globalThis" },
-        __serializedType__: "Window",
-      });
+      expect(replacer("w", refusing)).toEqual({ data: {}, __serializedType__: "Window" });
     });
 
     it("holds wherever the global is reached from", () => {
@@ -774,7 +768,7 @@ describe("createReplacer", () => {
       const written = [write({ page: globalThis }), write([globalThis]), write($global)];
 
       for (const one of written) {
-        expect(one).toContain("globalThis");
+        expect(one).toContain('"data":{}');
         expect(one).not.toContain("parkedByTheApp");
       }
     });
@@ -822,12 +816,17 @@ describe("createReplacer", () => {
       });
     });
 
-    /** `#document` is the name the DOM itself answers, as `#text` and `#comment` are for the rest. */
-    it("draws a document by that name, with no rule of its own", () => {
-      expect(replacer("d", new FakeNode("#document"))).toEqual({
-        data: { "(value)": "<#document>" },
-        __serializedType__: "FakeNode",
-      });
+    /**
+     * `#document`, `#text` and `#comment` are the DOM's own names for the three nodes written with
+     * no tag, and each one repeats the class the label already carries.
+     */
+    it("draws a node that has no tag as its class alone", () => {
+      for (const name of ["#document", "#text", "#comment"]) {
+        expect(replacer("d", new FakeNode(name))).toEqual({
+          data: {},
+          __serializedType__: "FakeNode",
+        });
+      }
     });
 
     it("shows a bare tag for a node with no attributes", () => {

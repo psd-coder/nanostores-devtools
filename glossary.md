@@ -123,7 +123,7 @@ list out.
 **The global object** — `globalThis`, wherever a row reaches it: `currentTarget` on a `window`
 listener, `self`, `frames`, `top` and `parent` in a page that is not framed. It is never walked, and
 no key of it is even listed, because whatever the app parked on `window` is an own enumerable
-property. It draws its class and `(value): "globalThis"`. A rule apart from the class-instance
+property. It draws its class name alone, `Window {}`. A rule apart from the class-instance
 branch: identity is what bounds it, not where it was reached, so a window from another realm, an
 iframe's or a `window.open` result, is read as an ordinary object of its class.
 

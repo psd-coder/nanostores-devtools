@@ -1003,12 +1003,12 @@ draws `<Headers> {}`.
 Three things read without a rule of yours, so the loss is bounded to objects that keep everything
 behind getters:
 
-- **A DOM node** draws its opening tag, and `document` draws `<#document>`, which is the name the
-  DOM itself gives it, as `#text` and `#comment` read for the other two.
+- **A DOM node** draws its opening tag, `<div id="app">`. A `document`, a text node and a comment
+  have no tag, so each of them draws its class name alone.
 - **The window your page runs in is never walked**, wherever the row reaches it from: `self`,
   `frames`, `currentTarget` on a `window` listener, and `top` or `parent` while the page is not
-  framed. It draws its class and the one line `(value): "globalThis"`, so whatever you parked on
-  `window` costs no keys at all. A window from another realm, an iframe's or a `window.open` result,
+  framed. It draws its class name alone, `Window {}`, so whatever you parked on `window` costs no
+  keys at all. A window from another realm, an iframe's or a `window.open` result,
   is read as an ordinary object of its class, because the test is identity.
 - **A few classes take a rule of ours**: a `Headers`, a `FormData`, a `URLSearchParams`, an
   `ArrayBuffer`, a `SharedArrayBuffer`, a `DataView` and a boxed `String`, `Number` or `Boolean`.
