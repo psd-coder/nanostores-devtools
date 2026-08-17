@@ -663,6 +663,72 @@ describe("the binding scan", () => {
   });
 });
 
+describe("the throttle comment", () => {
+  const IMPORT = `import { atom } from "nanostores";\n`;
+
+  it("marks the store made in the statement below it", () => {
+    const result = transform(`${IMPORT}// @devtools-throttle\nconst $frame = atom(0);\n`);
+
+    expect(metas(result)).toEqual([
+      { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
+    ]);
+  });
+
+  it("marks a call adoption takes, which is where a store from a dependency arrives", () => {
+    const result = transform(`// @devtools-throttle\nconst $frame = countdown(60);\n`);
+
+    expect(metas(result)).toContainEqual({
+      name: "$frame",
+      fn: null,
+      line: 2,
+      type: "unknown",
+      throttle: true,
+    });
+  });
+
+  it("reads a block comment the same way", () => {
+    const result = transform(`${IMPORT}/* @devtools-throttle */\nconst $frame = atom(0);\n`);
+
+    expect(metas(result)).toEqual([
+      { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
+    ]);
+  });
+
+  /** The comment marks a statement, and one statement can make more than one store. */
+  it("marks every store the statement it stands over makes", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-throttle\nconst $pair = merge([atom(0), atom(1)]);\n`,
+    );
+
+    expect(metas(result).map((site) => site.throttle)).toEqual([true, true, true, true]);
+  });
+
+  it("reaches no further than that statement", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-throttle\nconst $frame = atom(0);\nconst $other = atom(0);\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
+      { name: "$other", fn: null, line: 4, type: "atom" },
+    ]);
+  });
+
+  it("marks nothing when a statement stands between it and the store", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-throttle\nconst $other = 1;\nconst $frame = atom(0);\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 4, type: "atom" }]);
+  });
+
+  it("leaves an ordinary comment alone", () => {
+    const result = transform(`${IMPORT}// the frame clock\nconst $frame = atom(0);\n`);
+
+    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+  });
+});
+
 describe("the creation frame", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 

@@ -40,7 +40,17 @@ export type ExtensionAction = {
   [field: string]: unknown;
 };
 
-/** `START` and `STOP` carry a fixed shape. The last arm groups the ones that vary. */
+/**
+ * A `DISPATCH` payload. Only the pause button's is read, and the others are named by their own
+ * `type` alone: reading one of those would mean speaking a shape we have no use for.
+ */
+export type DispatchPayload = {
+  readonly type: string;
+  /** The new paused flag on `PAUSE_RECORDING`, and on the lock button we do not offer. */
+  readonly status?: boolean | undefined;
+};
+
+/** `START`, `STOP` and `DISPATCH` carry a fixed shape. The last arm groups the ones that vary. */
 export type ExtensionMessage =
   | {
       readonly type: "START";
@@ -56,7 +66,14 @@ export type ExtensionMessage =
       readonly failed?: boolean | undefined;
     }
   | {
-      readonly type: "DISPATCH" | "ACTION" | "EXPORT" | "IMPORT" | "UPDATE" | "OPTIONS";
+      readonly type: "DISPATCH";
+      readonly payload?: DispatchPayload | undefined;
+      readonly state?: string | undefined;
+      readonly id?: string | undefined;
+      readonly source: string;
+    }
+  | {
+      readonly type: "ACTION" | "EXPORT" | "IMPORT" | "UPDATE" | "OPTIONS";
       readonly payload?: unknown;
       readonly state?: string | undefined;
       readonly id?: string | undefined;

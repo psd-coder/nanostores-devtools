@@ -34,6 +34,8 @@ export type CreationSite = {
   fn: string | null;
   line: number;
   type: StoreType;
+  /** Whether a `// @devtools-throttle` comment stands over the statement the site is written in. */
+  throttle?: boolean | undefined;
 };
 
 export type FileScope = {
@@ -82,6 +84,7 @@ export function fileScope(
       origin: "plugin",
       external,
       fn: site.fn,
+      throttle: site.throttle,
       ...siteParts(state, state.made),
     });
 

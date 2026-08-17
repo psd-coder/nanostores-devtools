@@ -14,10 +14,22 @@ import {
   noteInitSent,
   noteRegistryChange,
 } from "./lifecycle.ts";
-import { onRegistryChange } from "./registry.ts";
+import { listEntries, onRegistryChange } from "./registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
 import { buildSnapshot } from "./snapshot.ts";
-import { createTimeline, currentStack, dropOpenRow, type TimelineState } from "./timeline.ts";
+import {
+  createTimeline,
+  currentStack,
+  dropOpenRow,
+  dropParkedRows,
+  type TimelineState,
+} from "./timeline.ts";
+import {
+  createThrottleSettings,
+  resolveMark,
+  type ThrottleOption,
+  type ThrottleSettings,
+} from "./throttle.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 export type DevtoolsOptions = {
@@ -27,6 +39,10 @@ export type DevtoolsOptions = {
   trace?: boolean | undefined;
   traceLimit?: number | undefined;
   lifecycleEvents?: boolean | undefined;
+  /** The stores held to one row a second by hand: a list of `home/name`, or a rule over them. */
+  throttle?: ThrottleOption | undefined;
+  /** Writes a second above which the bridge throttles a store itself. `false` turns it off. */
+  autoThrottle?: boolean | number | undefined;
 };
 
 export type DevtoolsHandle = {
@@ -39,6 +55,9 @@ export type Bridge = {
   connection: ExtensionConnection;
   handle: DevtoolsHandle;
   listening: boolean;
+  /** The panel's own pause button, which stops the tree build here and not only the send there. */
+  paused: boolean;
+  throttle: ThrottleSettings;
   timeline: TimelineState;
   lifecycle: LifecycleState;
   detach: () => void;
@@ -75,6 +94,12 @@ export function connectDevtools(options?: DevtoolsOptions): DevtoolsHandle {
   }
 
   devtools.bridge = bridge;
+
+  /** Registration happens at import time, so every store already here is matched now instead. */
+  for (const entry of listEntries()) {
+    resolveMark(entry);
+  }
+
   bridge.unwatch = onRegistryChange((change) => {
     /** A store on its way out took its hooks with it, so only the other changes need a pass. */
     if (change.kind !== "unregister") {
@@ -120,6 +145,8 @@ function openBridge(options?: DevtoolsOptions): Bridge | undefined {
     const bridge: Bridge = {
       connection,
       listening: false,
+      paused: false,
+      throttle: createThrottleSettings(options?.throttle, options?.autoThrottle),
       timeline,
       lifecycle: createLifecycle(options?.lifecycleEvents ?? DEFAULT_LIFECYCLE_EVENTS),
       detach: () => {
@@ -206,9 +233,32 @@ function receive(bridge: Bridge, message: ExtensionMessage): void {
 
   if (message.type === "STOP") {
     bridge.listening = false;
-    dropOpenRow(bridge);
-    dropPendingRows(bridge);
+    dropRows(bridge);
+
+    return;
   }
+
+  /**
+   * The extension's own root listener flips its `isPaused` on this message and answers it with a
+   * `LIFTED` of its own before ours runs, so we read it and reply nothing.
+   *
+   * Only this message touches the flag. `START` and `STOP` must leave it alone: the flag we shadow
+   * flips on nothing else, and it holds while a panel closes and opens again.
+   */
+  if (message.type === "DISPATCH" && message.payload?.type === "PAUSE_RECORDING") {
+    bridge.paused = message.payload.status === true;
+
+    if (bridge.paused) {
+      dropRows(bridge);
+    }
+  }
+}
+
+/** Every row in flight belongs to the session that opened it, and a paused panel is not it. */
+function dropRows(bridge: Bridge): void {
+  dropOpenRow(bridge);
+  dropPendingRows(bridge);
+  dropParkedRows();
 }
 
 /**
@@ -231,8 +281,7 @@ function disconnect(bridge: Bridge): void {
   }
 
   bridge.listening = false;
-  dropOpenRow(bridge);
-  dropPendingRows(bridge);
+  dropRows(bridge);
   bridge.unwatch();
   bridge.detach();
   detachHooks();

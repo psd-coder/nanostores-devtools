@@ -104,6 +104,18 @@ describe("store", () => {
     expect(getEntry($items)?.fn).toBeNull();
   });
 
+  it("carries the throttle comment the site read, which marks the store on its own", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $frame = atom(0);
+    const $other = atom(0);
+
+    scope.store($frame, site({ name: "$frame", throttle: true }));
+    scope.store($other, site({ name: "$other", line: 9 }));
+
+    expect(getEntry($frame)?.throttle).toMatchObject({ commented: true, marked: true });
+    expect(getEntry($other)?.throttle).toMatchObject({ commented: false, marked: false });
+  });
+
   it("keeps the enclosing function through the rename a name clash forces", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $hits = atom(0);

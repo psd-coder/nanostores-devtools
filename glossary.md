@@ -62,6 +62,14 @@ a new timeline entry and gives the entry its name.
 than by the app. It joins the open entry instead of starting one. Only a mounted computed
 can be a follower, because an unmounted one never recomputes.
 
+**Throttled** — a store held to one timeline entry a second. The first write draws an entry at
+once, a write inside the second after it draws none, and the last of those draws the entry that
+closes the second, carrying the current tree. Followers ride inside the entry their write opened,
+so throttling one store throttles the cascade behind it. Three things set it and they set the same
+state: the `throttle` option, the `// @devtools-throttle` comment, and `autoThrottle`, which is on
+and catches a store writing more than ten times a second. The tree is never behind; only the steps
+between entries are lost. The tree key says the word while it holds: `$frame [store, throttled]`.
+
 **Synthesized name** — the name of a timeline entry, built by the bridge from the store
 name and the kind of change, for example `$counter/set`. Every entry gets one: v1 has no
 way for a developer to name a change by hand.

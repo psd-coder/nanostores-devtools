@@ -4,6 +4,7 @@ import type { DevtoolsHandle, DevtoolsOptions } from "./connect.ts";
 
 export type { DevtoolsHandle, DevtoolsOptions } from "./connect.ts";
 export type { Serializer } from "./replacer.ts";
+export type { ThrottleOption, ThrottleTarget } from "./throttle.ts";
 
 /**
  * What the package resolves to under the `production` export condition: the same three names with

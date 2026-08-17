@@ -12,6 +12,7 @@ import { noteDrawn } from "./drawn.ts";
 import { box, isBuilt, keepBuilt, mark, type Marked } from "./marker.ts";
 import { getEntry, isStore, noted, storeWord } from "./registry.ts";
 import { dataForMark, reachesStore, staleNote, storeValue } from "./slot.ts";
+import { isThrottled } from "./throttle.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /**
@@ -579,7 +580,7 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
 
   if (note !== undefined) {
     return [
-      noted(key, entry?.type ?? "unknown"),
+      noted(key, entry?.type ?? "unknown", entry !== undefined && isThrottled(entry)),
       markOnce(kept.wrappers, store, note.label, note.data),
     ];
   }
@@ -588,7 +589,7 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
 
   return reachesStore(value, store)
     ? [key, markStore(kept.wrappers, store)]
-    : [noted(key, entry?.type ?? "unknown"), value];
+    : [noted(key, entry?.type ?? "unknown", entry !== undefined && isThrottled(entry)), value];
 }
 
 /**

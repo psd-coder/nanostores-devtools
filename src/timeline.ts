@@ -2,9 +2,10 @@ import { catchAndWarn } from "./catch-and-warn.ts";
 import type { Bridge } from "./connect.ts";
 import { peekDevtoolsGlobal } from "./global.ts";
 import { isDrawn, rowName } from "./placement.ts";
-import type { StoreEntry } from "./registry.ts";
+import { listEntries, type StoreEntry } from "./registry.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
+import { clearThrottle, suppressWrite, THROTTLE_WINDOW } from "./throttle.ts";
 
 /** A change names what moved, never what it moved to: the extension diffs the trees itself. */
 export type Change =
@@ -18,6 +19,8 @@ export type Row = {
   changes: Change[];
   timestamp: number;
   stack?: string | undefined;
+  /** Whose second this row is waiting out. A row carrying one is parked instead of sent. */
+  throttle?: StoreEntry | undefined;
 };
 
 /** The open row and what it costs to build, owned here and parked on the bridge. */
@@ -43,6 +46,13 @@ export function dropOpenRow(bridge: Bridge): void {
   bridge.timeline.row = undefined;
 }
 
+/** The same for every row parked on a store, which the timers holding them are dropped with. */
+export function dropParkedRows(): void {
+  for (const entry of listEntries()) {
+    clearThrottle(entry);
+  }
+}
+
 /**
  * A direct write. The store already holds the new value here, because `onNotify` runs after the
  * value is assigned, so the row this opens is snapshotted correctly whenever it flushes.
@@ -60,6 +70,14 @@ export function openDirectRow(
 
   const { timeline } = bridge;
   const { type, change } = describeWrite(entry, changed);
+
+  /** A row about to be parked pays for no stack, which with `trace` on is the expensive half. */
+  if (suppressWrite(entry, Date.now())) {
+    openRow(bridge, type, [change], undefined, entry);
+
+    return;
+  }
+
   const stack = timeline.trace ? captureStack(timeline.traceLimit, boundary) : undefined;
 
   openRow(bridge, type, [change], stack);
@@ -113,8 +131,19 @@ export function appendFollower(entry: StoreEntry): void {
     return;
   }
 
-  /** A follower that finds no open row is a row of its own, named after the store. */
-  openRow(bridge, `${rowName(entry)}/computed`, [{ label: entry.label, op: "computed" }]);
+  /**
+   * A follower that finds no open row is a row of its own, named after the store, and it runs the
+   * counter too: a computed whose source draws nothing can open a row every frame on its own.
+   */
+  const suppressed = suppressWrite(entry, Date.now());
+
+  openRow(
+    bridge,
+    `${rowName(entry)}/computed`,
+    [{ label: entry.label, op: "computed" }],
+    undefined,
+    suppressed ? entry : undefined,
+  );
 }
 
 export function flushOpenRow(): void {
@@ -145,11 +174,18 @@ function flush(bridge: Bridge): void {
   const { timeline } = bridge;
   const row = timeline.row;
 
-  if (!row || !bridge.listening) {
+  if (!row || !bridge.listening || bridge.paused) {
     return;
   }
 
   timeline.row = undefined;
+
+  if (row.throttle) {
+    park(row.throttle, row);
+
+    return;
+  }
+
   timeline.stack = row.stack;
 
   try {
@@ -172,17 +208,73 @@ function openRow(
   type: string,
   changes: Change[],
   stack?: string | undefined,
+  throttle?: StoreEntry | undefined,
 ): void {
-  bridge.timeline.row = { type, changes, timestamp: Date.now(), stack };
+  bridge.timeline.row = { type, changes, timestamp: Date.now(), stack, throttle };
 
   scheduleFlush(bridge);
 }
 
-/** Nothing is built while no panel is listening: the tree is the expensive part of a row. */
+/**
+ * A suppressed row waits out the second on the store it belongs to, and a second one in that second
+ * replaces it. That is the coalescing: no tree is built and nothing is sent until the timer fires.
+ */
+function park(entry: StoreEntry, row: Row): void {
+  const { throttle } = entry;
+
+  throttle.pending = row;
+
+  if (throttle.trailing !== undefined) {
+    return;
+  }
+
+  const rest = Math.max(THROTTLE_WINDOW - (Date.now() - throttle.lastEmit), 0);
+
+  throttle.trailing = setTimeout(() => {
+    release(entry);
+  }, rest);
+}
+
+/**
+ * The end of the second. The row keeps the timestamp of the write that made it, and its tree is
+ * built now, so it carries the store's current value with the whole cascade that rode inside it.
+ */
+function release(entry: StoreEntry): void {
+  const { throttle } = entry;
+  const row = throttle.pending;
+
+  throttle.pending = undefined;
+  throttle.trailing = undefined;
+
+  const bridge = listeningBridge();
+
+  if (!bridge || !row) {
+    return;
+  }
+
+  /**
+   * The second this row closes starts now, and that is written before anything is sent: a row of
+   * this same store standing open parks for the next second instead of a timer of no length.
+   */
+  throttle.lastEmit = Date.now();
+
+  /** Whatever is open closes first, with the tree as it was before this row's write. */
+  guardedFlush(bridge);
+
+  row.throttle = undefined;
+  bridge.timeline.row = row;
+
+  guardedFlush(bridge);
+}
+
+/**
+ * Nothing is built while no panel is listening: the tree is the expensive part of a row. A paused
+ * panel reads the same way, so pause stops the build on our side and not only the send on theirs.
+ */
 export function listeningBridge(): Bridge | undefined {
   const bridge = peekDevtoolsGlobal()?.bridge;
 
-  return bridge?.listening ? bridge : undefined;
+  return bridge?.listening && !bridge.paused ? bridge : undefined;
 }
 
 /** The open row closes lazily: the next direct write closes it, or this microtask does. */

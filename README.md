@@ -75,7 +75,7 @@ binding's name and a number.**
 
 ```js
 const $pointerEnd = merged([eventAtom(root, "up"), eventAtom(root, "cancel")]);
-const $candidate  = filtered(computed([$username, $format], pick), long, "");
+const $candidate = filtered(computed([$username, $format], pick), long, "");
 ```
 
 ```
@@ -93,7 +93,7 @@ second silently takes the first one's place in the registry.
 An array is the one exception, and only where the array is the value the binding holds:
 
 ```js
-const $totals = [atom(0), atom(1)];   // $totals[0], $totals[1]
+const $totals = [atom(0), atom(1)]; // $totals[0], $totals[1]
 ```
 
 There `$totals[0]` is something you can type and get that store back. In `merged([…])` the array is
@@ -354,6 +354,9 @@ The two are one word on purpose. `[atom]` would say we read your creation site a
 we did not, which is a fact about how much of your source we reached and not about the store. Both
 are writable and both hold whatever was last set, so there is nothing you would do differently.
 
+**A store being held to one row a second says so in the same brackets**, `$frame [store, throttled]`,
+and loses the word again when its rate drops. See [`throttle`](#connectdevtoolsoptions).
+
 The brackets are part of the tree key only. Timeline rows keep the bare name (`$total/set`), and
 sorting is on the bare name too, so the kind never moves a store in the tree. A store that gains a
 kind later, which adoption can do, changes its key, and the panel draws that as one key removed
@@ -444,6 +447,10 @@ A row carries one write plus every recompute that write caused, which is why a `
 has no row of its own. Mount, unmount, register, unregister and hot reload are the lifecycle rows,
 and [`lifecycleEvents`](#connectdevtoolsoptions) turns all five off together.
 
+A [throttled](#connectdevtoolsoptions) store draws at most one row a second, and the writes it made
+inside that second fold into the row that closes it, followers and all. Its value in the tree stays
+current; the steps between those rows are what you lose.
+
 ### When stores join and leave
 
 **A register row never means startup.** Everything registered before the first snapshot is already
@@ -519,6 +526,8 @@ no-op, so each one costs a single function call.
 | `traceLimit`      | `10`           | how many stack frames to capture                                |
 | `maxAge`          | `500`          | how many rows the extension keeps                               |
 | `lifecycleEvents` | `true`         | draw the [lifecycle rows](#what-each-row-in-the-timeline-means) |
+| `throttle`        | `[]`           | hold these stores to one row a second                           |
+| `autoThrottle`    | `true`         | hold any store writing more than 10 times a second to one row a second |
 
 `name` is fixed at the first connect and cannot change later, because the panel builds its record
 for a connection once. It defaults to a fixed word rather than `document.title`, which changes per
@@ -540,6 +549,50 @@ the tree, and the extension only ever sees the tree when we send a row. Turn the
 mount, an unmount or a late registration changes nothing in the panel until the next write, which
 then carries that change in its diff. Turn it off when a route change mounting many stores at once
 is too slow, and know what you are paying for it.
+
+**`autoThrottle` is on, and it is the one default that drops rows.** A store that writes more than
+10 times a second is held to **one row a second** from the write that passes that count. Its first
+write in a second draws a row at once, the writes after it inside that second draw none, and the
+last of them draws the row that closes the second. We warn once, naming the store and the two ways
+to say something else.
+
+**The tree is never behind, only the steps between rows are lost.** Every row carries the whole
+tree, so the value a throttled store shows is its current one. What you cannot do is click your way
+through the writes in between, because they are no rows. A throttled store says so in the panel:
+its key reads `$frame [store, throttled]` while it is being throttled, and loses the word again
+when its rate drops.
+
+A frame loop writes about 60 times a second, so it costs about 60 full trees a second without this.
+That is what fills `maxAge` in eight seconds and pushes every row you came to read out of the panel.
+
+Pass a number for your own rate, `autoThrottle: 20`, or `false` to keep every row. The output rate
+of one row a second is fixed and is not an option.
+
+**`throttle` says it on purpose, and turns the warning off.** It takes the names as the tree writes
+them, `"home/name"`, or a rule over them:
+
+```ts
+connectDevtools({ throttle: ["src/model.ts/$remaining"] });
+connectDevtools({ throttle: (store) => store.home.startsWith("src/animation/") });
+```
+
+A rule is handed `{ home, name, type }` and runs when a store registers, is renamed or moves, never
+per write. The name is the one you read in the tree, without the file and line a clash adds to it,
+so an edit that moves a line does not break the match.
+
+The plugin reads a comment for the same thing, next to the store, where a rename cannot lose it:
+
+```ts
+// @devtools-throttle
+const $remaining = countdownAtom($delay, { interval: TICK });
+```
+
+The comment marks the whole statement below it, so a call that makes several stores marks all of
+them. Either channel alone is enough, and a store you marked by hand never warns.
+
+**A follower rides in the row its source opened**, so marking one store quiets the whole chain
+behind it and no computed needs a mark of its own. Lifecycle rows are never throttled;
+`lifecycleEvents: false` is the lever for those.
 
 A custom serializer is `{ match: (value) => boolean, convert: (value) => unknown }`. Serializers
 run in array order, first match wins, ahead of every rule of ours.
@@ -650,7 +703,9 @@ built and measured first. Five things block it:
 - Half the value types cannot be rebuilt at all: a class instance, a function, a Symbol, a DOM
   node, an object made only of getters.
 
-Pause and export stay on. Both use state the panel already holds.
+Pause and export stay on. Both use state the panel already holds. Pause stops both halves: we build
+no tree and send nothing while it is on, so the page pays nothing either. Lifting it changes no row
+already in the panel; the next write brings the current tree.
 
 ### An unmounted `computed` shows an old value, or nothing
 
@@ -957,19 +1012,25 @@ new one, and no binding has claimed that one yet.
 
 The ordinary case is fast enough. **500 stores at 60 writes a second cost 0.51 ms per write**, and
 the panel keeps working. While no panel is open the bridge costs nothing per write at all: it
-builds no tree and sends nothing.
+builds no tree and sends nothing. **The panel's pause button reads the same way**, so a paused
+panel costs the page nothing either, rather than only dropping what we send.
 
-Three cases stay slow, and we know about all three:
+Four cases stay slow, and we know about all four:
 
 | case                                               | cost                                                | what you can do today    |
 | -------------------------------------------------- | --------------------------------------------------- | ------------------------ |
 | one store holding a 2000-row array                 | 102 ms per write, 12 MB, 10 writes a second at most | nothing                  |
 | a route change mounting 100 stores, at 5000 stores | 539 ms freeze                                       | `lifecycleEvents: false` |
-| 5000 stores at a high write rate                   | 3 ms per write                                      | nothing                  |
+| 5000 stores at a high write rate                   | 3 ms per write                                      | `throttle`               |
+| one store on a frame loop, 60 writes a second      | 60 full trees a second, and `maxAge` full in 8 s    | on by default, see `autoThrottle` |
 
 The first one is the worst. Half of those 102 ms is the extension writing out 12 MB. That half is
 inside the extension, so no work on our side can make it smaller. Automatic discovery also means
 you may never have chosen to track that store.
+
+The last one is the wall people actually hit, and it is why `autoThrottle` is on: a rate, not one
+oversized value. Coalescing cannot help the first row of this table, and nothing here shortens a
+value.
 
 There is no cap on how many stores the tree holds. At 2000 entries we warn once, and the choice
 what to do about it stays yours.

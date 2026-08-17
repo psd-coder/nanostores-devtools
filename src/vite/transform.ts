@@ -86,6 +86,12 @@ type Valued = Keyed & { value: Written | null };
 /** One statement standing at the top level of a module body, taken off the program that holds it. */
 type TopLevel = Program["body"][number];
 
+/** Where one statement of the module body starts and ends, for the comment that stands over it. */
+type Span = { start: number; end: number };
+
+/** The comment that holds a store to one row a second, written on its own line above the store. */
+const THROTTLE_COMMENT = "@devtools-throttle";
+
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
   const parsed = input.parser.parseSync(input.moduleKey, input.code);
@@ -114,6 +120,8 @@ export function transformStores(input: TransformInput): StoreTransform {
   const unassigned = new Map<string, number>();
   /** Where an `await` stands, which drops the frame around it once the walk has been through. */
   const awaits: number[] = [];
+  /** The statements a throttle comment stands over, so every site inside one carries the flag. */
+  const throttled: Span[] = [];
 
   function currentName(): string | null {
     const top = stack.at(-1);
@@ -222,8 +230,18 @@ export function transformStores(input: TransformInput): StoreTransform {
     return `${base} unassigned ${next}`;
   }
 
+  /**
+   * The comment marks the statement, so a factory call it stands over marks every store that call
+   * makes. That is the same reach the statement itself has, and the name a mark is read back under.
+   */
   function siteAt(start: number, name: string | null, type: StoreType): CreationSite {
-    return { name, fn: currentFn(), line: lineOf(lines, start), type };
+    const site: CreationSite = { name, fn: currentFn(), line: lineOf(lines, start), type };
+
+    if (throttled.some((span) => start >= span.start && start < span.end)) {
+      site.throttle = true;
+    }
+
+    return site;
   }
 
   function readCall(node: CallExpression): void {
@@ -353,7 +371,17 @@ export function transformStores(input: TransformInput): StoreTransform {
    * Every import is a top-level statement, and reading them all first frees the walk of order. The
    * module's own bindings come out of the same pass, because they stand at the same level.
    */
+  const marks = parsed.comments.filter((comment) => comment.value.trim() === THROTTLE_COMMENT);
+  let previousEnd = 0;
+
   for (const statement of parsed.program.body) {
+    /** A comment with no statement between it and this one stands over this one. */
+    if (marks.some((mark) => mark.start >= previousEnd && mark.end <= statement.start)) {
+      throttled.push({ start: statement.start, end: statement.end });
+    }
+
+    previousEnd = statement.end;
+
     if (statement.type === "ImportDeclaration") {
       readImport(statement);
     } else {

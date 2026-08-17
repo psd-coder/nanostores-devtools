@@ -4,6 +4,7 @@ import { MAX_MEMBERS } from "./ownership.ts";
 import { drawable, drawnOwner, isPlaced, nodeInfoOf, placedByDeveloper } from "./placement.ts";
 import { isStore, listEntries, noted, qualify, type StoreEntry } from "./registry.ts";
 import { staleNote, storeValue } from "./slot.ts";
+import { isThrottled } from "./throttle.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
 
@@ -236,12 +237,12 @@ function childKey(pass: Pass, held: Held, inside: NodeInfo | undefined): string 
   }
 
   if (held.key !== undefined) {
-    return noted(held.key, held.entry.type);
+    return noted(held.key, held.entry.type, isThrottled(held.entry));
   }
 
   return inside !== undefined && inside.skipped > 0
     ? displayName(held.entry)
-    : noted(nameForOwner(held.entry), held.entry.type);
+    : noted(nameForOwner(held.entry), held.entry.type, isThrottled(held.entry));
 }
 
 /**
@@ -285,7 +286,7 @@ function sorted(placements: readonly Placement[]): Placement[] {
  * from the parts rather than added to the key, because a key carries one parenthesis group.
  */
 function homed(entry: StoreEntry): string {
-  return qualify(noted(entry.name, entry.type), {
+  return qualify(noted(entry.name, entry.type, isThrottled(entry)), {
     file: entry.home,
     place: null,
     number: entry.number,
@@ -367,7 +368,7 @@ function countKeys(placements: readonly Placement[]): Map<string, number> {
  * are one, and a key that changes when adoption learns a type costs one row redrawn.
  */
 function displayName(entry: StoreEntry): string {
-  return qualify(noted(entry.name, entry.type), entry);
+  return qualify(noted(entry.name, entry.type, isThrottled(entry)), entry);
 }
 
 function slotFor(entry: StoreEntry): unknown {

@@ -7,6 +7,7 @@ import {
   getDevtoolsGlobal,
   peekDevtoolsGlobal,
 } from "./global.ts";
+import { clearThrottle, createThrottleState, resolveMark, type ThrottleState } from "./throttle.ts";
 import { detachEntryHooks } from "./unhook.ts";
 import { warnOnce } from "./warn.ts";
 
@@ -62,6 +63,8 @@ export type StoreEntry = {
   /** Which store of its creation site this is, counting from one. */
   number: number;
   everMounted: boolean;
+  /** How fast the store writes, whether it is marked, and the row it is holding back. */
+  throttle: ThrottleState;
   unhook: (() => void)[];
 };
 
@@ -76,6 +79,8 @@ export type Registration = {
   origin: StoreOrigin;
   external: boolean;
   fn: string | null;
+  /** Whether a `// @devtools-throttle` comment stood over the store's creation site. */
+  throttle?: boolean | undefined;
 } & Partial<NameParts>;
 
 /** Where an entry is drawn: its name and what qualifies it, its home, and whose home that is. */
@@ -99,9 +104,13 @@ export function makeLabel(home: string, name: string): string {
 /**
  * A name with the store's type behind it, `$total [computed]`. Every key pointing at a store carries
  * one, in the tree and inside a value alike, so a store reads the same wherever it is drawn.
+ *
+ * A throttled store says so in the same brackets, `$frame [store, throttled]`, because a developer
+ * counting fewer rows than writes has to be able to see why from the tree. The word comes and goes
+ * with the throttling itself, so a key changes shape around a burst.
  */
-export function noted(name: string, type: StoreType): string {
-  return `${name} [${storeWord(type)}]`;
+export function noted(name: string, type: StoreType, throttled = false): string {
+  return `${name} [${storeWord(type)}${throttled ? ", throttled" : ""}]`;
 }
 
 /**
@@ -190,9 +199,11 @@ export function registerStore(registration: Registration): StoreEntry {
     origin: registration.origin,
     fn: registration.fn,
     everMounted: false,
+    throttle: createThrottleState(registration.throttle === true),
     unhook: [],
   };
 
+  resolveMark(entry);
   devtools.entries.set(registration.store, entry);
   warnOnSize(devtools);
   notifyChange(devtools, { kind: "register", entry });
@@ -327,6 +338,9 @@ function relabelEntry(
   to: EntryPlace,
   label: string,
 ): StoreEntry {
+  /** A comment the plugin read stays read: a registration carrying none takes none away. */
+  entry.throttle.commented ||= registration.throttle === true;
+
   /** The type decides which hooks an entry carries, so the ones attached under the old one go. */
   if (registration.type !== "unknown" && registration.type !== entry.type) {
     entry.type = registration.type;
@@ -335,6 +349,8 @@ function relabelEntry(
   }
 
   if (registration.origin === "plugin" && entry.origin === "explicit") {
+    resolveMark(entry);
+
     return entry;
   }
 
@@ -356,6 +372,7 @@ function relabelEntry(
   if (label === entry.label) {
     entry.origin = registration.origin;
     entry.external = registration.external;
+    resolveMark(entry);
 
     return entry;
   }
@@ -396,6 +413,8 @@ function moveEntry(devtools: DevtoolsGlobal, entry: StoreEntry, to: EntryPlace):
   entry.place = to.place;
   entry.number = to.number;
 
+  /** The option matches on the name, so a store renamed into a match is throttled from here on. */
+  resolveMark(entry);
   notifyChange(devtools, { kind: "update" });
 }
 
@@ -429,6 +448,8 @@ function dropEntry(devtools: DevtoolsGlobal, store: Store, notify: boolean): boo
   }
 
   detachEntryHooks(entry);
+  /** A timer holding an entry the registry has dropped would draw a row for a store nobody has. */
+  clearThrottle(entry);
   devtools.entries.delete(store);
 
   if (devtools.byLabel.get(entry.label) === store) {
