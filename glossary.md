@@ -67,8 +67,10 @@ once, a write inside the second after it draws none, and the last of those draws
 closes the second, carrying the current tree. Followers ride inside the entry their write opened,
 so throttling one store throttles the cascade behind it. Three things set it and they set the same
 state: the `throttle` option, the `// @devtools-throttle` comment, and `autoThrottle`, which is on
-and catches a store writing more than ten times a second. The tree is never behind; only the steps
-between entries are lost. The tree key says the word while it holds: `$frame [store, throttled]`.
+and catches a store writing more than ten times a second. A store `autoThrottle` caught stays
+throttled for the rest of the session, so the timeline does not flip between full entries and
+thinned ones as the rate moves. The tree is never behind; only the steps between entries are lost.
+The tree key says the word while it holds: `$frame [store, throttled]`.
 
 **Synthesized name** — the name of a timeline entry, built by the bridge from the store
 name and the kind of change, for example `$counter/set`. Every entry gets one: v1 has no

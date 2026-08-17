@@ -559,11 +559,16 @@ write in a second draws a row at once, the writes after it inside that second dr
 last of them draws the row that closes the second. We warn once, naming the store and the two ways
 to say something else.
 
+**A store it picks up stays throttled for the rest of the session.** The rate is a fact about the
+store, not about the moment: a frame loop that pauses, or a countdown between two runs, would
+otherwise be let go and picked up again over and over, and the timeline would flip between full
+rows and thinned ones while you read it. A reload starts every store clean again, and so does a hot
+reload that builds the store again, because that is a new store to us.
+
 **The tree is never behind, only the steps between rows are lost.** Every row carries the whole
 tree, so the value a throttled store shows is its current one. What you cannot do is click your way
 through the writes in between, because they are no rows. A throttled store says so in the panel:
-its key reads `$frame [store, throttled]` while it is being throttled, and loses the word again
-when its rate drops.
+its key reads `$frame [store, throttled]`, and it keeps the word from the write that trips it.
 
 A frame loop writes about 60 times a second, so it costs about 60 full trees a second without this.
 That is what fills `maxAge` in eight seconds and pushes every row you came to read out of the panel.

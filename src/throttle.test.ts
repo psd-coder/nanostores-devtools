@@ -428,7 +428,7 @@ describe("autoThrottle", () => {
     expect(fake.sends).toHaveLength(2);
   });
 
-  it("draws full rows again at the first window edge under the threshold", async () => {
+  it("holds a store it picked up at the next window, where its rate is under the threshold", async () => {
     const $frame = atom(0);
 
     register("$frame", $frame);
@@ -443,18 +443,18 @@ describe("autoThrottle", () => {
 
     expect(fake.sends).toHaveLength(3);
 
-    /** The window that just ended held one write, so this one is not held back. */
+    /** The window that just ended held one write, and the store is held back all the same. */
     vi.advanceTimersByTime(1000);
     $frame.set(4);
     $frame.set(5);
 
     await endOfTurn();
 
-    expect(fake.sends).toHaveLength(5);
-    expect(fake.sends.at(-1)?.state).toEqual({ cart: { "$frame [store]": 5 } });
+    expect(fake.sends).toHaveLength(4);
+    expect(fake.sends.at(-1)?.state).toEqual({ cart: { "$frame [store, throttled]": 4 } });
   });
 
-  it("leaves a store that wrote fast and then went silent for two windows alone", async () => {
+  it("keeps a store that wrote fast and then went silent for a minute throttled", async () => {
     const $frame = atom(0);
 
     register("$frame", $frame);
@@ -471,7 +471,13 @@ describe("autoThrottle", () => {
 
     await endOfTurn();
 
-    expect(rows()).toEqual(["$frame/set", "$frame/set", "$frame/set", "$frame/set", "$frame/set"]);
+    /** Two full rows, the row closing the first second, then the leading write of this one. */
+    expect(rows()).toEqual(["$frame/set", "$frame/set", "$frame/set", "$frame/set"]);
+    expect(fake.sends.at(-1)?.state).toEqual({ cart: { "$frame [store, throttled]": 4 } });
+
+    vi.advanceTimersByTime(1000);
+
+    expect(fake.sends.at(-1)?.state).toEqual({ cart: { "$frame [store, throttled]": 5 } });
   });
 
   it("leaves a fast store alone when it is off, and throttles a marked one anyway", async () => {

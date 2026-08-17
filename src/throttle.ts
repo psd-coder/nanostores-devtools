@@ -15,7 +15,7 @@ export type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boo
 /** Both options, read once at connect: which stores are marked, and the rate that marks one. */
 export type ThrottleSettings = {
   marks: (target: ThrottleTarget) => boolean;
-  /** Writes a second above which the bridge throttles a store itself, or nothing with it off. */
+  /** Writes a second at which the bridge takes a store over itself, or nothing with it off. */
   threshold: number | undefined;
 };
 
@@ -27,8 +27,8 @@ export type ThrottleState = {
   commented: boolean;
   writes: number;
   windowStart: number;
-  /** Whether the window that just ended went over the threshold. */
-  hot: boolean;
+  /** The rate caught this store once, and a store that burst once is expected to burst again. */
+  tripped: boolean;
   /** When the store last drew a row, which is where the leading edge is measured from. */
   lastEmit: number;
   /** The suppressed row waiting for the second to end, and the timer that sends it. */
@@ -56,7 +56,7 @@ export function createThrottleState(commented: boolean): ThrottleState {
     commented,
     writes: 0,
     windowStart: 0,
-    hot: false,
+    tripped: false,
     lastEmit: 0,
     warned: false,
   };
@@ -74,6 +74,9 @@ export function resolveMark(entry: StoreEntry): void {
  * The counter and the decision, run on each write while a panel listens. It answers whether this
  * write draws no row of its own: the store is throttled and already drew one inside this second.
  *
+ * The rate trips inside the window, on the write that passes the threshold, and it never trips
+ * back: a store that burst once holds the throttle until it leaves the registry.
+ *
  * A write that draws its row clears whatever was waiting, because the row going out now carries a
  * newer tree than the parked one and the store is at the leading edge again.
  */
@@ -81,9 +84,13 @@ export function suppressWrite(entry: StoreEntry, now: number): boolean {
   const { throttle } = entry;
   const { threshold } = settings() ?? {};
 
-  count(throttle, threshold, now);
+  count(throttle, now);
 
-  const holds = throttled(throttle, threshold, now);
+  if (threshold !== undefined && throttle.writes > threshold) {
+    throttle.tripped = true;
+  }
+
+  const holds = throttled(throttle);
 
   if (holds && !throttle.marked && !throttle.warned) {
     warnAutoThrottle(entry);
@@ -99,9 +106,9 @@ export function suppressWrite(entry: StoreEntry, now: number): boolean {
   return false;
 }
 
-/** Whether the tree says so, which comes and goes with the throttling itself. */
+/** Whether the tree says so. A mark can be taken away by a rename; the rate never is. */
 export function isThrottled(entry: StoreEntry): boolean {
-  return throttled(entry.throttle, settings()?.threshold, Date.now());
+  return throttled(entry.throttle);
 }
 
 /** A parked row belongs to the session that made it, and a timer holding an entry is a leak. */
@@ -118,39 +125,22 @@ export function clearThrottle(entry: StoreEntry): void {
 
 /**
  * The rolling one second window, counted lazily: no timer, and a store that stops writing costs
- * nothing until it writes again.
- *
- * A window two seconds old means a whole window went by with no write at all, so the count from
- * before it says nothing about the rate now and the store is released.
+ * nothing until it writes again. The count only has to carry a store to the write that trips it,
+ * because the trip holds from there on, so a window that ends resets to this write and no more.
  */
-function count(state: ThrottleState, threshold: number | undefined, now: number): void {
-  const age = now - state.windowStart;
-
-  if (age < THROTTLE_WINDOW) {
+function count(state: ThrottleState, now: number): void {
+  if (now - state.windowStart < THROTTLE_WINDOW) {
     state.writes += 1;
 
     return;
   }
 
-  state.hot = age < THROTTLE_WINDOW * 2 && threshold !== undefined && state.writes > threshold;
   state.writes = 1;
   state.windowStart = now;
 }
 
-/**
- * The trip is inside the window and the release is at its edge: the write that passes the threshold
- * is the first one held back, rather than a whole second of full rows going out first.
- */
-function throttled(state: ThrottleState, threshold: number | undefined, now: number): boolean {
-  if (state.marked) {
-    return true;
-  }
-
-  if (threshold === undefined || now - state.windowStart >= THROTTLE_WINDOW * 2) {
-    return false;
-  }
-
-  return state.hot || state.writes > threshold;
+function throttled(state: ThrottleState): boolean {
+  return state.marked || state.tripped;
 }
 
 /**
@@ -166,8 +156,9 @@ function warnAutoThrottle(entry: StoreEntry): void {
     "auto-throttle",
     entry.label,
     `${target} wrote ${entry.throttle.writes} times in a second, so the bridge throttles it to ` +
-      `one row a second. To keep every row, pass autoThrottle: false. To say this on purpose and ` +
-      `stop this warning, pass throttle: ["${target}"].`,
+      `one row a second and keeps it there for the rest of the session. To keep every row, pass ` +
+      `autoThrottle: false. To say this on purpose and stop this warning, pass ` +
+      `throttle: ["${target}"].`,
   );
 }
 
