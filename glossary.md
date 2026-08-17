@@ -108,11 +108,13 @@ class wrote one. Anything else it holds needs a serializer of the developer's ov
 hold. A few classes take a **shipped serializer** instead.
 
 **A published reading** — the answer of a `valueOf` or a `toString` a class defines itself, called
-on an instance that holds no own data and drawn under `(valueOf)` and `(toString)`, `(valueOf)`
-first. `Object.prototype`'s own two are refused by identity, so a `URL` and a `Location` keep their
-address while an event, a `Blob` and an `AbortSignal` draw nothing. This is the one place the bridge
-runs a line of the app's code: the method is found through a descriptor, called by name, kept only
-where the answer is a primitive, and a throw costs that one key.
+on a value that holds no own data and drawn under `(valueOf)` and `(toString)`, `(valueOf)` first.
+One rule for every such value: a class instance, a DOM node and the global object all take it, so a
+`URL`, a `Location` and an `<a>` keep their address while an event, a `Blob`, a `<div>` and a
+`window` draw their class name alone. `Object.prototype`'s own two are refused by identity, which is
+what separates the two groups. This is the one place the bridge runs a line of the app's code: the
+method is found through a descriptor, called by name, kept only where the answer is a primitive, and
+a throw costs that one key.
 
 **Shipped serializer** — a rule the bridge carries for a platform class with one obvious reading and
 no field to choose: `Headers`, `FormData`, `URLSearchParams`, `ArrayBuffer`, `SharedArrayBuffer`,

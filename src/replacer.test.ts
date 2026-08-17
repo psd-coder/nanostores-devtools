@@ -29,6 +29,20 @@ class FakeNode {
 /** Named after the real class, because the label the panel shows is the constructor name. */
 class HTMLDivElement extends FakeNode {}
 
+/** The one node kind that publishes a reading: the real `HTMLAnchorElement.toString` is its href. */
+class HTMLAnchorElement extends FakeNode {
+  href: string;
+
+  constructor(href: string) {
+    super("A");
+    this.href = href;
+  }
+
+  override toString(): string {
+    return this.href;
+  }
+}
+
 /**
  * The two shapes this whole rule is about, which the test runner has no globals for: every field
  * behind a getter on the prototype, and no own data at all. Named after the real classes, because
@@ -823,9 +837,17 @@ describe("createReplacer", () => {
       }
     });
 
+    /** The same rule every other value takes: an `<a>` answers with its href the way a `URL` does. */
+    it("draws the toString a node's own class writes", () => {
+      expect(replacer("a", new HTMLAnchorElement("https://a.dev/x"))).toEqual({
+        data: { "(toString)": "https://a.dev/x" },
+        __serializedType__: "HTMLAnchorElement",
+      });
+    });
+
     /**
-     * What the rule is really for. A framework parks its own state on a node as an own enumerable
-     * property, React's fiber above all, and the class-instance rule would walk it.
+     * What the branch is really for. A framework parks its own state on a node as an own enumerable
+     * property, React's fiber above all, and the own-data half above it would walk that.
      */
     it("reads none of the own keys a framework parked on a node", () => {
       const node = new HTMLDivElement("DIV");

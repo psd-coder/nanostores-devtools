@@ -467,12 +467,12 @@ function withMore(fields: Fields, skipped: number, drawn: number): Fields {
 }
 
 /**
- * Drawn by its class name over an empty object, which is what every value with nothing of its own to
- * publish reads as: the global object, a DOM node, and a class instance holding neither own data nor
- * a reading its class published.
+ * What a value with no fields of the app's own draws: the reading its class published, and an empty
+ * object where it published none. One rule for every such value, so an `<a>` answers with its href
+ * the way a `URL` does, and a `<div>`, a `document` and the global object read as their class name.
  */
-function classAlone(kept: Kept, value: object, depth: number): Marked {
-  return markAt(kept, value, constructorName(value, "Object"), keepBuilt({}), depth);
+function published(kept: Kept, value: object): Fields {
+  return slotted(kept, printedFields(value));
 }
 
 /** A value the count reached past its last level, drawn by its class and the reason and nothing else. */
@@ -654,7 +654,7 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
    * Neither test reads a property of the value.
    */
   if (value === globalThis || (typeof Window !== "undefined" && value instanceof Window)) {
-    return classAlone(kept, value, depth);
+    return markAt(kept, value, constructorName(value, "Object"), published(kept, value), depth);
   }
 
   refuseUnlistable(value);
@@ -698,7 +698,7 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
   }
 
   if (isDomNode(value)) {
-    return classAlone(kept, value, depth);
+    return markAt(kept, value, constructorName(value, "Object"), published(kept, value), depth);
   }
 
   if (Array.isArray(value)) {
@@ -765,17 +765,17 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
    * app state above any class instance is untouched, while a plain object *inside* one goes on
    * counting and cannot escape the cap by being plain.
    *
-   * Its own data is the whole reading wherever it has any, and where it has none the instance is
-   * asked whether its class published one. An object that answers neither draws its class name over
-   * an empty object, which is what an event, a `DOMRect` and a `Blob` all read as.
+   * Its own data is the whole reading wherever it has any, and where it has none the instance takes
+   * the published rule every other value with no own data takes.
    */
   const name = constructorName(value, "Object");
   const own = ownFields(value);
-  const drawn = Object.keys(own).length > 0 ? own : printedFields(value);
-  const names = Object.keys(drawn);
+  const names = Object.keys(own);
   const allow = allowance(kept, value, true);
+  const data =
+    names.length > 0 ? slotted(kept, shortened(own, names, allow)) : published(kept, value);
 
-  return markAt(kept, value, name, slotted(kept, shortened(drawn, names, allow)), startAt(depth));
+  return markAt(kept, value, name, data, startAt(depth));
 }
 
 /**
@@ -973,9 +973,10 @@ function isTypedArray(value: object): value is ArrayLike<number | bigint> {
 /**
  * `instanceof` reads no property off the value, so no getter of the app's can run here.
  *
- * The rule earns its place by what it stops rather than by what it draws. A framework parks its own
- * state on a node as an own enumerable property, React's fiber above all, so without this branch the
- * class-instance rule would walk a whole render tree out of one element.
+ * The branch draws what every value with no own data draws, and it exists to skip the own-data half
+ * above it. A framework parks its own state on a node as an own enumerable property, React's fiber
+ * above all, so without this the class-instance rule would walk a whole render tree out of one
+ * element.
  */
 function isDomNode(value: object): boolean {
   return typeof Node !== "undefined" && value instanceof Node;

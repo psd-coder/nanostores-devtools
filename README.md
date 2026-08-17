@@ -1003,10 +1003,10 @@ draws `<Headers> {}`.
 Three things read without a rule of yours, so the loss is bounded to objects that keep everything
 behind getters:
 
-- **A DOM node** draws its class name alone, `HTMLDivElement {}`, whatever kind of node it is. The
-  rule is there for what it stops: a framework parks its own state on a node as an ordinary
-  property, React's fiber above all, and without it one element would pull a whole render tree into
-  the row.
+- **A DOM node** takes the same rule: a `<div>` draws `HTMLDivElement {}`, and an `<a>` draws its
+  href under `(toString)`, because `HTMLAnchorElement` writes one. What a node never shows is a
+  property the app or a framework parked on it, React's fiber above all, which would otherwise pull
+  a whole render tree into the row.
 - **The window your page runs in is never walked**, wherever the row reaches it from: `self`,
   `frames`, `currentTarget` on a `window` listener, and `top` or `parent` while the page is not
   framed. It draws its class name alone, `Window {}`, so whatever you parked on `window` costs no
