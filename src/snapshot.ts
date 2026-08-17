@@ -1,5 +1,5 @@
 import type { NodeInfo } from "./global.ts";
-import { keepBuilt, mark, VALUE_KEY } from "./marker.ts";
+import { keepBuilt, mark, MORE_KEY, VALUE_KEY } from "./marker.ts";
 import { MAX_MEMBERS } from "./ownership.ts";
 import { drawable, drawnOwner, isPlaced, nodeInfoOf, placedByDeveloper } from "./placement.ts";
 import { isStore, listEntries, noted, qualify, type StoreEntry } from "./registry.ts";
@@ -7,9 +7,6 @@ import { staleNote, storeValue } from "./slot.ts";
 import { isThrottled } from "./throttle.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
-
-/** What a capped collection says it left out, so silence never reads as "this is all of it". */
-const MORE_KEY = "…";
 
 /**
  * One thing the tree draws: a store's own slot, the second placement its owner keeps of a store the

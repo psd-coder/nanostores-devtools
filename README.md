@@ -528,6 +528,8 @@ no-op, so each one costs a single function call.
 | `lifecycleEvents` | `true`         | draw the [lifecycle rows](#what-each-row-in-the-timeline-means) |
 | `throttle`        | `[]`           | hold these stores to one row a second                           |
 | `autoThrottle`    | `true`         | throttle a store writing more than 10 times a second            |
+| `maxValueDepth`   | `5`            | levels drawn below a class instance                             |
+| `maxValueMembers` | `100`          | members drawn per shape below a class instance                  |
 
 `name` is fixed at the first connect and cannot change later, because the panel builds its record
 for a connection once. It defaults to a fixed word rather than `document.title`, which changes per
@@ -616,6 +618,14 @@ are your app's, and every rule you wrote still runs on them.
 The one collection the encoder still writes by itself is one **your own `convert` returned**. It
 builds a list out of it there, and neither that list nor a `[key, value]` pair inside it reaches
 your serializers.
+
+**`maxValueDepth` and `maxValueMembers` cap only what a class instance holds.** Everything you
+shaped yourself goes out whole, however large: the two counts start where the walk enters a class
+instance or expands the getters of a built-in prototype, and a plain object, an array or a
+collection above one is never touched. Raise either number, or pass `Infinity` for no cap. Your own
+serializer runs before the caps, because a rule you wrote is the exact tool for shrinking a deep
+value, and a store below the caps keeps its whole value. See
+[values are shortened only under a class instance](#values-are-shortened-only-under-a-class-instance).
 
 ### `nanostoresDevtools(options?)`
 
@@ -749,11 +759,48 @@ lifecycle rows on it draws an unmount row and a mount row for a teardown that ne
 
 **Nothing is ever hidden.** Every registered store is always a key in the tree, mounted or not.
 
-### Values are never shortened
+### Values are shortened only under a class instance
 
-**Nothing is truncated, sampled or capped**, by default or behind an option. One store holding a
-very large value is sent in full on every change of any store anywhere on the page, and **there is
-no way around that in v1.** A way to leave a store out is the first thing a v2 would add.
+**A value you designed is never shortened.** A plain object twenty levels deep, an array of two
+thousand rows, a `Map` of ten thousand entries: all of them go out whole, however large, and no
+option changes that.
+
+**Two counts start where the walk enters a class instance**, or where it expands the getters of a
+built-in prototype, and they apply to everything below that point:
+
+- `maxValueDepth`, `5` by default, is how many levels are drawn below the instance. A value past it
+  keeps its class name and shows one line: `(value): "past the 5 levels drawn under a class
+instance"`.
+- `maxValueMembers`, `100` by default, is how many members are drawn per shape: an instance's own
+  fields, and a plain object, an array, a `Set`, a `Map` or a typed array below it. The rest are
+  counted under one key: `…: "1901 more members past the 100 drawn under a class instance"`. It is
+  the first 100 in source order, and a store past that point loses this node but keeps its own slot
+  at its home.
+
+Raise either one, or pass `Infinity` to turn it off:
+
+```js
+connectDevtools({ maxValueDepth: 12, maxValueMembers: Infinity });
+```
+
+`maxValueDepth` takes a whole number of 0 or more, where `0` draws an instance's own fields and
+makes every object among them a placeholder. `maxValueMembers` takes a whole number of 1 or more.
+Any other number is refused rather than repaired, with one console warning per option name and the
+default in its place.
+
+**A store below the cap keeps its whole value.** One store must not disagree with itself between two
+placements: a store drawn deep inside a class instance and the same store drawn at its own home have
+to show the same value, and the home slot has no cap above it. It stays bounded, because a class
+instance inside that value starts a fresh count.
+
+**Why a class instance is the line.** A plain object is state you wrote and shaped for yourself. A
+class instance is where a value the panel was never designed for begins: a framework's node, a
+platform interface, a scene graph. Five levels reads a real domain object whole
+(`Editor → doc → blocks → Block → id` is four), and 100 members clears the widest shape the panel is
+meant to draw whole, a platform interface such as a `PointerEvent`.
+
+Two limits stay as they were. A repeat is still written once per path, not pointed at, and a
+serializer's own result is not width-capped.
 
 Other things values do:
 

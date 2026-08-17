@@ -1,3 +1,4 @@
+import { stringify } from "jsan";
 import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -5,6 +6,7 @@ import { connectDevtools } from "./connect.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
 import { getEntry, listEntries, trackStores } from "./registry.ts";
 import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
+import { EXTENSION_OPTIONS } from "./testing/panel.ts";
 import { hasHooks, keepHooks } from "./unhook.ts";
 
 let fake: FakeExtension;
@@ -143,6 +145,52 @@ describe("connectDevtools", () => {
         data: { "(value)": "9007199254740993" },
         __serializedType__: "BigInt",
       });
+    });
+
+    it("hands the two value caps to the replacer it passes", () => {
+      class Holder {
+        a = 1;
+        b = { deep: true };
+      }
+
+      connectDevtools({ maxValueDepth: 0, maxValueMembers: 1 });
+
+      const serialize = fake.configs[0]?.serialize;
+      const replacer = typeof serialize === "object" ? serialize.replacer : undefined;
+
+      expect(replacer?.("h", new Holder())).toEqual({
+        data: {
+          a: 1,
+          "…": {
+            data: {},
+            __serializedType__: "1 more members past the 1 drawn under a class instance",
+          },
+        },
+        __serializedType__: "Holder",
+      });
+    });
+
+    it("warns once and falls back to the default where a value cap is no count", () => {
+      class Holder {
+        deep = { down: { down: { down: { down: { down: { down: "past five" } } } } } };
+      }
+
+      connectDevtools({ maxValueDepth: -2 });
+
+      const serialize = fake.configs[0]?.serialize;
+      const replacer = typeof serialize === "object" ? serialize.replacer : undefined;
+
+      expect(console.warn).toHaveBeenCalledTimes(1);
+      expect(console.warn).toHaveBeenCalledWith(
+        "[nanostores-devtools] maxValueDepth is -2 in connectDevtools(), which is no number of " +
+          "levels, so the bridge draws 5 levels below a class instance instead. Pass a whole " +
+          "number of 0 or more, or Infinity for no cap.",
+      );
+
+      /** The default of 5 is really the one in force: the sixth level below the instance is cut. */
+      expect(stringify(new Holder(), replacer, null, EXTENSION_OPTIONS)).toContain(
+        "past the 5 levels drawn under a class instance",
+      );
     });
 
     it("leaves trace out entirely with the option off, and never passes traceLimit", () => {

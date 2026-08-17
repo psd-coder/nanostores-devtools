@@ -180,6 +180,19 @@ The wrapper is left for what only a wrapper can say, the marker, and for two sha
 reaches: the `[key]` half of a `Map` entry we could not name, and a store whose value can reach that
 store again, where the wrapper's own key is what keeps the encoder finding the loop.
 
+**Two counts bound a value the developer never designed for the panel**, `maxValueDepth` and
+`maxValueMembers`. They start in exactly two places, where the walk enters a class instance and
+where a built-in prototype's getters are expanded, and they hold for everything below that point,
+including a plain object, which cannot escape a count by being plain. Above one, nothing is capped:
+a plain object, an array and a collection of the app's go out whole, however large. A depth past the
+cap draws the class name and one `(value)` line saying so; a width past it draws the first members
+in source order and one `…` key counting the rest, which is the key the **tree** already writes for
+the same idea. A capped array switches to the keyed `Array` shape, because the encoder walks an
+array by its length and would drop a note put at any other key. A **store** is exempt: it is never
+replaced by a placeholder and its value starts free again, so one store never disagrees with itself
+between two placements. A serializer runs before both counts, and the result it hands back is bound
+by them one level down.
+
 **Wrapper** — the extension's own `{ data, __serializedType__ }` shape, not a shape of ours.
 `data` holds what survived and `__serializedType__` names it. The panel's reviver unwraps it and
 prints the type as a label in front of the bare value, so it adds no nesting. It only works

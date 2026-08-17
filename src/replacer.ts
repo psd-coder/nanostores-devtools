@@ -3,13 +3,15 @@ import type { Store } from "nanostores";
 import {
   builtinFields,
   chainDescriptor,
+  chainValue,
   copyData,
   type Fields,
   ownFields,
   ownIndexes,
 } from "./descriptor.ts";
 import { noteDrawn } from "./drawn.ts";
-import { box, isBuilt, keepBuilt, mark, type Marked } from "./marker.ts";
+import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "./limits.ts";
+import { box, isBuilt, isMarked, keepBuilt, mark, type Marked, MORE_KEY } from "./marker.ts";
 import { getEntry, isStore, noted, storeWord } from "./registry.ts";
 import { dataForMark, reachesStore, staleNote, storeValue } from "./slot.ts";
 import { isThrottled } from "./throttle.ts";
@@ -52,13 +54,40 @@ type Kept = {
    * one tree is read in full in the next, where the app may hold it directly.
    */
   expanded: WeakSet<object>;
+  /**
+   * The level each value the walk is about to reach sits at below the nearest class instance, or
+   * `FREE` where no count is running. Filled at the parent's call, because jsan hands the replacer
+   * `(key, value)` and nothing else: no holder object and no path.
+   *
+   * One tree's, like `expanded`: a count held past its tree would keep an app object alive for the
+   * session and let a slot this walk never came back for decide what the next tree draws.
+   */
+  depths: Map<object, number>;
+  /**
+   * How many members each source drew in this tree. The decision is taken once and reused, because
+   * `copyFields` and `copyIndexes` refill one copy per source: with a cycle jsan can be part-way
+   * through its own loop over that copy when the second sighting arrives, and a sighting that
+   * refilled it with a different number of keys would make jsan finish the parent's loop over a
+   * changed object and drop members.
+   */
+  widths: Map<object, number>;
+  limits: ValueLimits;
 };
+
+/**
+ * Below every real level, so a value the count never reached and a value the count let through can
+ * never be confused, and so `min` keeps it winning wherever a value is reachable both ways.
+ */
+const FREE = -1;
 
 /** How many slots of a serializer's result hold this value, so how often jsan is yet to hand it back. */
 type ResultSlots = Map<unknown, number>;
 
 /** Which kind of collection jsan is about to write, which says what the list it walks next holds. */
 type Collection = "map" | "set";
+
+/** What a width cap let through, and how many members it left behind. */
+type Shortened<TDrawn> = { drawn: TDrawn; skipped: number };
 
 /**
  * How many times one object may go through a `convert` while one tree is written. A result that
@@ -75,6 +104,7 @@ const CONVERT_LIMIT = 1000;
  */
 export function createReplacer(
   serializers: Serializer[],
+  limits: ValueLimits = DEFAULT_VALUE_LIMITS,
 ): (key: string, value: unknown) => unknown {
   /**
    * jsan spots a value it has already walked by holding what the replacer handed back and matching
@@ -88,6 +118,9 @@ export function createReplacer(
     fields: new WeakMap(),
     indexes: new WeakMap(),
     expanded: new WeakSet(),
+    depths: new Map(),
+    widths: new Map(),
+    limits,
   };
   const slots: ResultSlots = new Map();
   const converted: Map<object, number> = new Map();
@@ -127,6 +160,8 @@ export function createReplacer(
       converted.clear();
       opened.length = 0;
       kept.expanded = new WeakSet();
+      kept.depths.clear();
+      kept.widths.clear();
       forgetQueued = false;
     });
   };
@@ -144,6 +179,23 @@ export function createReplacer(
     return handed;
   };
 
+  /**
+   * The one way back to jsan, and the only place that says where the walk goes next. Whatever we
+   * hand over, the values jsan reads out of it are registered one level down, so every value's own
+   * level is known before its own call arrives.
+   *
+   * A wrapper is left alone here: the panel's reviver drops it, so its `data` takes the wrapper's
+   * own level rather than the one below, and only the branch that built the wrapper knows whether
+   * it started a fresh count. Each of those registers its own `data` through `markAt`.
+   */
+  const handOver = (handed: unknown, depth: number): unknown => {
+    if (!isMarked(handed)) {
+      registerAt(kept.depths, childValues(handed), below(depth));
+    }
+
+    return handed;
+  };
+
   return (key, value) => {
     /**
      * On every call, because an expansion is left behind by the value walk rather than by a
@@ -152,6 +204,7 @@ export function createReplacer(
     forgetAfterTree();
 
     const walked = opened.pop();
+    const depth = isWalkable(value) ? (kept.depths.get(value) ?? FREE) : FREE;
 
     try {
       /**
@@ -163,7 +216,7 @@ export function createReplacer(
           holdPairs(jsanPairs, value);
         }
 
-        return convertValue(value, kept, true);
+        return handOver(convertValue(value, kept, depth, true), depth);
       }
 
       /**
@@ -171,7 +224,7 @@ export function createReplacer(
        * serializer of the developer's is meant to see them.
        */
       if (isWalkable(value) && jsanPairs.has(value)) {
-        return convertValue(value, kept, true);
+        return handOver(convertValue(value, kept, depth, true), depth);
       }
 
       const left = slots.get(value) ?? 0;
@@ -183,7 +236,7 @@ export function createReplacer(
       if (left > 0) {
         takeSlot(slots, value, left);
 
-        return fillSlots(slots, convertValue(value, kept));
+        return handOver(fillSlots(slots, convertValue(value, kept, depth)), depth);
       }
 
       for (const serializer of serializers) {
@@ -191,11 +244,11 @@ export function createReplacer(
           countConvert(converted, value);
 
           /** jsan walks this result too, and holding its slots keeps that walk out of this loop. */
-          return openList(fillSlots(slots, serializer.convert(value)));
+          return handOver(openList(fillSlots(slots, serializer.convert(value))), depth);
         }
       }
 
-      return convertValue(value, kept);
+      return handOver(convertValue(value, kept, depth), depth);
     } catch (error) {
       const message = describeError(error);
 
@@ -227,6 +280,45 @@ function holdPairs(jsanPairs: WeakSet<object>, list: readonly unknown[]): void {
       jsanPairs.add(pair);
     }
   }
+}
+
+/**
+ * Where jsan finds these values next.
+ *
+ * **The lowest level wins**, not the first write. Children are registered at their parent's call,
+ * which in depth-first order always comes before the child's own call, so a value can be registered
+ * deep before it is registered shallow: with `R = { a: A, p: P }`, `A = { b: { c: { d: X } } }` and
+ * `P = { x: X }`, the walk registers `X` four levels down before `P` registers it two. The extension
+ * turns jsan's `refs` off, so a plain repeat is walked a second time in full rather than pointed at,
+ * and a wrong answer on that second sighting is drawn in the panel.
+ *
+ * `min` errs only toward drawing more, and the bound still holds: a value is expanded only when its
+ * shortest counted path is inside the cap.
+ */
+function registerAt(depths: Map<object, number>, values: readonly unknown[], depth: number): void {
+  for (const child of values) {
+    if (!isWalkable(child)) {
+      continue;
+    }
+
+    const known = depths.get(child);
+
+    depths.set(child, known === undefined ? depth : Math.min(known, depth));
+  }
+}
+
+/** One level down, and a value no count reached stays free however deep the walk goes. */
+function below(depth: number): number {
+  return depth === FREE ? FREE : depth + 1;
+}
+
+/**
+ * The level a class instance itself sits at. A count that is already running keeps its level, so an
+ * instance inside another instance goes on counting; one that is not starts at zero, which puts the
+ * instance's own fields at level one.
+ */
+function startAt(depth: number): number {
+  return depth === FREE ? 0 : depth;
 }
 
 /** One slot fewer, and the value goes once its last slot has been walked. */
@@ -328,6 +420,82 @@ function markOnce(wrappers: Wrappers, source: object, type: string, data: object
 }
 
 /**
+ * A wrapper, and the level its `data` sits at. The panel's reviver drops the wrapper, so `data`
+ * takes the wrapper's own level and the members it holds take the one below on their own call.
+ */
+function markAt(kept: Kept, source: object, type: string, data: object, depth: number): Marked {
+  registerAt(kept.depths, [data], depth);
+
+  return markOnce(kept.wrappers, source, type, data);
+}
+
+/**
+ * How many members this source may draw, decided once per tree so one source keeps one shape while
+ * jsan walks it. Only where a count is running: a plain object, an array and a collection of the
+ * app's are sent whole, however large, until the walk is inside a class instance.
+ */
+function allowance(kept: Kept, source: object, counting: boolean): number {
+  const known = kept.widths.get(source);
+
+  if (known !== undefined) {
+    return known;
+  }
+
+  const allow = counting ? kept.limits.maxValueMembers : Number.POSITIVE_INFINITY;
+
+  kept.widths.set(source, allow);
+
+  return allow;
+}
+
+/** The first `allow` members in source order, and a note saying how many are past them. */
+function shortened(raw: Fields, names: readonly string[], allow: number): Fields {
+  if (names.length <= allow) {
+    return raw;
+  }
+
+  const drawn: Fields = {};
+
+  for (let index = 0; index < allow && index < names.length; index += 1) {
+    const name = names[index];
+
+    if (name !== undefined) {
+      drawn[name] = raw[name];
+    }
+  }
+
+  return withMore(drawn, names.length - allow, allow);
+}
+
+/**
+ * What a capped shape left out, under the same key the tree writes for the same idea. A store past
+ * the cap loses this node and keeps its own slot at its home, which is what the tree already does at
+ * its own member cap: keeping stores and capping only the rest would force a full read of a
+ * ten-million-member array to find them.
+ */
+function withMore(fields: Fields, skipped: number, drawn: number): Fields {
+  if (skipped > 0) {
+    fields[MORE_KEY] = mark(
+      `${skipped} more members past the ${drawn} drawn under a class instance`,
+      {},
+    );
+  }
+
+  return fields;
+}
+
+/** A value the count reached past its last level, drawn by its class and the reason and nothing else. */
+function pastDepth(kept: Kept, value: object): Marked {
+  return markAt(
+    kept,
+    value,
+    constructorName(value, "Object"),
+    box(`past the ${kept.limits.maxValueDepth} levels drawn under a class instance`),
+    FREE,
+  );
+}
+
+/**
  * Throws on a value that will not let its keys be listed, before any rule below hands it to jsan.
  * Two reads sit behind it. jsan lists the keys of whatever it walks, and it does that outside the
  * `try` around this call, so a `Proxy` trap that throws there would take the whole write down. And
@@ -351,9 +519,11 @@ function refuseUnlistable(value: object): void {
  * members. The keys go back in the order the value lists them, because the panel draws them in the
  * order they arrive.
  */
-function copyFields(kept: Kept, source: object): Fields {
+function copyFields(kept: Kept, source: object, allow: number): Fields {
   const raw = ownFields(source);
-  const fields = isBuilt(source) ? raw : slotted(kept, raw);
+  const names = Object.keys(raw);
+  const drawn = shortened(raw, names, allow);
+  const fields = isBuilt(source) ? drawn : slotted(kept, drawn);
   const known = kept.fields.get(source);
 
   if (known === undefined) {
@@ -388,7 +558,7 @@ function positioned(members: readonly unknown[]): Fields {
     fields[`[${index}]`] = members[index];
   }
 
-  return fields;
+  return keepBuilt(fields);
 }
 
 /**
@@ -396,14 +566,19 @@ function positioned(members: readonly unknown[]): Fields {
  * through a method of the value's own, so a subclass that overrode iteration cannot run its code
  * while a tree is written.
  */
-function setMembers(value: Set<unknown>): unknown[] {
-  const members: unknown[] = [];
+function setMembers(value: Set<unknown>, upTo: number): Shortened<unknown[]> {
+  const drawn: unknown[] = [];
+  let skipped = 0;
 
   Set.prototype.forEach.call(value, (member: unknown) => {
-    members.push(member);
+    if (drawn.length < upTo) {
+      drawn.push(member);
+    } else {
+      skipped += 1;
+    }
   });
 
-  return members;
+  return { drawn, skipped };
 }
 
 /**
@@ -412,21 +587,29 @@ function setMembers(value: Set<unknown>): unknown[] {
  * shape, `[entry 0]: { "[key]": …, "[value]": … }`: the key is as much state as the value is, and
  * the tree may leave such a member out of a placement but a value may not lose it.
  */
-function mapEntries(value: Map<unknown, unknown>): Fields {
-  const fields: Fields = {};
+function mapEntries(value: Map<unknown, unknown>, upTo: number): Shortened<Fields> {
+  const drawn: Fields = {};
   let index = 0;
+  let skipped = 0;
 
   Map.prototype.forEach.call(value, (member: unknown, key: unknown) => {
+    if (index >= upTo) {
+      skipped += 1;
+      index += 1;
+
+      return;
+    }
+
     if (typeof key === "string" || typeof key === "number") {
-      fields[`[${JSON.stringify(key)}]`] = member;
+      drawn[`[${JSON.stringify(key)}]`] = member;
     } else {
-      fields[`[entry ${index}]`] = keepBuilt({ "[key]": key, "[value]": member });
+      drawn[`[entry ${index}]`] = keepBuilt({ "[key]": key, "[value]": member });
     }
 
     index += 1;
   });
 
-  return fields;
+  return { drawn, skipped };
 }
 
 /** The same rule for an array of no stores, whose members jsan reads by index. A hole stays put. */
@@ -454,7 +637,7 @@ function copyIndexes(kept: Kept, source: readonly unknown[], indexes: unknown[])
  * `encoders` says the array in hand is one jsan built to write a `Map` or a `Set`, so its positions
  * are jsan's own and keying them would break the shape it is halfway through writing.
  */
-function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
+function convertValue(value: unknown, kept: Kept, depth: number, encoders = false): unknown {
   if (typeof value === "bigint") {
     /**
      * jsan throws outright on a BigInt, so it has to be taken before jsan sees it. A plain mark: a
@@ -480,7 +663,7 @@ function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
    * Neither test reads a property of the value.
    */
   if (value === globalThis || (typeof Window !== "undefined" && value instanceof Window)) {
-    return markOnce(kept.wrappers, value, constructorName(value, "Object"), box("globalThis"));
+    return markAt(kept, value, constructorName(value, "Object"), box("globalThis"), depth);
   }
 
   refuseUnlistable(value);
@@ -489,34 +672,64 @@ function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
    * Ahead of every other rule of ours rather than wherever the branches happen to fall. A store is
    * a plain object literal, so the plain-object branch would hand jsan the nanostores keys and the
    * panel would draw `get, init, lc, listen, …` where a value belongs.
+   *
+   * Ahead of the depth cap too: a store is never replaced by a placeholder, so its slot keeps its
+   * key and its type word wherever the walk found it.
    */
   if (isStore(value)) {
-    return markStore(kept.wrappers, value);
+    return markStore(kept, value);
   }
 
+  if (depth > kept.limits.maxValueDepth) {
+    return pastDepth(kept, value);
+  }
+
+  /**
+   * Whether a width cap applies to the app's own shapes here. A list jsan built out of a
+   * serializer's collection is not the app's to cap, and neither is a shape we built ourselves,
+   * which arrives already capped and would otherwise be shortened a second time. The class instance
+   * below counts whatever its own level is, because it is what starts a count.
+   */
+  const counting = !encoders && !isBuilt(value) && depth !== FREE;
+
   if (value instanceof Error) {
-    return markOnce(
-      kept.wrappers,
-      value,
-      constructorName(value, "Error"),
-      errorFields(kept, value),
-    );
+    return markAt(kept, value, constructorName(value, "Error"), errorFields(kept, value), depth);
   }
 
   if (isTypedArray(value)) {
-    return markOnce(kept.wrappers, value, constructorName(value, "Object"), Array.from(value));
+    return markAt(
+      kept,
+      value,
+      constructorName(value, "Object"),
+      typedData(kept, value, allowance(kept, value, counting)),
+      depth,
+    );
   }
 
   if (isDomNode(value)) {
-    return markOnce(kept.wrappers, value, constructorName(value, "Object"), box(openingTag(value)));
+    return markAt(kept, value, constructorName(value, "Object"), box(openingTag(value)), depth);
   }
 
   if (Array.isArray(value)) {
+    const allow = allowance(kept, value, counting);
+    const size = chainValue(value, "length");
+
+    /**
+     * jsan walks an array by `i < length` and drops every other key, so a capped array cannot carry
+     * the note as an extra index. It switches to the keyed shape an array holding a store already
+     * takes, where every member has a name of its own and the note is one more of them.
+     */
+    if (typeof size === "number" && size > allow) {
+      const drawn = slotted(kept, positioned(ownIndexes(value, allow)));
+
+      return markAt(kept, value, "Array", withMore(drawn, size - allow, allow), depth);
+    }
+
     /** Read once, through the descriptors, so no accessor of the app's runs while we choose. */
     const members = ownIndexes(value);
 
     return !encoders && members.some(isStore)
-      ? markOnce(kept.wrappers, value, "Array", slotted(kept, positioned(members)))
+      ? markAt(kept, value, "Array", slotted(kept, positioned(members)), depth)
       : copyIndexes(kept, value, members);
   }
 
@@ -535,24 +748,66 @@ function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
    * The cost is jsan's `3 entries` count, which the panel writes for a node of that kind alone.
    */
   if (value instanceof Set) {
-    return markOnce(kept.wrappers, value, "Set", slotted(kept, positioned(setMembers(value))));
+    const allow = allowance(kept, value, counting);
+    const members = setMembers(value, allow);
+    const drawn = slotted(kept, positioned(members.drawn));
+
+    return markAt(kept, value, "Set", withMore(drawn, members.skipped, allow), depth);
   }
 
   if (value instanceof Map) {
-    return markOnce(kept.wrappers, value, "Map", slotted(kept, mapEntries(value)));
+    const allow = allowance(kept, value, counting);
+    const entries = mapEntries(value, allow);
+    const drawn = slotted(kept, entries.drawn);
+
+    return markAt(kept, value, "Map", withMore(drawn, entries.skipped, allow), depth);
   }
 
   const prototype: unknown = Object.getPrototypeOf(value);
 
   if (prototype === Object.prototype || prototype === null) {
-    return copyFields(kept, value);
+    return copyFields(kept, value, allowance(kept, value, counting));
   }
 
+  /**
+   * The one place besides a built-in getter expansion, which happens below this, where a count
+   * starts. A plain object of the app's registers its children free, so app state above any class
+   * instance is untouched, while a plain object *inside* one goes on counting and cannot escape the
+   * cap by being plain.
+   */
   const name = constructorName(value, "Object");
-  const fields = slotted(kept, heldFields(kept, value));
+  const own = heldFields(kept, value);
+  const names = Object.keys(own);
+  const allow = allowance(kept, value, true);
+  const fields = slotted(kept, shortened(own, names, allow));
   const data = Object.keys(fields).length > 0 ? fields : box(String(value));
 
-  return markOnce(kept.wrappers, value, name, data);
+  return markAt(kept, value, name, data, startAt(depth));
+}
+
+/**
+ * What a typed array shows. `ownIndexes` cannot serve here: a typed array keeps `length` behind a
+ * prototype getter and that reader takes data properties only. `ArrayBuffer.isView` answered yes on
+ * an object with the internal slot, which a `Proxy` never has, so reading it runs no app code.
+ *
+ * `Array.from` on a ten-million-element `Float64Array` in a class field is the payload this cap
+ * exists for, so a capped one is read index by index and never through it.
+ */
+function typedData(kept: Kept, value: ArrayLike<number | bigint>, allow: number): object {
+  /** Read as `unknown`: a view whose prototype the app cut away has no `length` left at all. */
+  const size: unknown = value.length;
+
+  if (typeof size !== "number" || size <= allow) {
+    return keepBuilt(Array.from(value));
+  }
+
+  const drawn: unknown[] = [];
+
+  for (let index = 0; index < allow; index += 1) {
+    drawn.push(value[index]);
+  }
+
+  return withMore(slotted(kept, positioned(drawn)), size - allow, allow);
 }
 
 /**
@@ -569,6 +824,10 @@ function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
  * jsan never meets a store this replaced, so a serializer of the developer's does not either. That
  * is what the tree already does with a store's own slot, where the value goes in and the store does
  * not, so the two paths agree rather than one of them being an exception.
+ *
+ * The result is noted as ours, because jsan walks the wrapper it becomes the `data` of and hands it
+ * back here. Without the note that call would read it as a plain object of the app's: it would be
+ * counted against the width cap a second time and shortened again, and slotted a second time.
  */
 function slotted(kept: Kept, fields: Fields): Fields {
   const named: Fields = {};
@@ -585,7 +844,7 @@ function slotted(kept: Kept, fields: Fields): Fields {
     named[key] = value;
   }
 
-  return named;
+  return keepBuilt(named);
 }
 
 /**
@@ -605,12 +864,18 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
   noteDrawn(store);
 
   if (note !== undefined) {
-    return [named, markOnce(kept.wrappers, store, note.label, note.data)];
+    return [named, markAt(kept, store, note.label, note.data, FREE)];
   }
 
   const value = storeValue(store);
 
-  return reachesStore(value, store) ? [key, markStore(kept.wrappers, store)] : [named, value];
+  if (reachesStore(value, store)) {
+    return [key, markStore(kept, store)];
+  }
+
+  registerAt(kept.depths, [value], FREE);
+
+  return [named, value];
 }
 
 /**
@@ -618,16 +883,21 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
  * handed straight to the replacer. `value` is the whole read, the same read the tree does: `get()`
  * mounts an unmounted store. A store that is not mounted says so instead of naming its type, because that
  * note says more and a mark cannot sit inside another mark.
+ *
+ * The value goes out free, whatever level the walk found the store at. One store must not disagree
+ * with itself between two placements: a store drawn deep inside a class instance and the same store
+ * drawn at its own home have to show the same value, and the home slot has no cap above it. It stays
+ * bounded, because a class instance inside that value starts a fresh count.
  */
-function markStore(wrappers: Wrappers, store: Store): Marked {
+function markStore(kept: Kept, store: Store): Marked {
   const entry = getEntry(store);
   const note = staleNote(store, entry);
 
   noteDrawn(store);
 
   return note === undefined
-    ? markOnce(wrappers, store, storeWord(entry?.type), dataForMark(store, storeValue(store)))
-    : markOnce(wrappers, store, note.label, note.data);
+    ? markAt(kept, store, storeWord(entry?.type), dataForMark(store, storeValue(store)), FREE)
+    : markAt(kept, store, note.label, note.data, FREE);
 }
 
 /**

@@ -29,6 +29,24 @@ export function mark(type: string, data: object): Marked {
   return keepBuilt({ data, __serializedType__: type });
 }
 
+/** A wrapper of ours, told apart from an app object that happens to carry the same key. */
+export function isMarked(value: unknown): value is Marked {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    isBuilt(value) &&
+    "__serializedType__" in value &&
+    "data" in value
+  );
+}
+
+/**
+ * What a capped shape says it left out, so silence never reads as "this is all of it". Beside
+ * `VALUE_KEY` because both are invented keys, and both writers, the tree and the converter, spell
+ * the idea this one way.
+ */
+export const MORE_KEY = "…";
+
 /**
  * The one key name invented in this design, and the tree spells a store's own value the same way,
  * so a developer reads one idea in one spelling. Parentheses cannot spell a JS name, so the key

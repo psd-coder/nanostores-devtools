@@ -72,6 +72,87 @@ function register(store: Store, type: StoreType, name = "$s"): void {
   });
 }
 
+/** A chain of plain objects, so a walk that is not counting can be shown going all the way down. */
+function nested(levels: number): Record<string, unknown> {
+  let value: Record<string, unknown> = { leaf: "bottom" };
+
+  for (let level = 0; level < levels; level += 1) {
+    value = { down: value };
+  }
+
+  return value;
+}
+
+class Layer {
+  down: unknown;
+
+  constructor(down: unknown) {
+    this.down = down;
+  }
+}
+
+/** The same chain built out of class instances, so every level carries a name a cap has to keep. */
+function layers(levels: number): Layer {
+  let value: unknown = { leaf: "bottom" };
+
+  for (let level = 0; level < levels; level += 1) {
+    value = new Layer(value);
+  }
+
+  return value as Layer;
+}
+
+function wideObject(members: number): Record<string, number> {
+  const fields: Record<string, number> = {};
+
+  for (let index = 0; index < members; index += 1) {
+    fields[`f${index}`] = index;
+  }
+
+  return fields;
+}
+
+function sized(_member: unknown, index: number): number {
+  return index;
+}
+
+/** One field holding whatever a cap is being measured against. */
+class Bag {
+  held: unknown;
+
+  constructor(held: unknown) {
+    this.held = held;
+  }
+}
+
+class Pair {
+  near: unknown;
+  far: unknown;
+
+  constructor(near: unknown, far: unknown) {
+    this.near = near;
+    this.far = far;
+  }
+}
+
+/** The counterexample: `a` reaches the shared value deep, and `p` reaches the same one shallow. */
+class Graph {
+  a: unknown;
+  p: unknown;
+
+  constructor(a: unknown, p: unknown) {
+    this.a = a;
+    this.p = p;
+  }
+}
+
+function capped(
+  maxValueDepth: number,
+  maxValueMembers: number,
+): (key: string, value: unknown) => unknown {
+  return createReplacer([], { maxValueDepth, maxValueMembers });
+}
+
 function throwing(): unknown {
   const value = new Empty();
 
@@ -1738,17 +1819,159 @@ describe("createReplacer", () => {
     });
   });
 
-  it("shortens nothing at any size", () => {
+  it("shortens no string and no value the app designed itself", () => {
     const long = "x".repeat(50_000);
-    const bag = new Point();
-
-    for (let index = 0; index < 500; index += 1) {
-      Object.defineProperty(bag, `field${index}`, { value: long, enumerable: true });
-    }
 
     expect(replacer("s", long)).toBe(long);
-    expect(markedKeys(replacer("p", bag))).toHaveLength(502);
     expect(markedData(replacer("b", new Uint8Array(10_000)))).toHaveLength(10_000);
+    expect(Object.keys(replacer("o", wideObject(500)) as object)).toHaveLength(500);
+  });
+
+  describe("the caps under a class instance", () => {
+    it("sends a deep plain object and a wide plain array at the top of a store whole", () => {
+      const $deep = atom<unknown>({ deep: nested(20), rows: Array.from({ length: 2000 }, sized) });
+
+      register($deep, "atom", "$deep");
+
+      const written = write($deep, capped(5, 100));
+
+      expect(written).toContain("bottom");
+      expect(written).toContain(",1999]");
+      expect(written).not.toContain("past the");
+      expect(written).not.toContain("more members past");
+    });
+
+    it("cuts the same deep shape inside a class instance and keeps the class name", () => {
+      const written = write({ held: layers(6) }, capped(2, 100));
+
+      expect(written).toContain("past the 2 levels drawn under a class instance");
+      expect(written).not.toContain("bottom");
+
+      const drawn = parsePanel(written) as { held: { down: { down: { down: object } } } };
+
+      expect(labelOf(drawn.held.down.down.down)).toBe("Layer");
+    });
+
+    it("draws an instance's own fields at zero levels and every object among them as a note", () => {
+      const drawn = parsePanel(write(new Pair(1, { x: 2 }), capped(0, 100))) as {
+        near: number;
+        far: { "(value)": string };
+      };
+
+      expect(drawn.near).toBe(1);
+      expect(drawn.far["(value)"]).toBe("past the 0 levels drawn under a class instance");
+      expect(labelOf(drawn.far)).toBe("Object");
+    });
+
+    it("starts the count on a built-in getter expansion too", () => {
+      class Frame {}
+
+      /** The shape of a platform attribute: an enumerable getter on a global constructor's prototype. */
+      Object.defineProperty(Frame.prototype, "held", { enumerable: true, get: () => nested(6) });
+
+      vi.stubGlobal("Frame", Frame);
+      forgetBuiltins();
+
+      const written = write({ frame: new Frame() }, capped(2, 100));
+
+      expect(written).toContain("past the 2 levels drawn under a class instance");
+      expect(written).not.toContain("bottom");
+
+      forgetBuiltins();
+    });
+
+    /**
+     * The deep sighting is walked first and capped, and the shallow one, registered later, still
+     * draws in full. With `refs` off a repeat is walked a second time rather than pointed at, so a
+     * first-write-wins depth would put that wrong answer in the panel.
+     */
+    it("lets the lowest depth win over the depth a walk met first", () => {
+      const shared = { mark: "shallow" };
+      const graph = new Graph({ b: { c: { d: shared } } }, { x: shared });
+      const written = write(graph, capped(3, 100));
+
+      expect(written).toContain("shallow");
+      expect(written).toContain("past the 3 levels drawn under a class instance");
+    });
+
+    it("draws the limit and one note on a 300-field class instance", () => {
+      const wide = Object.assign(new Empty(), wideObject(300));
+      const keys = markedKeys(capped(5, 100)("w", wide));
+
+      expect(keys).toHaveLength(101);
+      expect(keys.at(-1)).toBe("…");
+      expect((markedData(capped(5, 100)("w", wide)) as Record<string, unknown>)["…"]).toEqual({
+        data: {},
+        __serializedType__: "200 more members past the 100 drawn under a class instance",
+      });
+    });
+
+    it("keys a capped array, because jsan drops every key an array holds past its length", () => {
+      const written = write(new Bag(Array.from({ length: 250 }, sized)), capped(5, 100));
+
+      expect(written).toContain('"[99]":99');
+      expect(written).not.toContain('"[100]"');
+      expect(written).toContain("150 more members past the 100 drawn under a class instance");
+    });
+
+    it("reads a large typed array short instead of copying all of it", () => {
+      const from = vi.spyOn(Array, "from");
+      const written = write(new Bag(new Float64Array(5000)), capped(5, 100));
+
+      expect(written).toContain("4900 more members past the 100 drawn under a class instance");
+      expect(written).not.toContain('"[100]"');
+      expect(from).not.toHaveBeenCalled();
+
+      from.mockRestore();
+    });
+
+    it("keeps a store below the cap whole, and one store at two depths one shape", () => {
+      const $rows = atom([1, 2, 3]);
+
+      register($rows, "atom", "$rows");
+
+      const written = write(new Pair($rows, { $rows }), capped(1, 100));
+
+      expect(written.split("[1,2,3]")).toHaveLength(3);
+      expect(written).toContain("$rows [store]");
+      expect(written).not.toContain("past the");
+    });
+
+    it("round-trips a cycle through a width-capped object with every key it drew", () => {
+      const wide: Record<string, unknown> = { self: undefined };
+
+      Object.assign(wide, wideObject(150));
+      wide["self"] = wide;
+
+      const written = write(new Bag(wide), capped(5, 100));
+      const drawn = parsePanel(written) as { held: Record<string, unknown> };
+
+      expect(written).toContain('"$jsan"');
+      expect(Object.keys(drawn.held)).toHaveLength(101);
+    });
+
+    it("draws in the next tree what it capped in the last one", async () => {
+      const shared = nested(8);
+      const replacing = capped(2, 100);
+
+      expect(write(new Bag(shared), replacing)).toContain("past the 2 levels");
+
+      await Promise.resolve();
+
+      expect(write({ plain: shared }, replacing)).not.toContain("past the 2 levels");
+    });
+
+    it("draws everything again with Infinity on either cap", () => {
+      const wide = Object.assign(new Empty(), wideObject(300));
+      const written = write(
+        { deep: layers(9), wide },
+        capped(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY),
+      );
+
+      expect(written).toContain("bottom");
+      expect(written).not.toContain("more members past");
+      expect(written).not.toContain("past the");
+    });
   });
 
   it("emits an object or an array as data for every row of the table", () => {

@@ -7,6 +7,7 @@ import {
 } from "./extension.ts";
 import { getDevtoolsGlobal, peekDevtoolsGlobal } from "./global.ts";
 import { attachHooks, detachHooks } from "./hooks.ts";
+import { resolveValueLimits } from "./limits.ts";
 import {
   createLifecycle,
   dropPendingRows,
@@ -43,6 +44,10 @@ export type DevtoolsOptions = {
   throttle?: ThrottleOption | undefined;
   /** Writes a second above which the bridge throttles a store itself. `false` turns it off. */
   autoThrottle?: boolean | number | undefined;
+  /** Levels drawn below a class instance. `Infinity` turns the cap off. */
+  maxValueDepth?: number | undefined;
+  /** Members drawn per shape below a class instance. `Infinity` turns the cap off. */
+  maxValueMembers?: number | undefined;
 };
 
 export type DevtoolsHandle = {
@@ -183,7 +188,10 @@ function buildConfig(options: DevtoolsOptions | undefined, trace: boolean): Exte
      * Both halves: `options: true` lets jsan render a `Date`, a `Map` and a `Set` natively, and
      * the replacer marks the ones jsan handles badly, such as an `Error` or a `BigInt`.
      */
-    serialize: { replacer: createReplacer(options?.serializers ?? []), options: true },
+    serialize: {
+      replacer: createReplacer(options?.serializers ?? [], resolveValueLimits(options ?? {})),
+      options: true,
+    },
     /**
      * In full, because the extension turns every feature on when the object is missing, which
      * gives a read-only bridge a jump, dispatch and import button that all do nothing.
