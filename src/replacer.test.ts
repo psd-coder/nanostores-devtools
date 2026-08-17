@@ -609,18 +609,18 @@ describe("createReplacer", () => {
     });
 
     /**
-     * `searchParams` is a `URLSearchParams`, whose own fields are behind getters too. Reading those
-     * as well is how one read becomes a walk over the platform behind the value.
+     * `signal` is an `AbortSignal`, whose own fields are behind getters too. Reading those as well
+     * is how one read becomes a walk over the platform behind the value.
      */
     it("reads no getter again on an object a built-in getter handed back", () => {
-      const drawn = replacer("u", new URL("https://example.com/a?b=1")) as {
+      const drawn = replacer("c", new AbortController()) as {
         data: Record<string, unknown>;
       };
-      const params = drawn.data["searchParams"] as object;
+      const signal = drawn.data["signal"] as object;
 
-      expect(replacer("s", params)).toEqual({
-        data: { "(value)": "b=1" },
-        __serializedType__: "URLSearchParams",
+      expect(replacer("s", signal)).toEqual({
+        data: { "(value)": "[object AbortSignal]" },
+        __serializedType__: "AbortSignal",
       });
     });
 
@@ -641,16 +641,16 @@ describe("createReplacer", () => {
     });
 
     it("reads in the next tree what a getter handed back in the last one", async () => {
-      const drawn = replacer("u", new URL("https://example.com/a?b=1")) as {
+      const drawn = replacer("c", new AbortController()) as {
         data: Record<string, unknown>;
       };
-      const params = drawn.data["searchParams"] as object;
+      const signal = drawn.data["signal"] as object;
 
       await Promise.resolve();
 
-      const read = replacer("s", params) as { data: Record<string, unknown> };
+      const read = replacer("s", signal) as { data: Record<string, unknown> };
 
-      expect(read.data["size"]).toBe(1);
+      expect(read.data["aborted"]).toBe(false);
     });
 
     /** The shape this is all for: an event keeps every field behind a getter on its prototype. */

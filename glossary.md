@@ -104,7 +104,13 @@ own data: an event, a `URL`, a `DOMRect`. The bridge reads those getters, which 
 a getter the app wrote. The test is the prototype: one a global constructor carries was written by
 the platform, and a class declared in a module was not. An object such a getter hands back keeps its
 own data and has no getter of its own read, so one **expansion** never chains into a walk over the
-whole platform. That memory belongs to one snapshot: the next one reads the same value in full.
+whole platform. That memory belongs to one snapshot: the next one reads the same value in full. A
+few classes publish no getter to read at all and take a **shipped serializer** instead.
+
+**Shipped serializer** — a rule the bridge carries for a platform class the getter read says nothing
+about: `Headers`, `FormData`, `URLSearchParams`, `ArrayBuffer`, `SharedArrayBuffer`, `DataView`, and
+a boxed `String`, `Number` or `Boolean`. Checked after the developer's own serializers and ahead of
+every other rule of ours, and `platformSerializers: false` leaves the whole list out.
 
 **The global object** — `globalThis`, wherever a row reaches it: `event.view`, `currentTarget` on a
 `window` listener, `self`, `frames`, `top` and `parent` in a page that is not framed. It is never

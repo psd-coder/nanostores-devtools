@@ -21,6 +21,15 @@ function stale(value: unknown): unknown {
   return { data: { "(value)": value }, __serializedType__: "not mounted, may be stale" };
 }
 
+/** The replacer the bridge built, read back off the config it handed the extension. */
+function replacerOf(
+  extension: FakeExtension,
+): ((key: string, value: unknown) => unknown) | undefined {
+  const serialize = extension.configs[0]?.serialize;
+
+  return typeof serialize === "object" ? serialize.replacer : undefined;
+}
+
 function hooked(store: Store): boolean {
   const entry = getEntry(store);
 
@@ -144,6 +153,37 @@ describe("connectDevtools", () => {
       expect(replacer?.("n", 9007199254740993n)).toEqual({
         data: { "(value)": "9007199254740993" },
         __serializedType__: "BigInt",
+      });
+    });
+
+    it("adds the platform rules after the user serializers", () => {
+      connectDevtools({
+        serializers: [{ match: (value) => value === 7, convert: () => "seven" }],
+      });
+
+      expect(replacerOf(fake)?.("n", 7)).toBe("seven");
+      expect(replacerOf(fake)?.("h", new Headers({ "x-trace": "abc" }))).toEqual({
+        data: { "x-trace": "abc" },
+        __serializedType__: "Headers",
+      });
+    });
+
+    it("lets a rule of the developer's win over one of ours", () => {
+      connectDevtools({
+        serializers: [
+          { match: (value) => value instanceof Headers, convert: () => ({ mine: true }) },
+        ],
+      });
+
+      expect(replacerOf(fake)?.("h", new Headers({ "x-trace": "abc" }))).toEqual({ mine: true });
+    });
+
+    it("leaves the platform rules out when the option says so", () => {
+      connectDevtools({ platformSerializers: false });
+
+      expect(replacerOf(fake)?.("h", new Headers({ "x-trace": "abc" }))).toEqual({
+        data: { "(value)": "[object Headers]" },
+        __serializedType__: "Headers",
       });
     });
 

@@ -518,18 +518,19 @@ no-op, so each one costs a single function call.
 
 ### `connectDevtools(options?)`
 
-| option            | default        | what it does                                                    |
-| ----------------- | -------------- | --------------------------------------------------------------- |
-| `name`            | `"nanostores"` | the entry in the extension's dropdown                           |
-| `serializers`     | `[]`           | your own rules for converting values, checked before ours       |
-| `trace`           | `true`         | capture a stack at each direct write                            |
-| `traceLimit`      | `10`           | how many stack frames to capture                                |
-| `maxAge`          | `500`          | how many rows the extension keeps                               |
-| `lifecycleEvents` | `true`         | draw the [lifecycle rows](#what-each-row-in-the-timeline-means) |
-| `throttle`        | `[]`           | hold these stores to one row a second                           |
-| `autoThrottle`    | `true`         | throttle a store writing more than 10 times a second            |
-| `maxValueDepth`   | `5`            | levels drawn below a class instance                             |
-| `maxValueMembers` | `100`          | members drawn per shape below a class instance                  |
+| option                | default        | what it does                                                       |
+| --------------------- | -------------- | ------------------------------------------------------------------ |
+| `name`                | `"nanostores"` | the entry in the extension's dropdown                              |
+| `serializers`         | `[]`           | your own rules for converting values, checked before ours          |
+| `platformSerializers` | `true`         | our own rules for `Headers`, `FormData` and other platform classes |
+| `trace`               | `true`         | capture a stack at each direct write                               |
+| `traceLimit`          | `10`           | how many stack frames to capture                                   |
+| `maxAge`              | `500`          | how many rows the extension keeps                                  |
+| `lifecycleEvents`     | `true`         | draw the [lifecycle rows](#what-each-row-in-the-timeline-means)    |
+| `throttle`            | `[]`           | hold these stores to one row a second                              |
+| `autoThrottle`        | `true`         | throttle a store writing more than 10 times a second               |
+| `maxValueDepth`       | `5`            | levels drawn below a class instance                                |
+| `maxValueMembers`     | `100`          | members drawn per shape below a class instance                     |
 
 `name` is fixed at the first connect and cannot change later, because the panel builds its record
 for a connection once. It defaults to a fixed word rather than `document.title`, which changes per
@@ -618,6 +619,33 @@ are your app's, and every rule you wrote still runs on them.
 The one collection the encoder still writes by itself is one **your own `convert` returned**. It
 builds a list out of it there, and neither that list nor a `[key, value]` pair inside it reaches
 your serializers.
+
+**We ship rules of our own, and they run after yours.** Six platform classes say nothing useful
+without one, so the bridge draws them itself:
+
+| class                                   | what it draws                 |
+| --------------------------------------- | ----------------------------- |
+| `Headers`                               | one key per header name       |
+| `FormData`                              | one key per entry             |
+| `URLSearchParams`                       | one key per entry             |
+| `ArrayBuffer`, `SharedArrayBuffer`      | `byteLength`                  |
+| `DataView`                              | `byteLength` and `byteOffset` |
+| a boxed `String`, `Number` or `Boolean` | the primitive under `(value)` |
+
+Each of the first five drew as `[object Headers]` and nothing else, because none of them publishes
+a single readable field. A boxed string drew one key per character, so a 10 000-character one cost
+10 000 keys.
+
+Your own rules are checked first, so a rule you wrote for one of these values wins. Ours are checked
+before every other rule of the bridge, so a `Headers` reached through `response.headers` is drawn by
+the rule above rather than by the platform-object read.
+
+**A name that repeats takes a number**: a `FormData` or a `URLSearchParams` holding `tag` twice
+draws `tag` and `tag #2`, in the order the entries went in, because one key holds one entry. A field
+really named `tag #2` reads the same way, which is what this costs.
+
+Pass `platformSerializers: false` to leave the whole list out. Those values then draw the way every
+other class instance does.
 
 **`maxValueDepth` and `maxValueMembers` cap only what a class instance holds.** Everything you
 shaped yourself goes out whole, however large: the two counts start where the walk enters a class
@@ -946,6 +974,11 @@ The rest of the rule, and why each part is there:
   is read as an ordinary object of its class, because the test is identity.
 - **A DOM node was already bounded**, by its opening tag, and `document` draws `<#document>`, which
   is the name the DOM itself gives it, as `#text` and `#comment` read for the other two.
+- **A few classes take a rule of ours instead**, because there is no getter on them to read: a
+  `Headers`, a `FormData`, a `URLSearchParams`, an `ArrayBuffer`, a `SharedArrayBuffer`, a
+  `DataView` and a boxed `String`, `Number` or `Boolean`. Those rules run first, and
+  [`connectDevtools(options?)`](#connectdevtoolsoptions) has the list and the option that turns it
+  off.
 
 A class the page defines on `globalThis` after the first tree is written counts as yours, because
 the set of platform prototypes is built once. That costs a label, never correctness.

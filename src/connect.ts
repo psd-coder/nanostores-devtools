@@ -15,6 +15,7 @@ import {
   noteInitSent,
   noteRegistryChange,
 } from "./lifecycle.ts";
+import { shippedSerializers } from "./platform.ts";
 import { listEntries, onRegistryChange } from "./registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
 import { buildSnapshot } from "./snapshot.ts";
@@ -36,6 +37,8 @@ import { describeError, warnOnce } from "./warn.ts";
 export type DevtoolsOptions = {
   name?: string | undefined;
   serializers?: Serializer[] | undefined;
+  /** The rules the bridge ships for platform classes such as `Headers`. `false` leaves them out. */
+  platformSerializers?: boolean | undefined;
   maxAge?: number | undefined;
   trace?: boolean | undefined;
   traceLimit?: number | undefined;
@@ -189,7 +192,7 @@ function buildConfig(options: DevtoolsOptions | undefined, trace: boolean): Exte
      * the replacer marks the ones jsan handles badly, such as an `Error` or a `BigInt`.
      */
     serialize: {
-      replacer: createReplacer(options?.serializers ?? [], resolveValueLimits(options ?? {})),
+      replacer: createReplacer(serializersFor(options), resolveValueLimits(options ?? {})),
       options: true,
     },
     /**
@@ -219,6 +222,14 @@ function buildConfig(options: DevtoolsOptions | undefined, trace: boolean): Exte
   }
 
   return config;
+}
+
+/** The developer's rules first and ours after them, so a rule of theirs over a platform class wins. */
+function serializersFor(options: DevtoolsOptions | undefined): Serializer[] {
+  const own = options?.serializers ?? [];
+  const withOurs = options?.platformSerializers ?? true;
+
+  return withOurs ? [...own, ...shippedSerializers] : own;
 }
 
 /**
