@@ -864,7 +864,7 @@ Other things values do:
   app holds is keyed by the bridge instead and has no such problem.
 
 An `Error` keeps its name, message, stack, cause and own fields. A class instance keeps its class
-name. A typed array, a `BigInt` and a DOM node each keep something readable. A value that throws
+name. A typed array and a `BigInt` each keep something readable. A value that throws
 while being converted puts `ConversionError` in that one slot and everything else still goes.
 
 **A store held inside another store's value is drawn as a store**, wherever it sits: in an array, in
@@ -1003,8 +1003,10 @@ draws `<Headers> {}`.
 Three things read without a rule of yours, so the loss is bounded to objects that keep everything
 behind getters:
 
-- **A DOM node** draws its opening tag, `<div id="app">`. A `document`, a text node and a comment
-  have no tag, so each of them draws its class name alone.
+- **A DOM node** draws its class name alone, `HTMLDivElement {}`, whatever kind of node it is. The
+  rule is there for what it stops: a framework parks its own state on a node as an ordinary
+  property, React's fiber above all, and without it one element would pull a whole render tree into
+  the row.
 - **The window your page runs in is never walked**, wherever the row reaches it from: `self`,
   `frames`, `currentTarget` on a `window` listener, and `top` or `parent` while the page is not
   framed. It draws its class name alone, `Window {}`, so whatever you parked on `window` costs no

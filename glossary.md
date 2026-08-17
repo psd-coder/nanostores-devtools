@@ -169,7 +169,7 @@ the extension. It is a jsan **replacer**, passed to the extension as
 `serialize: { replacer, options: true }`, so it rides on the `serialize` option rather than
 replacing it. It handles only what jsan handles badly: `Error` (jsan keeps the message alone),
 class instances (jsan loses the name), typed arrays, `BigInt` (jsan throws), DOM nodes,
-and `Map` and `Set` (the panel calls both of them `Iterable`). Everything else
+the global object, and `Map` and `Set` (the panel calls both of them `Iterable`). Everything else
 it returns untouched for jsan to encode. It takes user-supplied serializers and encodes only: there
 is no reviver of ours.
 

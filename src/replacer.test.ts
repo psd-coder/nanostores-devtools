@@ -804,23 +804,17 @@ describe("createReplacer", () => {
       vi.stubGlobal("Node", FakeNode);
     });
 
-    it("shows the opening tag only, with its attributes", () => {
+    it("draws an element as its class alone, attributes and all", () => {
       const node = new HTMLDivElement("DIV", [
         { name: "id", value: "app" },
         { name: "class", value: "root" },
       ]);
 
-      expect(replacer("el", node)).toEqual({
-        data: { "(value)": '<div id="app" class="root">' },
-        __serializedType__: "HTMLDivElement",
-      });
+      expect(replacer("el", node)).toEqual({ data: {}, __serializedType__: "HTMLDivElement" });
     });
 
-    /**
-     * `#document`, `#text` and `#comment` are the DOM's own names for the three nodes written with
-     * no tag, and each one repeats the class the label already carries.
-     */
-    it("draws a node that has no tag as its class alone", () => {
+    /** `#document`, `#text` and `#comment` are the DOM's own names for the nodes written with no tag. */
+    it("draws a node that has no tag the same way", () => {
       for (const name of ["#document", "#text", "#comment"]) {
         expect(replacer("d", new FakeNode(name))).toEqual({
           data: {},
@@ -829,11 +823,16 @@ describe("createReplacer", () => {
       }
     });
 
-    it("shows a bare tag for a node with no attributes", () => {
-      expect(replacer("el", new FakeNode("SPAN"))).toEqual({
-        data: { "(value)": "<span>" },
-        __serializedType__: "FakeNode",
-      });
+    /**
+     * What the rule is really for. A framework parks its own state on a node as an own enumerable
+     * property, React's fiber above all, and the class-instance rule would walk it.
+     */
+    it("reads none of the own keys a framework parked on a node", () => {
+      const node = new HTMLDivElement("DIV");
+
+      Object.assign(node, { __reactFiber$x: { child: { child: { tag: 5 } } } });
+
+      expect(replacer("el", node)).toEqual({ data: {}, __serializedType__: "HTMLDivElement" });
     });
   });
 

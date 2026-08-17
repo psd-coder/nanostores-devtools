@@ -27,11 +27,6 @@ export type Serializer = {
   convert: (value: unknown) => unknown;
 };
 
-type NodeAttribute = { name: string; value: string };
-
-/** What a DOM node gives us for its opening tag. `attributes` is missing on a text node. */
-type TaggedNode = { nodeName: string; attributes?: ArrayLike<NodeAttribute> | undefined };
-
 /** The one wrapper each source object gets, for as long as the replacer lives. */
 type Wrappers = WeakMap<object, Marked>;
 
@@ -471,6 +466,15 @@ function withMore(fields: Fields, skipped: number, drawn: number): Fields {
   return fields;
 }
 
+/**
+ * Drawn by its class name over an empty object, which is what every value with nothing of its own to
+ * publish reads as: the global object, a DOM node, and a class instance holding neither own data nor
+ * a reading its class published.
+ */
+function classAlone(kept: Kept, value: object, depth: number): Marked {
+  return markAt(kept, value, constructorName(value, "Object"), keepBuilt({}), depth);
+}
+
 /** A value the count reached past its last level, drawn by its class and the reason and nothing else. */
 function pastDepth(kept: Kept, value: object): Marked {
   return markAt(
@@ -650,7 +654,7 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
    * Neither test reads a property of the value.
    */
   if (value === globalThis || (typeof Window !== "undefined" && value instanceof Window)) {
-    return markAt(kept, value, constructorName(value, "Object"), keepBuilt({}), depth);
+    return classAlone(kept, value, depth);
   }
 
   refuseUnlistable(value);
@@ -694,7 +698,7 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
   }
 
   if (isDomNode(value)) {
-    return markAt(kept, value, constructorName(value, "Object"), nodeData(value), depth);
+    return classAlone(kept, value, depth);
   }
 
   if (Array.isArray(value)) {
@@ -966,25 +970,13 @@ function isTypedArray(value: object): value is ArrayLike<number | bigint> {
   return ArrayBuffer.isView(value) && !(value instanceof DataView);
 }
 
-/** `instanceof` reads no property off the value, so no getter of the app's can run here. */
-function isDomNode(value: object): value is TaggedNode {
-  return typeof Node !== "undefined" && value instanceof Node;
-}
-
 /**
- * The opening tag, or nothing at all where the node has no tag. `#document`, `#text` and `#comment`
- * are the DOM's own names for the three nodes written with no tag, and each one repeats the class
- * the label already carries, so those draw their class over an empty object like any other value
- * with nothing to publish.
+ * `instanceof` reads no property off the value, so no getter of the app's can run here.
+ *
+ * The rule earns its place by what it stops rather than by what it draws. A framework parks its own
+ * state on a node as an own enumerable property, React's fiber above all, so without this branch the
+ * class-instance rule would walk a whole render tree out of one element.
  */
-function nodeData(node: TaggedNode): object {
-  return node.nodeName.startsWith("#") ? keepBuilt({}) : box(openingTag(node));
-}
-
-/** The opening tag only: children can be a whole page, and `outerHTML` carries all of them. */
-function openingTag(node: TaggedNode): string {
-  const attributes = node.attributes ? Array.from(node.attributes) : [];
-  const rendered = attributes.map((attribute) => ` ${attribute.name}="${attribute.value}"`);
-
-  return `<${node.nodeName.toLowerCase()}${rendered.join("")}>`;
+function isDomNode(value: object): boolean {
+  return typeof Node !== "undefined" && value instanceof Node;
 }
