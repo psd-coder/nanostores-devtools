@@ -2,7 +2,7 @@ import { catchAndWarn } from "./catch-and-warn.ts";
 import type { Bridge } from "./connect.ts";
 import { peekDevtoolsGlobal } from "./global.ts";
 import { isDrawn, rowName } from "./placement.ts";
-import { listEntries, type StoreEntry } from "./registry.ts";
+import { getEntry, listEntries, type StoreEntry } from "./registry.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
 import { clearThrottle, suppressWrite, THROTTLE_WINDOW } from "./throttle.ts";
@@ -20,7 +20,7 @@ export type Row = {
   timestamp: number;
   stack?: string | undefined;
   /** Whose second this row is waiting out. A row carrying one is parked instead of sent. */
-  throttle?: StoreEntry | undefined;
+  parkedOn?: StoreEntry | undefined;
 };
 
 /** The open row and what it costs to build, owned here and parked on the bridge. */
@@ -180,8 +180,8 @@ function flush(bridge: Bridge): void {
 
   timeline.row = undefined;
 
-  if (row.throttle) {
-    park(row.throttle, row);
+  if (row.parkedOn) {
+    park(row.parkedOn, row);
 
     return;
   }
@@ -208,9 +208,9 @@ function openRow(
   type: string,
   changes: Change[],
   stack?: string | undefined,
-  throttle?: StoreEntry | undefined,
+  parkedOn?: StoreEntry | undefined,
 ): void {
-  bridge.timeline.row = { type, changes, timestamp: Date.now(), stack, throttle };
+  bridge.timeline.row = { type, changes, timestamp: Date.now(), stack, parkedOn };
 
   scheduleFlush(bridge);
 }
@@ -221,6 +221,15 @@ function openRow(
  */
 function park(entry: StoreEntry, row: Row): void {
   const { throttle } = entry;
+
+  /**
+   * A store the registry has dropped parks nothing. Every sweep that cancels a timer walks the
+   * entries, so a timer armed here would be reachable from none of them, and the row it holds names
+   * a store the unregister row has already taken out of the tree.
+   */
+  if (getEntry(entry.store) === undefined) {
+    return;
+  }
 
   throttle.pending = row;
 
@@ -261,7 +270,7 @@ function release(entry: StoreEntry): void {
   /** Whatever is open closes first, with the tree as it was before this row's write. */
   guardedFlush(bridge);
 
-  row.throttle = undefined;
+  row.parkedOn = undefined;
   bridge.timeline.row = row;
 
   guardedFlush(bridge);

@@ -40,13 +40,9 @@ export type ExtensionAction = {
   [field: string]: unknown;
 };
 
-/**
- * A `DISPATCH` payload. Only the pause button's is read, and the others are named by their own
- * `type` alone: reading one of those would mean speaking a shape we have no use for.
- */
+/** A `DISPATCH` payload. Every one carries a `type`, and the pause button's carries `status`. */
 export type DispatchPayload = {
   readonly type: string;
-  /** The new paused flag on `PAUSE_RECORDING`, and on the lock button we do not offer. */
   readonly status?: boolean | undefined;
 };
 

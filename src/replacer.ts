@@ -575,21 +575,17 @@ function slotted(kept: Kept, fields: Fields): Fields {
 function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
   const entry = getEntry(store);
   const note = staleNote(store, entry);
+  const named = noted(key, entry?.type ?? "unknown", entry !== undefined && isThrottled(entry));
 
   noteDrawn(store);
 
   if (note !== undefined) {
-    return [
-      noted(key, entry?.type ?? "unknown", entry !== undefined && isThrottled(entry)),
-      markOnce(kept.wrappers, store, note.label, note.data),
-    ];
+    return [named, markOnce(kept.wrappers, store, note.label, note.data)];
   }
 
   const value = storeValue(store);
 
-  return reachesStore(value, store)
-    ? [key, markStore(kept.wrappers, store)]
-    : [noted(key, entry?.type ?? "unknown", entry !== undefined && isThrottled(entry)), value];
+  return reachesStore(value, store) ? [key, markStore(kept.wrappers, store)] : [named, value];
 }
 
 /**

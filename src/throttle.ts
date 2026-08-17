@@ -79,8 +79,17 @@ export function resolveMark(entry: StoreEntry): void {
  */
 export function suppressWrite(entry: StoreEntry, now: number): boolean {
   const { throttle } = entry;
+  const { threshold } = settings() ?? {};
 
-  if (count(entry, now) && now - throttle.lastEmit < THROTTLE_WINDOW) {
+  count(throttle, threshold, now);
+
+  const holds = throttled(throttle, threshold, now);
+
+  if (holds && !throttle.marked && !throttle.warned) {
+    warnAutoThrottle(entry);
+  }
+
+  if (holds && now - throttle.lastEmit < THROTTLE_WINDOW) {
     return true;
   }
 
@@ -114,27 +123,18 @@ export function clearThrottle(entry: StoreEntry): void {
  * A window two seconds old means a whole window went by with no write at all, so the count from
  * before it says nothing about the rate now and the store is released.
  */
-function count(entry: StoreEntry, now: number): boolean {
-  const { throttle } = entry;
-  const { threshold } = settings() ?? {};
-  const age = now - throttle.windowStart;
+function count(state: ThrottleState, threshold: number | undefined, now: number): void {
+  const age = now - state.windowStart;
 
-  if (age >= THROTTLE_WINDOW) {
-    throttle.hot =
-      age < THROTTLE_WINDOW * 2 && threshold !== undefined && throttle.writes > threshold;
-    throttle.writes = 1;
-    throttle.windowStart = now;
-  } else {
-    throttle.writes += 1;
+  if (age < THROTTLE_WINDOW) {
+    state.writes += 1;
+
+    return;
   }
 
-  const answer = throttled(throttle, threshold, now);
-
-  if (answer && !throttle.marked && !throttle.warned) {
-    warnAutoThrottle(entry);
-  }
-
-  return answer;
+  state.hot = age < THROTTLE_WINDOW * 2 && threshold !== undefined && state.writes > threshold;
+  state.writes = 1;
+  state.windowStart = now;
 }
 
 /**
@@ -153,7 +153,10 @@ function throttled(state: ThrottleState, threshold: number | undefined, now: num
   return state.hot || state.writes > threshold;
 }
 
-/** Once per store: the rate coming back is not news, and a store around the threshold would flood. */
+/**
+ * Once per store, and the flag is on the entry rather than left to `warnOnce`: that one is keyed on
+ * the label, and a rename gives the same store a second key and a second warning.
+ */
 function warnAutoThrottle(entry: StoreEntry): void {
   const target = `${entry.home}/${entry.name}`;
 

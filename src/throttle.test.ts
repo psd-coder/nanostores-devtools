@@ -657,6 +657,23 @@ describe("a session that ends", () => {
     expect(fake.sends).toHaveLength(1);
   });
 
+  it("parks nothing for a store the registry dropped while its row was still open", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame);
+    await listen({ throttle: ["cart/$frame"] });
+
+    $frame.set(1);
+    /** Open, not parked yet: the flush that would park it runs at the end of this turn. */
+    $frame.set(2);
+    unregisterStore($frame);
+
+    await endOfTurn();
+    vi.advanceTimersByTime(5000);
+
+    expect(rows()).toEqual(["$frame/set", "$frame/unregister"]);
+  });
+
   it("drops a pending row when the store leaves the registry", async () => {
     const $frame = atom(0);
 

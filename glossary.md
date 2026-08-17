@@ -291,5 +291,11 @@ no snapshot and sends nothing. Every transition into listening re-sends the whol
 why a panel opened late still shows current state. It is not the same as `connected`: the
 extension can be there with no panel open.
 
+**Paused** — the bridge's flag for the panel's own pause button, which the extension sets with a
+`PAUSE_RECORDING` message and nothing else. It reads exactly as not listening does: no snapshot is
+built and nothing is sent, and the rows in flight are dropped. `START` and `STOP` leave it alone,
+so it holds while a panel closes and opens again. Lifting it sends nothing by itself; the next
+entry carries the current tree.
+
 **Time travel** — the developer clicks an old timeline entry and the app really returns
 to that state. Not in v1. This effort only answers whether it is possible.

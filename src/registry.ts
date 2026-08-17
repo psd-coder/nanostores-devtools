@@ -338,8 +338,14 @@ function relabelEntry(
   to: EntryPlace,
   label: string,
 ): StoreEntry {
-  /** A comment the plugin read stays read: a registration carrying none takes none away. */
-  entry.throttle.commented ||= registration.throttle === true;
+  /**
+   * The plugin's registration is the whole truth about the comment, so an edit that took the
+   * comment away takes the flag with it. An explicit registration says nothing about it and so
+   * leaves it as it was.
+   */
+  if (registration.origin === "plugin") {
+    entry.throttle.commented = registration.throttle === true;
+  }
 
   /** The type decides which hooks an entry carries, so the ones attached under the old one go. */
   if (registration.type !== "unknown" && registration.type !== entry.type) {

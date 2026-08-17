@@ -527,7 +527,7 @@ no-op, so each one costs a single function call.
 | `maxAge`          | `500`          | how many rows the extension keeps                               |
 | `lifecycleEvents` | `true`         | draw the [lifecycle rows](#what-each-row-in-the-timeline-means) |
 | `throttle`        | `[]`           | hold these stores to one row a second                           |
-| `autoThrottle`    | `true`         | hold any store writing more than 10 times a second to one row a second |
+| `autoThrottle`    | `true`         | throttle a store writing more than 10 times a second            |
 
 `name` is fixed at the first connect and cannot change later, because the panel builds its record
 for a connection once. It defaults to a fixed word rather than `document.title`, which changes per
@@ -1022,7 +1022,7 @@ Four cases stay slow, and we know about all four:
 | one store holding a 2000-row array                 | 102 ms per write, 12 MB, 10 writes a second at most | nothing                  |
 | a route change mounting 100 stores, at 5000 stores | 539 ms freeze                                       | `lifecycleEvents: false` |
 | 5000 stores at a high write rate                   | 3 ms per write                                      | `throttle`               |
-| one store on a frame loop, 60 writes a second      | 60 full trees a second, and `maxAge` full in 8 s    | on by default, see `autoThrottle` |
+| one store on a frame loop, 60 writes a second      | 60 full trees a second, `maxAge` full in 8 s        | `autoThrottle`, on       |
 
 The first one is the worst. Half of those 102 ms is the extension writing out 12 MB. That half is
 inside the extension, so no work on our side can make it smaller. Automatic discovery also means
