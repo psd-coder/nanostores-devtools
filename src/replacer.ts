@@ -34,18 +34,22 @@ type TaggedNode = { nodeName: string; attributes?: ArrayLike<NodeAttribute> | un
 type Wrappers = WeakMap<object, Marked>;
 
 /**
- * The one object each source value is handed to jsan as, for as long as the replacer lives. Each
- * shape keeps its own map, because a source that is an array is one every time we meet it.
+ * The one object each source value is handed to jsan as, for as long as the replacer lives, except
+ * `expanded`, which one tree fills and the next starts without. Each shape keeps its own map,
+ * because a source that is an array is one every time we meet it.
  */
 type Kept = {
   wrappers: Wrappers;
   fields: WeakMap<object, Fields>;
   indexes: WeakMap<object, unknown[]>;
   /**
-   * Every object a built-in getter handed back, which is drawn by its class alone rather than read
-   * again. One expansion is what a developer asked for; a second is how `event.view` reaches
-   * `window` and the whole platform behind it, and a DOM node is the only such value already
-   * bounded, by its opening tag.
+   * Every object a built-in getter handed back, whose own getters are not read again. One expansion
+   * is what a developer asked for; a second is how one row reaches the whole platform behind a
+   * value. Its own data still goes out: `CustomEvent.detail` is an expansion and holds the app's
+   * own object.
+   *
+   * This one belongs to a tree rather than to the connection, so a value a getter handed back in
+   * one tree is read in full in the next, where the app may hold it directly.
    */
   expanded: WeakSet<object>;
 };
@@ -106,9 +110,10 @@ export function createReplacer(
   let forgetQueued = false;
 
   /**
-   * Both counts belong to one tree, and jsan writes a tree in one synchronous run, so a microtask
-   * is the first moment after that tree. A count kept past it would hold an app object alive for
-   * the session and would let a slot this walk never came back for change what the next tree draws.
+   * Both counts and the expansions belong to one tree, and jsan writes a tree in one synchronous
+   * run, so a microtask is the first moment after that tree. A count kept past it would hold an app
+   * object alive for the session and would let a slot this walk never came back for change what the
+   * next tree draws.
    */
   const forgetAfterTree = (): void => {
     if (forgetQueued) {
@@ -121,6 +126,7 @@ export function createReplacer(
       slots.clear();
       converted.clear();
       opened.length = 0;
+      kept.expanded = new WeakSet();
       forgetQueued = false;
     });
   };
@@ -132,7 +138,6 @@ export function createReplacer(
    */
   const openList = (handed: unknown): unknown => {
     if (handed instanceof Map || handed instanceof Set) {
-      forgetAfterTree();
       opened.push(handed instanceof Map ? "map" : "set");
     }
 
@@ -140,6 +145,12 @@ export function createReplacer(
   };
 
   return (key, value) => {
+    /**
+     * On every call, because an expansion is left behind by the value walk rather than by a
+     * serializer, and it costs one microtask for the whole tree either way.
+     */
+    forgetAfterTree();
+
     const walked = opened.pop();
 
     try {
@@ -177,8 +188,6 @@ export function createReplacer(
 
       for (const serializer of serializers) {
         if (serializer.match(value)) {
-          /** Before the count, so a `convert` that throws leaves nothing behind for the next tree. */
-          forgetAfterTree();
           countConvert(converted, value);
 
           /** jsan walks this result too, and holding its slots keeps that walk out of this loop. */
@@ -456,6 +465,22 @@ function convertValue(value: unknown, kept: Kept, encoders = false): unknown {
 
   if (value === null || typeof value !== "object") {
     return value;
+  }
+
+  /**
+   * The global object, drawn by its class and nothing else. Whatever an app parks on `window` is an
+   * own enumerable property, so one row holding a DOM event would otherwise carry the app's whole
+   * top-level state, and `event.view` is only one of the routes to it.
+   *
+   * Identity is the whole test for the window we run in, and `instanceof` adds a window carrying
+   * that same `Window` at some other name. A window built in another realm carries that realm's
+   * `Window` instead, so it takes the class-instance rule like any other value.
+   *
+   * Above `refuseUnlistable`, because listing a window's keys is the very cost being avoided.
+   * Neither test reads a property of the value.
+   */
+  if (value === globalThis || (typeof Window !== "undefined" && value instanceof Window)) {
+    return markOnce(kept.wrappers, value, constructorName(value, "Object"), box("globalThis"));
   }
 
   refuseUnlistable(value);

@@ -2,6 +2,7 @@ import { stringify } from "jsan";
 import { atom, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { forgetBuiltins } from "./builtins.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
 import { box, mark } from "./marker.ts";
 import { isStore, registerStore, type StoreType } from "./registry.ts";
@@ -528,9 +529,9 @@ describe("createReplacer", () => {
 
     /**
      * `searchParams` is a `URLSearchParams`, whose own fields are behind getters too. Reading those
-     * as well is how one value reaches the platform behind it: `event.view` is `window`.
+     * as well is how one read becomes a walk over the platform behind the value.
      */
-    it("draws an object a built-in getter handed back by its class alone", () => {
+    it("reads no getter again on an object a built-in getter handed back", () => {
       const drawn = replacer("u", new URL("https://example.com/a?b=1")) as {
         data: Record<string, unknown>;
       };
@@ -540,6 +541,35 @@ describe("createReplacer", () => {
         data: { "(value)": "b=1" },
         __serializedType__: "URLSearchParams",
       });
+    });
+
+    /**
+     * `detail` is the one field on an event the developer came for, and it is an expansion. A class
+     * instance rather than a plain object, because only a class instance is read through the rule
+     * that remembers an expansion at all.
+     */
+    it("keeps the own data of an object a built-in getter handed back", () => {
+      const drawn = replacer("e", new CustomEvent("saved", { detail: new Point() })) as {
+        data: Record<string, unknown>;
+      };
+
+      expect(replacer("d", drawn.data["detail"])).toEqual({
+        data: { x: 1, y: 2 },
+        __serializedType__: "Point",
+      });
+    });
+
+    it("reads in the next tree what a getter handed back in the last one", async () => {
+      const drawn = replacer("u", new URL("https://example.com/a?b=1")) as {
+        data: Record<string, unknown>;
+      };
+      const params = drawn.data["searchParams"] as object;
+
+      await Promise.resolve();
+
+      const read = replacer("s", params) as { data: Record<string, unknown> };
+
+      expect(read.data["size"]).toBe(1);
     });
 
     /** The shape this is all for: an event keeps every field behind a getter on its prototype. */
@@ -631,6 +661,82 @@ describe("createReplacer", () => {
     });
   });
 
+  describe("the global object", () => {
+    /** Named after the real class, because the label the panel shows is the constructor name. */
+    class Window {
+      parkedByTheApp = { token: "t" };
+    }
+
+    afterEach(() => {
+      forgetBuiltins();
+    });
+
+    it("draws its class and reads none of the keys the app parked on it", () => {
+      vi.stubGlobal("parkedByTheApp", { token: "t" });
+
+      /** Without a key of its own on it, the assertion below would hold for the wrong reason. */
+      expect(Object.keys(globalThis)).toContain("parkedByTheApp");
+
+      const drawn = replacer("g", globalThis) as { data: unknown; __serializedType__: string };
+
+      expect(drawn.data).toEqual({ "(value)": "globalThis" });
+
+      /** `Window` in a page and `Object` under the test runner, so only the label's presence holds. */
+      expect(drawn.__serializedType__.length).toBeGreaterThan(0);
+    });
+
+    it("stops a window of ours that is not the global object itself", () => {
+      vi.stubGlobal("Window", Window);
+
+      expect(replacer("w", new Window())).toEqual({
+        data: { "(value)": "globalThis" },
+        __serializedType__: "Window",
+      });
+    });
+
+    it("stops before the keys are listed, so a window that refuses to list them still draws", () => {
+      vi.stubGlobal("Window", Window);
+
+      const refusing = new Proxy(new Window(), {
+        ownKeys: () => {
+          throw new Error("no keys");
+        },
+      });
+
+      expect(replacer("w", refusing)).toEqual({
+        data: { "(value)": "globalThis" },
+        __serializedType__: "Window",
+      });
+    });
+
+    it("holds wherever the global is reached from", () => {
+      class Frame {}
+
+      /** The shape of a platform attribute: an enumerable getter on a global constructor's prototype. */
+      Object.defineProperty(Frame.prototype, "view", { enumerable: true, get: () => globalThis });
+
+      vi.stubGlobal("parkedByTheApp", { token: "t" });
+      vi.stubGlobal("Frame", Frame);
+      forgetBuiltins();
+
+      const $global = atom<unknown>(globalThis);
+
+      register($global, "atom", "$global");
+
+      const written = [
+        write({ page: globalThis }),
+        write([globalThis]),
+        write($global),
+        write({ frame: new Frame() }),
+      ];
+
+      for (const one of written) {
+        expect(one).toContain("globalThis");
+        expect(one).not.toContain("parkedByTheApp");
+      }
+    });
+  });
+
   describe("typed arrays", () => {
     it("becomes a plain array under its own type name", () => {
       expect(replacer("b", new Uint8Array([1, 2]))).toEqual({
@@ -670,6 +776,14 @@ describe("createReplacer", () => {
       expect(replacer("el", node)).toEqual({
         data: { "(value)": '<div id="app" class="root">' },
         __serializedType__: "HTMLDivElement",
+      });
+    });
+
+    /** `#document` is the name the DOM itself answers, as `#text` and `#comment` are for the rest. */
+    it("draws a document by that name, with no rule of its own", () => {
+      expect(replacer("d", new FakeNode("#document"))).toEqual({
+        data: { "(value)": "<#document>" },
+        __serializedType__: "FakeNode",
       });
     });
 

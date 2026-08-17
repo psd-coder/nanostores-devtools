@@ -871,8 +871,10 @@ $pointerMove [store]: <PointerEvent> {
   clientX: 412
   clientY: 260
   buttons: 1
-  target: "<div id=\"row-2\">"
+  target: <HTMLDivElement>
+    (value): "<div id=\"row-2\">"
   view: <Window>
+    (value): "globalThis"
 }
 ```
 
@@ -886,9 +888,17 @@ The rest of the rule, and why each part is there:
   refuses the key outright rather than letting the platform's version of that name answer instead.
 - **One getter that throws costs its own key**, not the whole object. A platform getter can refuse on
   a detached or already-read value.
-- **An object a getter handed back is drawn by its class alone.** Expansions never chain. Without
-  that, `event.view` is `window` and the whole platform hangs off one row. A DOM node was already
-  bounded, by its opening tag.
+- **An object a getter handed back keeps its own data, and no getter of its own is read.**
+  Expansions never chain, so one row cannot walk down the whole platform, while `event.detail` is
+  still the object your code put there. That bound is per snapshot: a value read this way in one
+  snapshot is read in full in the next, where you may hold it directly.
+- **The window your page runs in is never walked**, wherever the row reaches it from: `event.view`,
+  `currentTarget` on a `window` listener, `self`, `frames`, and `top` or `parent` while the page is
+  not framed. It draws its class and the one line `(value): "globalThis"`, so whatever you parked on
+  `window` costs no keys at all. A window from another realm, an iframe's or a `window.open` result,
+  is read as an ordinary object of its class, because the test is identity.
+- **A DOM node was already bounded**, by its opening tag, and `document` draws `<#document>`, which
+  is the name the DOM itself gives it, as `#text` and `#comment` read for the other two.
 
 A class the page defines on `globalThis` after the first tree is written counts as yours, because
 the set of platform prototypes is built once. That costs a label, never correctness.

@@ -102,8 +102,16 @@ a name that reaches the store.
 **Platform object** — one whose fields all sit behind getters on its prototype and which holds no
 own data: an event, a `URL`, a `DOMRect`. The bridge reads those getters, which it refuses to do for
 a getter the app wrote. The test is the prototype: one a global constructor carries was written by
-the platform, and a class declared in a module was not. An object such a getter hands back is drawn
-by its class alone, so one expansion never becomes a walk over the whole platform.
+the platform, and a class declared in a module was not. An object such a getter hands back keeps its
+own data and has no getter of its own read, so one **expansion** never chains into a walk over the
+whole platform. That memory belongs to one snapshot: the next one reads the same value in full.
+
+**The global object** — `globalThis`, wherever a row reaches it: `event.view`, `currentTarget` on a
+`window` listener, `self`, `frames`, `top` and `parent` in a page that is not framed. It is never
+walked, and no key of it is even listed, because whatever the app parked on `window` is an own
+enumerable property. It draws its class and `(value): "globalThis"`. A rule apart from the expansion
+one: identity is what bounds it, not where it was reached, so a window from another realm, an
+iframe's or a `window.open` result, is read as an ordinary object of its class.
 
 **Callee matching** — the first way, and the one that gives a type: the call names something
 the file imported from `nanostores`, renamed imports included. Adoption only handles what
