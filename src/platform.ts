@@ -10,9 +10,14 @@ type Visit = (held: unknown, name: string) => void;
 
 /**
  * The rules the bridge ships, checked after the developer's own and ahead of every rule of ours.
- * Each one covers a platform class the rest of the converter cannot read: a `Headers`, a `FormData`
- * and a buffer publish no enumerable getter at all, so the class-instance rule finds nothing on
- * them, and a boxed primitive carries one own key per character of the string it holds.
+ * Each one covers a platform class with one obvious reading and no field to choose: the entries of
+ * a `Headers`, a `FormData` and a `URLSearchParams`, the size of a buffer or a view, and the
+ * primitive a boxed one holds, which the class-instance rule would otherwise draw as one own key
+ * per character.
+ *
+ * Where a rule and a published reading both fit, the rule wins because it runs first. A
+ * `URLSearchParams` would read as its whole query string under `(toString)` without one, and its
+ * entries say more.
  *
  * Every result is flat and small, which is what makes that order safe: it holds strings and
  * numbers, and the one object among them, a file inside a `FormData`, is bounded on its own.

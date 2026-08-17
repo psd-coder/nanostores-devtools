@@ -182,7 +182,7 @@ describe("connectDevtools", () => {
       connectDevtools({ platformSerializers: false });
 
       expect(replacerOf(fake)?.("h", new Headers({ "x-trace": "abc" }))).toEqual({
-        data: { "(value)": "[object Headers]" },
+        data: {},
         __serializedType__: "Headers",
       });
     });

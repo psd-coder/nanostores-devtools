@@ -2,7 +2,6 @@ import { stringify } from "jsan";
 import { atom, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { forgetBuiltins } from "./builtins.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
 import { box, mark } from "./marker.ts";
 import { isStore, registerStore, type StoreType } from "./registry.ts";
@@ -29,6 +28,45 @@ class FakeNode {
 
 /** Named after the real class, because the label the panel shows is the constructor name. */
 class HTMLDivElement extends FakeNode {}
+
+/**
+ * The two shapes this whole rule is about, which the test runner has no globals for: every field
+ * behind a getter on the prototype, and no own data at all. Named after the real classes, because
+ * the label the panel shows is the constructor name.
+ */
+class MouseEvent {
+  #type: string;
+  #x: number;
+  #y: number;
+
+  constructor(type: string, x: number, y: number) {
+    this.#type = type;
+    this.#x = x;
+    this.#y = y;
+  }
+
+  get type(): string {
+    return this.#type;
+  }
+
+  get clientX(): number {
+    return this.#x;
+  }
+
+  get clientY(): number {
+    return this.#y;
+  }
+}
+
+class DOMRect {
+  get width(): number {
+    return 120;
+  }
+
+  get height(): number {
+    return 40;
+  }
+}
 
 const replacer = createReplacer([]);
 
@@ -153,16 +191,13 @@ function capped(
   return createReplacer([], { maxValueDepth, maxValueMembers });
 }
 
+/** A value our own read cannot get past: listing its keys throws before any rule below it runs. */
 function throwing(): unknown {
-  const value = new Empty();
-
-  Object.defineProperty(value, "toString", {
-    value: () => {
+  return new Proxy(new Empty(), {
+    ownKeys: (): never => {
       throw new Error("nope");
     },
   });
-
-  return value;
 }
 
 describe("createReplacer", () => {
@@ -545,14 +580,11 @@ describe("createReplacer", () => {
       });
     });
 
-    it("falls back to String(value) when there are no own fields", () => {
-      expect(replacer("e", new Empty())).toEqual({
-        data: { "(value)": "[object Object]" },
-        __serializedType__: "Empty",
-      });
+    it("draws the class name over an empty object when there are no own fields", () => {
+      expect(replacer("e", new Empty())).toEqual({ data: {}, __serializedType__: "Empty" });
     });
 
-    it("leaves out an own method field, and takes the rescue when that is all there was", () => {
+    it("leaves out an own method field, and draws nothing where that is all there was", () => {
       class Cart {
         $total = atom(0);
         clear = (): void => {};
@@ -563,36 +595,7 @@ describe("createReplacer", () => {
       }
 
       expect(markedKeys(replacer("c", new Cart()))).toEqual(["$total [store]"]);
-      expect(replacer("a", new Actions())).toEqual({
-        data: { "(value)": "[object Object]" },
-        __serializedType__: "Actions",
-      });
-    });
-
-    /**
-     * Every field a `URL` has sits behind a getter on `URL.prototype`, so the own-property rule
-     * found nothing and the rescue printed the whole thing as one string.
-     */
-    it("reads what a built-in prototype keeps behind its getters", () => {
-      const drawn = replacer("u", new URL("https://example.com/a?b=1")) as {
-        data: Record<string, unknown>;
-        __serializedType__: string;
-      };
-
-      expect(drawn.__serializedType__).toBe("URL");
-      expect(drawn.data["host"]).toBe("example.com");
-      expect(drawn.data["pathname"]).toBe("/a");
-      expect(drawn.data["search"]).toBe("?b=1");
-      expect(drawn.data["(value)"]).toBeUndefined();
-    });
-
-    it("still takes the rescue where nothing at all could be read", () => {
-      class Empty {}
-
-      expect(replacer("e", new Empty())).toEqual({
-        data: { "(value)": "[object Object]" },
-        __serializedType__: "Empty",
-      });
+      expect(replacer("a", new Actions())).toEqual({ data: {}, __serializedType__: "Actions" });
     });
 
     it("reads no getter a class of the app's declared", () => {
@@ -602,108 +605,45 @@ describe("createReplacer", () => {
         }
       }
 
-      expect(replacer("c", new Cart())).toEqual({
-        data: { "(value)": "[object Object]" },
-        __serializedType__: "Cart",
-      });
-    });
-
-    /**
-     * `signal` is an `AbortSignal`, whose own fields are behind getters too. Reading those as well
-     * is how one read becomes a walk over the platform behind the value.
-     */
-    it("reads no getter again on an object a built-in getter handed back", () => {
-      const drawn = replacer("c", new AbortController()) as {
-        data: Record<string, unknown>;
-      };
-      const signal = drawn.data["signal"] as object;
-
-      expect(replacer("s", signal)).toEqual({
-        data: { "(value)": "[object AbortSignal]" },
-        __serializedType__: "AbortSignal",
-      });
-    });
-
-    /**
-     * `detail` is the one field on an event the developer came for, and it is an expansion. A class
-     * instance rather than a plain object, because only a class instance is read through the rule
-     * that remembers an expansion at all.
-     */
-    it("keeps the own data of an object a built-in getter handed back", () => {
-      const drawn = replacer("e", new CustomEvent("saved", { detail: new Point() })) as {
-        data: Record<string, unknown>;
-      };
-
-      expect(replacer("d", drawn.data["detail"])).toEqual({
-        data: { x: 1, y: 2 },
-        __serializedType__: "Point",
-      });
-    });
-
-    it("reads in the next tree what a getter handed back in the last one", async () => {
-      const drawn = replacer("c", new AbortController()) as {
-        data: Record<string, unknown>;
-      };
-      const signal = drawn.data["signal"] as object;
-
-      await Promise.resolve();
-
-      const read = replacer("s", signal) as { data: Record<string, unknown> };
-
-      expect(read.data["aborted"]).toBe(false);
+      expect(replacer("c", new Cart())).toEqual({ data: {}, __serializedType__: "Cart" });
     });
 
     /** The shape this is all for: an event keeps every field behind a getter on its prototype. */
-    it("reads an event, which used to draw as one [object Event] string", () => {
-      const drawn = replacer("e", new Event("pointermove")) as {
-        data: Record<string, unknown>;
-        __serializedType__: string;
-      };
-
-      expect(drawn.__serializedType__).toBe("Event");
-      expect(drawn.data["type"]).toBe("pointermove");
-      expect(drawn.data["(value)"]).toBeUndefined();
+    it("draws an event as its class name and no field at all", () => {
+      expect(replacer("e", new Event("pointermove"))).toEqual({
+        data: {},
+        __serializedType__: "Event",
+      });
+      expect(replacer("m", new MouseEvent("pointermove", 412, 260))).toEqual({
+        data: {},
+        __serializedType__: "MouseEvent",
+      });
+      expect(replacer("r", new DOMRect())).toEqual({ data: {}, __serializedType__: "DOMRect" });
     });
 
-    it("keeps a subclass of the app's reading the platform half and refusing its own", () => {
-      class Tracked extends Event {
-        get secret(): string {
-          throw new Error("app code ran");
-        }
-      }
+    /** The replacement for what an event used to draw, run the way the README spells it. */
+    it("draws the fields a serializer of the developer's names over a platform class", () => {
+      const isMouse = (value: unknown): value is MouseEvent => value instanceof MouseEvent;
+      const own = createReplacer([
+        {
+          match: isMouse,
+          convert: (value) =>
+            isMouse(value) ? { type: value.type, x: value.clientX, y: value.clientY } : value,
+        },
+      ]);
 
-      const drawn = replacer("t", new Tracked("tap")) as { data: Record<string, unknown> };
-
-      expect(drawn.data["type"]).toBe("tap");
-      expect(drawn.data).not.toHaveProperty("secret");
+      expect(own("m", new MouseEvent("pointermove", 412, 260))).toEqual({
+        type: "pointermove",
+        x: 412,
+        y: 260,
+      });
     });
 
-    /**
-     * `ArrayBuffer.prototype.byteLength` is a getter the platform wrote and keeps off its own key
-     * list, which is what tells an interface field from a hidden internal.
-     */
-    it("reads no getter a built-in keeps off its own key list", () => {
+    it("draws a buffer with no rule over it as its class name alone", () => {
       expect(replacer("b", new ArrayBuffer(8))).toEqual({
-        data: { "(value)": "[object ArrayBuffer]" },
+        data: {},
         __serializedType__: "ArrayBuffer",
       });
-    });
-
-    it("gives up one key where a built-in getter throws and keeps the rest", () => {
-      const url = new URL("https://example.com/a");
-
-      Object.defineProperty(url, "host", {
-        enumerable: true,
-        get: () => {
-          throw new Error("refused");
-        },
-      });
-
-      const drawn = replacer("u", url) as { data: Record<string, unknown> };
-
-      /** The own accessor is nearest, so it is refused outright rather than run. */
-      expect(drawn.data).not.toHaveProperty("host");
-      expect(drawn.data["pathname"]).toBe("/a");
     });
 
     it("leaves an object that already holds own data exactly as it was", () => {
@@ -714,6 +654,44 @@ describe("createReplacer", () => {
       expect(replacer("m", new Marker("tap"))).toEqual({
         data: { id: "m1" },
         __serializedType__: "Marker",
+      });
+    });
+
+    describe("a published reading", () => {
+      it("draws the toString a URL writes, and nothing else", () => {
+        expect(replacer("u", new URL("https://a.dev/x?q=1"))).toEqual({
+          data: { "(toString)": "https://a.dev/x?q=1" },
+          __serializedType__: "URL",
+        });
+      });
+
+      /** One click to read, which is what a bigint costs anywhere in the tree. */
+      it("draws a bigint answer as a node of its own", () => {
+        class Big {
+          valueOf(): bigint {
+            return 900719925474099n;
+          }
+        }
+
+        expect(write({ p: new Big() })).toBe(
+          '{"p":{"data":{"(valueOf)":{"data":{"(value)":"900719925474099"},' +
+            '"__serializedType__":"BigInt"}},"__serializedType__":"Big"}}',
+        );
+      });
+
+      it("asks nothing of an instance that holds own data", () => {
+        const printed = vi.fn(() => "never drawn");
+
+        class Priced {
+          amount = 500;
+          toString = printed;
+        }
+
+        expect(replacer("p", new Priced())).toEqual({
+          data: { amount: 500 },
+          __serializedType__: "Priced",
+        });
+        expect(printed).not.toHaveBeenCalled();
       });
     });
 
@@ -747,10 +725,6 @@ describe("createReplacer", () => {
     class Window {
       parkedByTheApp = { token: "t" };
     }
-
-    afterEach(() => {
-      forgetBuiltins();
-    });
 
     it("draws its class and reads none of the keys the app parked on it", () => {
       vi.stubGlobal("parkedByTheApp", { token: "t" });
@@ -791,25 +765,13 @@ describe("createReplacer", () => {
     });
 
     it("holds wherever the global is reached from", () => {
-      class Frame {}
-
-      /** The shape of a platform attribute: an enumerable getter on a global constructor's prototype. */
-      Object.defineProperty(Frame.prototype, "view", { enumerable: true, get: () => globalThis });
-
       vi.stubGlobal("parkedByTheApp", { token: "t" });
-      vi.stubGlobal("Frame", Frame);
-      forgetBuiltins();
 
       const $global = atom<unknown>(globalThis);
 
       register($global, "atom", "$global");
 
-      const written = [
-        write({ page: globalThis }),
-        write([globalThis]),
-        write($global),
-        write({ frame: new Frame() }),
-      ];
+      const written = [write({ page: globalThis }), write([globalThis]), write($global)];
 
       for (const one of written) {
         expect(one).toContain("globalThis");
@@ -828,7 +790,7 @@ describe("createReplacer", () => {
 
     it("leaves a DataView to the class instance rule, because it has no elements", () => {
       expect(replacer("v", new DataView(new ArrayBuffer(2)))).toEqual({
-        data: { "(value)": "[object DataView]" },
+        data: {},
         __serializedType__: "DataView",
       });
     });
@@ -1861,23 +1823,6 @@ describe("createReplacer", () => {
       expect(drawn.near).toBe(1);
       expect(drawn.far["(value)"]).toBe("past the 0 levels drawn under a class instance");
       expect(labelOf(drawn.far)).toBe("Object");
-    });
-
-    it("starts the count on a built-in getter expansion too", () => {
-      class Frame {}
-
-      /** The shape of a platform attribute: an enumerable getter on a global constructor's prototype. */
-      Object.defineProperty(Frame.prototype, "held", { enumerable: true, get: () => nested(6) });
-
-      vi.stubGlobal("Frame", Frame);
-      forgetBuiltins();
-
-      const written = write({ frame: new Frame() }, capped(2, 100));
-
-      expect(written).toContain("past the 2 levels drawn under a class instance");
-      expect(written).not.toContain("bottom");
-
-      forgetBuiltins();
     });
 
     /**

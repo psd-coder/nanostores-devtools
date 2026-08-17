@@ -1,7 +1,6 @@
 import type { Store } from "nanostores";
 
 import {
-  builtinFields,
   chainDescriptor,
   chainValue,
   copyData,
@@ -12,6 +11,7 @@ import {
 import { noteDrawn } from "./drawn.ts";
 import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "./limits.ts";
 import { box, isBuilt, isMarked, keepBuilt, mark, type Marked, MORE_KEY } from "./marker.ts";
+import { printedFields } from "./printed.ts";
 import { getEntry, isStore, noted, storeWord } from "./registry.ts";
 import { dataForMark, reachesStore, staleNote, storeValue } from "./slot.ts";
 import { isThrottled } from "./throttle.ts";
@@ -37,7 +37,7 @@ type Wrappers = WeakMap<object, Marked>;
 
 /**
  * The one object each source value is handed to jsan as, for as long as the replacer lives, except
- * `expanded`, which one tree fills and the next starts without. Each shape keeps its own map,
+ * the two counts, which one tree fills and the next starts without. Each shape keeps its own map,
  * because a source that is an array is one every time we meet it.
  */
 type Kept = {
@@ -45,22 +45,12 @@ type Kept = {
   fields: WeakMap<object, Fields>;
   indexes: WeakMap<object, unknown[]>;
   /**
-   * Every object a built-in getter handed back, whose own getters are not read again. One expansion
-   * is what a developer asked for; a second is how one row reaches the whole platform behind a
-   * value. Its own data still goes out: `CustomEvent.detail` is an expansion and holds the app's
-   * own object.
-   *
-   * This one belongs to a tree rather than to the connection, so a value a getter handed back in
-   * one tree is read in full in the next, where the app may hold it directly.
-   */
-  expanded: WeakSet<object>;
-  /**
    * The level each value the walk is about to reach sits at below the nearest class instance, or
    * `FREE` where no count is running. Filled at the parent's call, because jsan hands the replacer
    * `(key, value)` and nothing else: no holder object and no path.
    *
-   * One tree's, like `expanded`: a count held past its tree would keep an app object alive for the
-   * session and let a slot this walk never came back for decide what the next tree draws.
+   * One tree's: a count held past its tree would keep an app object alive for the session and let a
+   * slot this walk never came back for decide what the next tree draws.
    */
   depths: Map<object, number>;
   /**
@@ -117,7 +107,6 @@ export function createReplacer(
     wrappers: new WeakMap(),
     fields: new WeakMap(),
     indexes: new WeakMap(),
-    expanded: new WeakSet(),
     depths: new Map(),
     widths: new Map(),
     limits,
@@ -143,10 +132,9 @@ export function createReplacer(
   let forgetQueued = false;
 
   /**
-   * Both counts and the expansions belong to one tree, and jsan writes a tree in one synchronous
-   * run, so a microtask is the first moment after that tree. A count kept past it would hold an app
-   * object alive for the session and would let a slot this walk never came back for change what the
-   * next tree draws.
+   * Both counts belong to one tree, and jsan writes a tree in one synchronous run, so a microtask
+   * is the first moment after that tree. A count kept past it would hold an app object alive for
+   * the session and would let a slot this walk never came back for change what the next tree draws.
    */
   const forgetAfterTree = (): void => {
     if (forgetQueued) {
@@ -159,7 +147,6 @@ export function createReplacer(
       slots.clear();
       converted.clear();
       opened.length = 0;
-      kept.expanded = new WeakSet();
       kept.depths.clear();
       kept.widths.clear();
       forgetQueued = false;
@@ -198,8 +185,8 @@ export function createReplacer(
 
   return (key, value) => {
     /**
-     * On every call, because an expansion is left behind by the value walk rather than by a
-     * serializer, and it costs one microtask for the whole tree either way.
+     * On every call, because a count is left behind by the value walk rather than by a serializer,
+     * and it costs one microtask for the whole tree either way.
      */
     forgetAfterTree();
 
@@ -770,19 +757,21 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
   }
 
   /**
-   * The one place besides a built-in getter expansion, which happens below this, where a count
-   * starts. A plain object of the app's registers its children free, so app state above any class
-   * instance is untouched, while a plain object *inside* one goes on counting and cannot escape the
-   * cap by being plain.
+   * The one place where a count starts. A plain object of the app's registers its children free, so
+   * app state above any class instance is untouched, while a plain object *inside* one goes on
+   * counting and cannot escape the cap by being plain.
+   *
+   * Its own data is the whole reading wherever it has any, and where it has none the instance is
+   * asked whether its class published one. An object that answers neither draws its class name over
+   * an empty object, which is what an event, a `DOMRect` and a `Blob` all read as.
    */
   const name = constructorName(value, "Object");
-  const own = heldFields(kept, value);
-  const names = Object.keys(own);
+  const own = ownFields(value);
+  const drawn = Object.keys(own).length > 0 ? own : printedFields(value);
+  const names = Object.keys(drawn);
   const allow = allowance(kept, value, true);
-  const fields = slotted(kept, shortened(own, names, allow));
-  const data = Object.keys(fields).length > 0 ? fields : box(String(value));
 
-  return markAt(kept, value, name, data, startAt(depth));
+  return markAt(kept, value, name, slotted(kept, shortened(drawn, names, allow)), startAt(depth));
 }
 
 /**
@@ -965,33 +954,6 @@ function constructorName(value: object, fallback: string): string {
   const name: unknown = typeof built === "function" ? ownValue(built, "name") : undefined;
 
   return typeof name === "string" && name.length > 0 ? name : fallback;
-}
-
-/**
- * What a class instance shows: its own data, and where it has none, what the getters of a built-in
- * prototype hold. An object that keeps everything behind platform accessors used to read
- * `[object PointerEvent]` and say nothing else, because own data is all the walk ever looked at.
- *
- * Own data first, so an object that has any is untouched. A getter runs only where nothing was
- * written on the object itself, which is the shape this is for and keeps the reading cheap for every
- * other value the panel draws.
- */
-function heldFields(kept: Kept, value: object): Fields {
-  const own = ownFields(value);
-
-  if (Object.keys(own).length > 0 || kept.expanded.has(value)) {
-    return own;
-  }
-
-  const held = builtinFields(value);
-
-  for (const member of Object.values(held)) {
-    if (typeof member === "object" && member !== null) {
-      kept.expanded.add(member);
-    }
-  }
-
-  return held;
 }
 
 /** What an own data property holds. A getter is passed over rather than called. */

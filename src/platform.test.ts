@@ -1,7 +1,6 @@
 import { stringify } from "jsan";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { forgetBuiltins } from "./builtins.ts";
 import { shippedSerializers } from "./platform.ts";
 import { createReplacer } from "./replacer.ts";
 import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
@@ -12,7 +11,6 @@ describe("shippedSerializers", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    forgetBuiltins();
   });
 
   it("draws a Headers as its header names, where no getter could be read", () => {
@@ -45,13 +43,11 @@ describe("shippedSerializers", () => {
     });
   });
 
-  /** The route a developer really has one by: `searchParams` is a getter on `URL.prototype`. */
-  it("draws the URLSearchParams a URL keeps behind its getter", () => {
-    const drawn = replacer("u", new URL("https://example.com/a?q=berlin&page=2")) as {
-      data: Record<string, unknown>;
-    };
+  /** The route a developer really has one by, read by the app rather than by the bridge. */
+  it("draws the URLSearchParams a URL handed the app", () => {
+    const url = new URL("https://example.com/a?q=berlin&page=2");
 
-    expect(replacer("s", drawn.data["searchParams"])).toEqual({
+    expect(replacer("s", url.searchParams)).toEqual({
       data: { q: "berlin", page: "2" },
       __serializedType__: "URLSearchParams",
     });
@@ -107,19 +103,35 @@ describe("shippedSerializers", () => {
   });
 
   /**
-   * One tree, both rules: the class-instance rule reads `headers` off a built-in getter and this
-   * list draws what it handed back. The round trip is here too, so a label the wire drops shows up
-   * in this test rather than in the panel.
+   * The round trip is here, so a label the wire drops shows up in this test rather than in the
+   * panel.
    */
-  it("draws a Headers the getter read handed back, one tree end to end", () => {
-    const held = { sent: new Response("hi", { headers: { "x-trace": "abc" } }) };
+  it("draws a Headers the app holds, one tree end to end", () => {
+    const held = { sent: new Headers({ "x-trace": "abc" }) };
     const read = parsePanel(stringify(held, replacer, null, EXTENSION_OPTIONS)) as {
-      sent: { headers: Record<string, unknown> };
+      sent: Record<string, unknown>;
     };
 
-    expect(labelOf(read.sent)).toBe("Response");
-    expect(labelOf(read.sent.headers)).toBe("Headers");
-    expect(read.sent.headers["x-trace"]).toBe("abc");
+    expect(labelOf(read.sent)).toBe("Headers");
+    expect(read.sent["x-trace"]).toBe("abc");
+  });
+
+  /**
+   * A rule of the developer's already ran over the tree it built, so no serializer meets a value
+   * inside that result, ours included, and a `Headers` there falls to the class-instance rule with
+   * nothing of its own to draw.
+   */
+  it("leaves a Headers inside a serializer's result to the class-instance rule", () => {
+    const own = createReplacer([
+      {
+        match: (value) => value === "the app's own value",
+        convert: () => ({ sent: new Headers({ "x-trace": "abc" }) }),
+      },
+      ...shippedSerializers,
+    ]);
+    const drawn = own("r", "the app's own value") as { sent: unknown };
+
+    expect(own("s", drawn.sent)).toEqual({ data: {}, __serializedType__: "Headers" });
   });
 
   /** A built-in getter still refuses on a detached buffer, and that costs the one slot. */
@@ -140,11 +152,7 @@ describe("shippedSerializers", () => {
     const headers = new Headers({ "x-trace": "abc" });
 
     vi.stubGlobal("Headers", undefined);
-    forgetBuiltins();
 
-    expect(replacer("h", headers)).toEqual({
-      data: { "(value)": "[object Headers]" },
-      __serializedType__: "Headers",
-    });
+    expect(replacer("h", headers)).toEqual({ data: {}, __serializedType__: "Headers" });
   });
 });

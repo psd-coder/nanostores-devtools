@@ -102,23 +102,29 @@ instead, but only where the array is the value the binding holds, because only t
 a name that reaches the store.
 
 **Platform object** — one whose fields all sit behind getters on its prototype and which holds no
-own data: an event, a `URL`, a `DOMRect`. The bridge reads those getters, which it refuses to do for
-a getter the app wrote. The test is the prototype: one a global constructor carries was written by
-the platform, and a class declared in a module was not. An object such a getter hands back keeps its
-own data and has no getter of its own read, so one **expansion** never chains into a walk over the
-whole platform. That memory belongs to one snapshot: the next one reads the same value in full. A
-few classes publish no getter to read at all and take a **shipped serializer** instead.
+own data: an event, a `URL`, a `DOMRect`, a `Blob`. The bridge reads no getter, whoever wrote it, so
+such an object draws its class name over an empty object, plus **a published reading** where its
+class wrote one. Anything else it holds needs a serializer of the developer's over the class they
+hold. A few classes take a **shipped serializer** instead.
 
-**Shipped serializer** — a rule the bridge carries for a platform class the getter read says nothing
-about: `Headers`, `FormData`, `URLSearchParams`, `ArrayBuffer`, `SharedArrayBuffer`, `DataView`, and
-a boxed `String`, `Number` or `Boolean`. Checked after the developer's own serializers and ahead of
-every other rule of ours, and `platformSerializers: false` leaves the whole list out.
+**A published reading** — the answer of a `valueOf` or a `toString` a class defines itself, called
+on an instance that holds no own data and drawn under `(valueOf)` and `(toString)`, `(valueOf)`
+first. `Object.prototype`'s own two are refused by identity, so a `URL` and a `Location` keep their
+address while an event, a `Blob` and an `AbortSignal` draw nothing. This is the one place the bridge
+runs a line of the app's code: the method is found through a descriptor, called by name, kept only
+where the answer is a primitive, and a throw costs that one key.
 
-**The global object** — `globalThis`, wherever a row reaches it: `event.view`, `currentTarget` on a
-`window` listener, `self`, `frames`, `top` and `parent` in a page that is not framed. It is never
-walked, and no key of it is even listed, because whatever the app parked on `window` is an own
-enumerable property. It draws its class and `(value): "globalThis"`. A rule apart from the expansion
-one: identity is what bounds it, not where it was reached, so a window from another realm, an
+**Shipped serializer** — a rule the bridge carries for a platform class with one obvious reading and
+no field to choose: `Headers`, `FormData`, `URLSearchParams`, `ArrayBuffer`, `SharedArrayBuffer`,
+`DataView`, and a boxed `String`, `Number` or `Boolean`. Checked after the developer's own
+serializers and ahead of every other rule of ours, and `platformSerializers: false` leaves the whole
+list out.
+
+**The global object** — `globalThis`, wherever a row reaches it: `currentTarget` on a `window`
+listener, `self`, `frames`, `top` and `parent` in a page that is not framed. It is never walked, and
+no key of it is even listed, because whatever the app parked on `window` is an own enumerable
+property. It draws its class and `(value): "globalThis"`. A rule apart from the class-instance
+branch: identity is what bounds it, not where it was reached, so a window from another realm, an
 iframe's or a `window.open` result, is read as an ordinary object of its class.
 
 **Callee matching** — the first way, and the one that gives a type: the call names something
@@ -163,7 +169,7 @@ the extension. It is a jsan **replacer**, passed to the extension as
 `serialize: { replacer, options: true }`, so it rides on the `serialize` option rather than
 replacing it. It handles only what jsan handles badly: `Error` (jsan keeps the message alone),
 class instances (jsan loses the name), typed arrays, `BigInt` (jsan throws), DOM nodes,
-getter-only objects, and `Map` and `Set` (the panel calls both of them `Iterable`). Everything else
+and `Map` and `Set` (the panel calls both of them `Iterable`). Everything else
 it returns untouched for jsan to encode. It takes user-supplied serializers and encodes only: there
 is no reviver of ours.
 
@@ -189,9 +195,9 @@ reaches: the `[key]` half of a `Map` entry we could not name, and a store whose 
 store again, where the wrapper's own key is what keeps the encoder finding the loop.
 
 **Two counts bound a value the developer never designed for the panel**, `maxValueDepth` and
-`maxValueMembers`. They start in exactly two places, where the walk enters a class instance and
-where a built-in prototype's getters are expanded, and they hold for everything below that point,
-including a plain object, which cannot escape a count by being plain. Above one, nothing is capped:
+`maxValueMembers`. They start in exactly one place, where the walk enters a class instance, and they
+hold for everything below that point, including a plain object, which cannot escape a count by being
+plain. Above one, nothing is capped:
 a plain object, an array and a collection of the app's go out whole, however large. A depth past the
 cap draws the class name and one `(value)` line saying so; a width past it draws the first members
 in source order and one `…` key counting the rest, which is the key the **tree** already writes for

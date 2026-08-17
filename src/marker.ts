@@ -58,3 +58,12 @@ export const VALUE_KEY = "(value)";
 export function box(value: unknown): { [VALUE_KEY]: unknown } {
   return keepBuilt({ [VALUE_KEY]: value });
 }
+
+/**
+ * Which method answered, on an instance that published a reading of itself. Beside `VALUE_KEY`
+ * because all three are invented keys, and apart from it because they name a different fact: a
+ * number and a string can say different things about one object.
+ */
+export const VALUE_OF_KEY = "(valueOf)";
+
+export const TO_STRING_KEY = "(toString)";

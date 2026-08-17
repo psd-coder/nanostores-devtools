@@ -170,6 +170,10 @@ A store that owns nothing is drawn as v1 drew it: its name, its value. **A store
 keeps its own value under `(value)`**, so its children can sit beside it. Only a store that owns
 something is wrapped, so a value you can read today stays readable.
 
+Two more keys are spelled with the same parentheses and mean something else: `(valueOf)` and
+`(toString)` name **which method answered** on a class instance that published a reading of itself.
+See [what a platform object shows](#what-a-platform-object-shows).
+
 #### What becomes a node
 
 A **node** holds others and has no value of its own. Four things become one:
@@ -637,13 +641,12 @@ without one, so the bridge draws them itself:
 | `DataView`                              | `byteLength` and `byteOffset` |
 | a boxed `String`, `Number` or `Boolean` | the primitive under `(value)` |
 
-Each of the first five drew as `[object Headers]` and nothing else, because none of them publishes
-a single readable field. A boxed string drew one key per character, so a 10 000-character one cost
-10 000 keys.
+Each of the first five draws `<Headers> {}` without the rule, because none of them holds own data or
+publishes a reading of itself. A boxed string drew one key per character, so a 10 000-character one
+cost 10 000 keys.
 
 Your own rules are checked first, so a rule you wrote for one of these values wins. Ours are checked
-before every other rule of the bridge, so a `Headers` reached through `response.headers` is drawn by
-the rule above rather than by the platform-object read.
+before every other rule of the bridge.
 
 **A name that repeats takes a number**: a `FormData` or a `URLSearchParams` holding `tag` twice
 draws `tag` and `tag #2`, in the order the entries went in, because one key holds one entry. A field
@@ -654,8 +657,8 @@ other class instance does.
 
 **`maxValueDepth` and `maxValueMembers` cap only what a class instance holds.** Everything you
 shaped yourself goes out whole, however large: the two counts start where the walk enters a class
-instance or expands the getters of a built-in prototype, and a plain object, an array or a
-collection above one is never touched. Raise either number, or pass `Infinity` for no cap. Your own
+instance, and a plain object, an array or a collection above one is never touched. Raise either
+number, or pass `Infinity` for no cap. Your own
 serializer runs before the caps, because a rule you wrote is the exact tool for shrinking a deep
 value, and a store below the caps keeps its whole value. See
 [values are shortened only under a class instance](#values-are-shortened-only-under-a-class-instance).
@@ -798,8 +801,8 @@ lifecycle rows on it draws an unmount row and a mount row for a teardown that ne
 thousand rows, a `Map` of ten thousand entries: all of them go out whole, however large, and no
 option changes that.
 
-**Two counts start where the walk enters a class instance**, or where it expands the getters of a
-built-in prototype, and they apply to everything below that point:
+**Two counts start where the walk enters a class instance**, and they apply to everything below that
+point:
 
 - `maxValueDepth`, `5` by default, is how many levels are drawn below the instance. A value past it
   keeps its class name and shows one line: `(value): "past the 5 levels drawn under a class
@@ -829,8 +832,8 @@ instance inside that value starts a fresh count.
 **Why a class instance is the line.** A plain object is state you wrote and shaped for yourself. A
 class instance is where a value the panel was never designed for begins: a framework's node, a
 platform interface, a scene graph. Five levels reads a real domain object whole
-(`Editor → doc → blocks → Block → id` is four), and 100 members clears the widest shape the panel is
-meant to draw whole, a platform interface such as a `PointerEvent`.
+(`Editor → doc → blocks → Block → id` is four), and 100 members clears the widest record an app
+writes for itself, a settings object or a row of a table, whole.
 
 Two limits stay as they were. A repeat is still written once per path, not pointed at, and a
 serializer's own result is not width-capped.
@@ -841,13 +844,11 @@ Other things values do:
   encoder does this to make a loop safe to write. A plain repeat is not: the same object in two
   places is written out twice, because the option that would collapse it is off in the extension's
   defaults. This is the price of letting a `Date` and a `RegExp` render as themselves in the panel.
-- **A getter the app wrote is never read**, because it can run app code. A getter on a built-in
-  prototype is read, and that is what draws an event, a `URL` or a `DOMRect` as its fields rather
-  than as `[object PointerEvent]`. See [what a platform object shows](#what-a-platform-object-shows).
-  One more exception is the `stack` accessor V8 puts on an error itself: refusing it would drop the
-  stack from every error, and a devtools with no stack traces is worth less than the risk. Reading it
-  can run `Error.prepareStackTrace` if the app installed one, and it makes V8 read `name` and
-  `message` off the error.
+- **A getter is never read**, whoever wrote it, because it can run app code. The one exception is the
+  `stack` accessor V8 puts on an error itself: refusing it would drop the stack from every error, and
+  a devtools with no stack traces is worth less than the risk. Reading it can run
+  `Error.prepareStackTrace` if the app installed one, and it makes V8 read `name` and `message` off
+  the error.
 - **A method is left out.** An object's own property holding a function does not reach the panel:
   `{ id, $checked, toggle, add }` arrives as `{ id, $checked }`. The panel draws state, and a
   method beside the stores it writes says nothing your source does not. A value that is itself a
@@ -936,57 +937,84 @@ finds by the path it built, and it only finds it while the wrapper's own key sta
 
 ### What a platform object shows
 
-An event, a `URL`, a `DOMRect`: these keep every field behind a getter on their prototype and hold no
-own data at all. The own-property rule found nothing on them, so the panel used to draw the whole
-thing as one string, `[object PointerEvent]`.
-
-**A getter is read where the prototype holding it belongs to a global constructor.** That is the
-whole test, and it is what separates the platform's code from yours: `PointerEvent.prototype` is
-`globalThis.PointerEvent.prototype`, while a class you declared in a module is no global. A getter
-you wrote, on a class of your own or straight onto an instance, is still refused.
+**A class instance is drawn by the own data it holds.** An event, a `DOMRect`, a `Blob` and an
+`AbortSignal` hold none: every field on them is a getter on their prototype, and a getter is never
+read, whoever wrote it. So each of them draws its class name over an empty object:
 
 ```
-$pointerMove [store]: <PointerEvent> {
-  type: "pointermove"
-  clientX: 412
-  clientY: 260
-  buttons: 1
-  target: <HTMLDivElement>
-    (value): "<div id=\"row-2\">"
-  view: <Window>
-    (value): "globalThis"
+$lastMove [store]: <MouseEvent> {}
+$viewport [store]: <DOMRect> {}
+```
+
+**A class that wrote down how it reads gets that reading instead.** Where an instance holds no own
+data, a `valueOf` and a `toString` **the class itself defines** are called, and each answer takes a
+key naming the method that gave it:
+
+```
+$link [store]: <URL> {
+  (toString): "https://a.dev/x?q=1"
+}
+$price [store]: <Money> {
+  (valueOf): 500
+  (toString): "$5.00"
 }
 ```
 
-The rest of the rule, and why each part is there:
+`Object.prototype`'s own two are refused: its `toString` gives `[object MouseEvent]`, which says
+nothing the class name does not, and its `valueOf` hands the object straight back. That one test is
+the whole rule, so no list of classes is kept anywhere. It is also why a `URL` and a `Location` keep
+their address while an event does not: those two write a `toString` and an event does not.
 
-- **Own data wins.** An object that has any own data property is read exactly as before, so this
-  costs nothing for every other value on the page.
-- **Only fields the interface publishes.** The getter has to be enumerable, which an interface
-  attribute is and a hidden internal such as `Map.prototype.size` is not.
-- **The nearest holder still wins.** A getter you put on the instance, or on a subclass of your own,
-  refuses the key outright rather than letting the platform's version of that name answer instead.
-- **One getter that throws costs its own key**, not the whole object. A platform getter can refuse on
-  a detached or already-read value.
-- **An object a getter handed back keeps its own data, and no getter of its own is read.**
-  Expansions never chain, so one row cannot walk down the whole platform, while `event.detail` is
-  still the object your code put there. That bound is per snapshot: a value read this way in one
-  snapshot is read in full in the next, where you may hold it directly.
-- **The window your page runs in is never walked**, wherever the row reaches it from: `event.view`,
-  `currentTarget` on a `window` listener, `self`, `frames`, and `top` or `parent` while the page is
-  not framed. It draws its class and the one line `(value): "globalThis"`, so whatever you parked on
+**This is the one place the bridge runs a line of your code**, and every part of the rule is a bound:
+
+- **only where there is no own data**, so every ordinary object of yours runs nothing at all
+- **the method is found through a property descriptor**, so a `toString` sitting behind a getter is
+  refused like every other getter
+- **called by name**, never through `String(value)`, which would run `Symbol.toPrimitive` and a
+  chain of its own
+- **only a primitive answer is kept**; an object, `null` and `undefined` are dropped
+- **a method that throws costs its own key**, and the other key and the class name still arrive
+
+If you wrote a `toString` with a side effect, this is the paragraph you needed: it runs while a
+snapshot is written.
+
+**For every other field, write one rule over the class you hold.** The bridge cannot choose which
+fields of an interface matter, and you can:
+
+```js
+connectDevtools({
+  serializers: [
+    {
+      match: (value) => value instanceof MouseEvent,
+      convert: (event) => ({ type: event.type, x: event.clientX, y: event.clientY }),
+    },
+  ],
+});
+```
+
+Every platform class works the same way, so a `DOMRect`, a `Blob` and a `File` each take a rule of
+the same shape. [`connectDevtools(options?)`](#connectdevtoolsoptions) has the full contract.
+
+**One trap.** A platform object **inside** your result meets no serializer either, ours included, so
+it draws its class name and nothing else. Spell it out in your own rule:
+`{ headers: Object.fromEntries(response.headers) }`, not `{ headers: response.headers }`, which
+draws `<Headers> {}`.
+
+Three things read without a rule of yours, so the loss is bounded to objects that keep everything
+behind getters:
+
+- **A DOM node** draws its opening tag, and `document` draws `<#document>`, which is the name the
+  DOM itself gives it, as `#text` and `#comment` read for the other two.
+- **The window your page runs in is never walked**, wherever the row reaches it from: `self`,
+  `frames`, `currentTarget` on a `window` listener, and `top` or `parent` while the page is not
+  framed. It draws its class and the one line `(value): "globalThis"`, so whatever you parked on
   `window` costs no keys at all. A window from another realm, an iframe's or a `window.open` result,
   is read as an ordinary object of its class, because the test is identity.
-- **A DOM node was already bounded**, by its opening tag, and `document` draws `<#document>`, which
-  is the name the DOM itself gives it, as `#text` and `#comment` read for the other two.
-- **A few classes take a rule of ours instead**, because there is no getter on them to read: a
-  `Headers`, a `FormData`, a `URLSearchParams`, an `ArrayBuffer`, a `SharedArrayBuffer`, a
-  `DataView` and a boxed `String`, `Number` or `Boolean`. Those rules run first, and
+- **A few classes take a rule of ours**: a `Headers`, a `FormData`, a `URLSearchParams`, an
+  `ArrayBuffer`, a `SharedArrayBuffer`, a `DataView` and a boxed `String`, `Number` or `Boolean`.
+  Those run before yours is even asked, and
   [`connectDevtools(options?)`](#connectdevtoolsoptions) has the list and the option that turns it
   off.
-
-A class the page defines on `globalThis` after the first tree is written counts as yours, because
-the set of platform prototypes is built once. That costs a label, never correctness.
 
 ### A follower can name the wrong source
 
@@ -1033,11 +1061,11 @@ change, and a gap might.
 
 **Refused, by the read-only rule:**
 
-- **A value behind a getter of yours is never read.** A getter runs your code, and running it would
-  change how the app behaves. A store held only behind a getter still reaches the tree; it just sits
-  where it was made rather than under the object that holds it. A getter on a built-in prototype is
-  read instead, because the platform wrote that one; see
-  [what a platform object shows](#what-a-platform-object-shows).
+- **A value behind a getter is never read**, whoever wrote it. A getter runs code, and running it
+  would change how the app behaves. A store held only behind a getter still reaches the tree; it just
+  sits where it was made rather than under the object that holds it. See
+  [what a platform object shows](#what-a-platform-object-shows) for what an object made only of
+  getters draws instead.
 - **An array is read index by index through its own descriptors**, so a getter sitting at an index
   never runs and an index only its prototype holds is left out. If that fails, the array
   contributes nothing.
