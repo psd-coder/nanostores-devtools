@@ -18,7 +18,12 @@ function endOfTurn(): Promise<void> {
   return Promise.resolve();
 }
 
-function register(name: string, store: Store, type: StoreType = "atom", throttle = false): void {
+function register(
+  name: string,
+  store: Store,
+  type: StoreType = "atom",
+  throttle: boolean | number = false,
+): void {
   registerStore({
     store,
     name,
@@ -372,6 +377,77 @@ describe("the plugin's comment", () => {
     await endOfTurn();
 
     expect(fake.sends.filter((call) => call.action["type"] === "$frame/set")).toHaveLength(2);
+  });
+
+  it("holds the store to the rate it names, in milliseconds", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame, "atom", 100);
+    await listen({ autoThrottle: false });
+
+    $frame.set(1);
+    $frame.set(2);
+
+    await endOfTurn();
+    vi.advanceTimersByTime(100);
+
+    expect(rows()).toEqual(["$frame/set", "$frame/set"]);
+    expect(fake.sends[1]?.state).toEqual({ cart: { "$frame [store, throttled]": 2 } });
+  });
+
+  it("draws a write of its own once that rate is out, well inside the default second", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame, "atom", 100);
+    await listen({ autoThrottle: false });
+
+    $frame.set(1);
+
+    await endOfTurn();
+    vi.advanceTimersByTime(100);
+    $frame.set(2);
+
+    await endOfTurn();
+
+    expect(rows()).toEqual(["$frame/set", "$frame/set"]);
+    expect(fake.sends[1]?.action["timestamp"]).toBe(START + 100);
+  });
+
+  it("takes an edited rate from the reload that registers the store again", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame, "atom", 100);
+    await listen({ autoThrottle: false });
+    register("$frame", $frame, "atom", 250);
+
+    $frame.set(1);
+    $frame.set(2);
+
+    await endOfTurn();
+    vi.advanceTimersByTime(100);
+
+    expect(rows()).toEqual(["$frame/set"]);
+
+    vi.advanceTimersByTime(150);
+
+    expect(rows()).toEqual(["$frame/set", "$frame/set"]);
+  });
+
+  it("holds a bare mark to one row a second", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame, "atom", true);
+    await listen({ autoThrottle: false });
+
+    $frame.set(1);
+
+    await endOfTurn();
+    vi.advanceTimersByTime(100);
+    $frame.set(2);
+
+    await endOfTurn();
+
+    expect(rows()).toEqual(["$frame/set"]);
   });
 
   it("survives a rename, which re-runs the option and finds no match", async () => {

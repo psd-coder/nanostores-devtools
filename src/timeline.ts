@@ -5,7 +5,7 @@ import { isDrawn, rowName } from "./placement.ts";
 import { getEntry, listEntries, type StoreEntry } from "./registry.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
-import { clearThrottle, suppressWrite, THROTTLE_WINDOW } from "./throttle.ts";
+import { clearThrottle, suppressWrite, throttlePeriod } from "./throttle.ts";
 
 /** A change names what moved, never what it moved to: the extension diffs the trees itself. */
 export type Change =
@@ -216,8 +216,9 @@ function openRow(
 }
 
 /**
- * A suppressed row waits out the second on the store it belongs to, and a second one in that second
- * replaces it. That is the coalescing: no tree is built and nothing is sent until the timer fires.
+ * A suppressed row waits out the store's rate on the store it belongs to, and a second row inside
+ * that time replaces it. That is the coalescing: no tree is built and nothing is sent until the
+ * timer fires.
  */
 function park(entry: StoreEntry, row: Row): void {
   const { throttle } = entry;
@@ -237,7 +238,7 @@ function park(entry: StoreEntry, row: Row): void {
     return;
   }
 
-  const rest = Math.max(THROTTLE_WINDOW - (Date.now() - throttle.lastEmit), 0);
+  const rest = Math.max(throttlePeriod(entry) - (Date.now() - throttle.lastEmit), 0);
 
   throttle.trailing = setTimeout(() => {
     release(entry);
@@ -245,8 +246,8 @@ function park(entry: StoreEntry, row: Row): void {
 }
 
 /**
- * The end of the second. The row keeps the timestamp of the write that made it, and its tree is
- * built now, so it carries the store's current value with the whole cascade that rode inside it.
+ * The end of the wait. The row keeps the timestamp of the write that made it, and its tree is built
+ * now, so it carries the store's current value with the whole cascade that rode inside it.
  */
 function release(entry: StoreEntry): void {
   const { throttle } = entry;
@@ -262,8 +263,8 @@ function release(entry: StoreEntry): void {
   }
 
   /**
-   * The second this row closes starts now, and that is written before anything is sent: a row of
-   * this same store standing open parks for the next second instead of a timer of no length.
+   * The stretch this row closes starts now, and that is written before anything is sent: a row of
+   * this same store standing open parks for the next one instead of a timer of no length.
    */
   throttle.lastEmit = Date.now();
 

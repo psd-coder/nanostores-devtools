@@ -12,6 +12,9 @@ export type ThrottleTarget = {
 
 export type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boolean);
 
+/** What the plugin read over a creation site: nothing, a bare mark, or the rate the mark named. */
+export type ThrottleComment = boolean | number | undefined;
+
 /** Both options, read once at connect: which stores are marked, and the rate that marks one. */
 export type ThrottleSettings = {
   marks: (target: ThrottleTarget) => boolean;
@@ -25,6 +28,8 @@ export type ThrottleState = {
   marked: boolean;
   /** The comment the plugin read, kept apart so a rename re-running the option cannot drop it. */
   commented: boolean;
+  /** The rate the comment named, in milliseconds, or nothing for the default one row a second. */
+  period: number | undefined;
   writes: number;
   windowStart: number;
   /** The rate caught this store once, and a store that burst once is expected to burst again. */
@@ -37,8 +42,11 @@ export type ThrottleState = {
   warned: boolean;
 };
 
-/** One row a second out, and the window the counter reads, are the same second. */
+/** The second the write counter reads, which is the window the auto rate is measured over. */
 export const THROTTLE_WINDOW = 1000;
+
+/** One row a second, which every throttled store holds to unless a comment names its own rate. */
+const DEFAULT_PERIOD = 1000;
 
 /** Above anything a person clicking causes and well below a frame loop. */
 const DEFAULT_THRESHOLD = 10;
@@ -50,16 +58,31 @@ export function createThrottleSettings(
   return { marks: marker(throttle), threshold: thresholdOf(autoThrottle) };
 }
 
-export function createThrottleState(commented: boolean): ThrottleState {
+export function createThrottleState(comment: ThrottleComment): ThrottleState {
   return {
     marked: false,
-    commented,
+    commented: hasComment(comment),
+    period: periodOf(comment),
     writes: 0,
     windowStart: 0,
     tripped: false,
     lastEmit: 0,
     warned: false,
   };
+}
+
+/**
+ * The plugin's registration is the whole truth about the comment, so the mark and the rate it named
+ * are taken from it together: an edit that took the comment away takes the rate with it.
+ */
+export function applyComment(state: ThrottleState, comment: ThrottleComment): void {
+  state.commented = hasComment(comment);
+  state.period = periodOf(comment);
+}
+
+/** How long this store holds a row back: the rate its comment named, or one row a second. */
+export function throttlePeriod(entry: StoreEntry): number {
+  return entry.throttle.period ?? DEFAULT_PERIOD;
 }
 
 /**
@@ -96,7 +119,7 @@ export function suppressWrite(entry: StoreEntry, now: number): boolean {
     warnAutoThrottle(entry);
   }
 
-  if (holds && now - throttle.lastEmit < THROTTLE_WINDOW) {
+  if (holds && now - throttle.lastEmit < throttlePeriod(entry)) {
     return true;
   }
 
@@ -137,6 +160,17 @@ function count(state: ThrottleState, now: number): void {
 
   state.writes = 1;
   state.windowStart = now;
+}
+
+function hasComment(comment: ThrottleComment): boolean {
+  return comment !== undefined && comment !== false;
+}
+
+/** A rate is a positive count of milliseconds. Anything else the comment carries only marks. */
+function periodOf(comment: ThrottleComment): number | undefined {
+  return typeof comment === "number" && Number.isFinite(comment) && comment > 0
+    ? comment
+    : undefined;
 }
 
 function throttled(state: ThrottleState): boolean {

@@ -727,6 +727,40 @@ describe("the throttle comment", () => {
 
     expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
   });
+
+  it("reads the rate the comment names, in milliseconds", () => {
+    const result = transform(`${IMPORT}// @devtools-throttle 100\nconst $frame = atom(0);\n`);
+
+    expect(metas(result)).toEqual([
+      { name: "$frame", fn: null, line: 3, type: "atom", throttle: 100 },
+    ]);
+  });
+
+  it("hands the rate to every store of the statement, block comment included", () => {
+    const result = transform(
+      `${IMPORT}/* @devtools-throttle 250 */\nconst $pair = merge([atom(0), atom(1)]);\n`,
+    );
+
+    expect(metas(result).map((site) => site.throttle)).toEqual([250, 250, 250, 250]);
+  });
+
+  /** The mark is the point of the comment, so nothing readable behind it may cost the store one. */
+  it.each(["100ms", "abc", "0", "-100", "Infinity", "100 200"])(
+    "marks the store with the default rate when the comment says %s",
+    (rate) => {
+      const result = transform(`${IMPORT}// @devtools-throttle ${rate}\nconst $frame = atom(0);\n`);
+
+      expect(metas(result)).toEqual([
+        { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
+      ]);
+    },
+  );
+
+  it("leaves a comment alone that only starts like the marker", () => {
+    const result = transform(`${IMPORT}// @devtools-throttled\nconst $frame = atom(0);\n`);
+
+    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+  });
 });
 
 describe("the creation frame", () => {

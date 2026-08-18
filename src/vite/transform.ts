@@ -4,6 +4,7 @@ import type {
   AssignmentTargetMaybeDefault,
   BindingPattern,
   CallExpression,
+  Comment,
   ExportNamedDeclaration,
   Expression,
   ImportDeclaration,
@@ -89,8 +90,18 @@ type TopLevel = Program["body"][number];
 /** Where one statement of the module body starts and ends, for the comment that stands over it. */
 type Span = { start: number; end: number };
 
-/** The comment that holds a store to one row a second, written on its own line above the store. */
-const THROTTLE_COMMENT = "@devtools-throttle";
+/**
+ * A range a throttle comment settles, and what the comment said: the rate in milliseconds it named,
+ * or `true` for a bare mark, which the store holds to the default rate.
+ */
+type Mark = Span & { throttle: number | true };
+
+/**
+ * The comment that holds a store to one row a second, written on its own line above the store. It
+ * takes a rate of its own, `// @devtools-throttle 100`, and the rest of the line is captured so a
+ * comment that names no readable rate still marks its store.
+ */
+const THROTTLE_COMMENT = /^@devtools-throttle(?:\s+([^]*))?$/;
 
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
@@ -121,7 +132,7 @@ export function transformStores(input: TransformInput): StoreTransform {
   /** Where an `await` stands, which drops the frame around it once the walk has been through. */
   const awaits: number[] = [];
   /** The statements a throttle comment stands over, so every site inside one carries the flag. */
-  const throttled: Span[] = [];
+  const throttled: Mark[] = [];
 
   function currentName(): string | null {
     const top = stack.at(-1);
@@ -237,8 +248,10 @@ export function transformStores(input: TransformInput): StoreTransform {
   function siteAt(start: number, name: string | null, type: StoreType): CreationSite {
     const site: CreationSite = { name, fn: currentFn(), line: lineOf(lines, start), type };
 
-    if (throttled.some((span) => start >= span.start && start < span.end)) {
-      site.throttle = true;
+    const span = throttled.find((held) => start >= held.start && start < held.end);
+
+    if (span !== undefined) {
+      site.throttle = span.throttle;
     }
 
     return site;
@@ -371,13 +384,15 @@ export function transformStores(input: TransformInput): StoreTransform {
    * Every import is a top-level statement, and reading them all first frees the walk of order. The
    * module's own bindings come out of the same pass, because they stand at the same level.
    */
-  const marks = parsed.comments.filter((comment) => comment.value.trim() === THROTTLE_COMMENT);
+  const marks = parsed.comments.flatMap(readThrottleComment);
   let previousEnd = 0;
 
   for (const statement of parsed.program.body) {
     /** A comment with no statement between it and this one stands over this one. */
-    if (marks.some((mark) => mark.start >= previousEnd && mark.end <= statement.start)) {
-      throttled.push({ start: statement.start, end: statement.end });
+    const mark = marks.find((held) => held.start >= previousEnd && held.end <= statement.start);
+
+    if (mark !== undefined) {
+      throttled.push({ start: statement.start, end: statement.end, throttle: mark.throttle });
     }
 
     previousEnd = statement.end;
@@ -619,4 +634,26 @@ function lineOf(starts: readonly number[], offset: number): number {
   }
 
   return low + 1;
+}
+
+/**
+ * A comment that starts with the marker marks its statement whatever follows it, so a rate nobody
+ * can read as a positive count of milliseconds costs the developer the rate, never the mark.
+ */
+function readThrottleComment(comment: Comment): Mark[] {
+  const match = THROTTLE_COMMENT.exec(comment.value.trim());
+
+  if (match === null) {
+    return [];
+  }
+
+  const rate = Number(match[1]);
+
+  return [
+    {
+      start: comment.start,
+      end: comment.end,
+      throttle: Number.isFinite(rate) && rate > 0 ? rate : true,
+    },
+  ];
 }

@@ -25,6 +25,7 @@ import {
   type StoreType,
   unregisterStore,
 } from "../registry.ts";
+import type { ThrottleComment } from "../throttle.ts";
 
 export type { StoreType };
 
@@ -34,8 +35,11 @@ export type CreationSite = {
   fn: string | null;
   line: number;
   type: StoreType;
-  /** Whether a `// @devtools-throttle` comment stands over the statement the site is written in. */
-  throttle?: boolean | undefined;
+  /**
+   * What a `// @devtools-throttle` comment standing over the statement said: a bare mark, or the
+   * rate in milliseconds it holds the store to.
+   */
+  throttle?: ThrottleComment;
 };
 
 export type FileScope = {

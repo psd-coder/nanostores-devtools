@@ -7,7 +7,14 @@ import {
   getDevtoolsGlobal,
   peekDevtoolsGlobal,
 } from "./global.ts";
-import { clearThrottle, createThrottleState, resolveMark, type ThrottleState } from "./throttle.ts";
+import {
+  applyComment,
+  clearThrottle,
+  createThrottleState,
+  resolveMark,
+  type ThrottleComment,
+  type ThrottleState,
+} from "./throttle.ts";
 import { detachEntryHooks } from "./unhook.ts";
 import { warnOnce } from "./warn.ts";
 
@@ -79,8 +86,11 @@ export type Registration = {
   origin: StoreOrigin;
   external: boolean;
   fn: string | null;
-  /** Whether a `// @devtools-throttle` comment stood over the store's creation site. */
-  throttle?: boolean | undefined;
+  /**
+   * What the `// @devtools-throttle` comment over the store's creation site said: nothing, a bare
+   * mark, or the rate in milliseconds it holds the store to.
+   */
+  throttle?: ThrottleComment;
 } & Partial<NameParts>;
 
 /** Where an entry is drawn: its name and what qualifies it, its home, and whose home that is. */
@@ -199,7 +209,7 @@ export function registerStore(registration: Registration): StoreEntry {
     origin: registration.origin,
     fn: registration.fn,
     everMounted: false,
-    throttle: createThrottleState(registration.throttle === true),
+    throttle: createThrottleState(registration.throttle),
     unhook: [],
   };
 
@@ -339,12 +349,11 @@ function relabelEntry(
   label: string,
 ): StoreEntry {
   /**
-   * The plugin's registration is the whole truth about the comment, so an edit that took the
-   * comment away takes the flag with it. An explicit registration says nothing about it and so
-   * leaves it as it was.
+   * An explicit registration says nothing about the comment and so leaves it as it was, while the
+   * plugin's carries whatever the file says now, an edited rate included.
    */
   if (registration.origin === "plugin") {
-    entry.throttle.commented = registration.throttle === true;
+    applyComment(entry.throttle, registration.throttle);
   }
 
   /** The type decides which hooks an entry carries, so the ones attached under the old one go. */

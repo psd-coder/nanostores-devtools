@@ -358,8 +358,8 @@ The two are one word on purpose. `[atom]` would say we read your creation site a
 we did not, which is a fact about how much of your source we reached and not about the store. Both
 are writable and both hold whatever was last set, so there is nothing you would do differently.
 
-**A store being held to one row a second says so in the same brackets**, `$frame [store, throttled]`,
-and loses the word again when its rate drops. See [`throttle`](#connectdevtoolsoptions).
+**A store that is being held back says so in the same brackets**, `$frame [store, throttled]`, and
+loses the word again when its rate drops. See [`throttle`](#connectdevtoolsoptions).
 
 The brackets are part of the tree key only. Timeline rows keep the bare name (`$total/set`), and
 sorting is on the bare name too, so the kind never moves a store in the tree. A store that gains a
@@ -451,8 +451,9 @@ A row carries one write plus every recompute that write caused, which is why a `
 has no row of its own. Mount, unmount, register, unregister and hot reload are the lifecycle rows,
 and [`lifecycleEvents`](#connectdevtoolsoptions) turns all five off together.
 
-A [throttled](#connectdevtoolsoptions) store draws at most one row a second, and the writes it made
-inside that second fold into the row that closes it, followers and all. Its value in the tree stays
+A [throttled](#connectdevtoolsoptions) store draws at most one row a second, or one per the rate its
+comment names, and the writes it made inside that time fold into the row that closes it, followers
+and all. Its value in the tree stays
 current; the steps between those rows are what you lose.
 
 ### When stores join and leave
@@ -577,8 +578,8 @@ its key reads `$frame [store, throttled]`, and it keeps the word from the write 
 A frame loop writes about 60 times a second, so it costs about 60 full trees a second without this.
 That is what fills `maxAge` in eight seconds and pushes every row you came to read out of the panel.
 
-Pass a number for your own rate, `autoThrottle: 20`, or `false` to keep every row. The output rate
-of one row a second is fixed and is not an option.
+Pass a number for your own rate, `autoThrottle: 20`, or `false` to keep every row. What comes out is
+one row a second, and the plugin's comment below is the only way to hold one store to another rate.
 
 **`throttle` says it on purpose, and turns the warning off.** It takes the names as the tree writes
 them, `"home/name"`, or a rule over them:
@@ -601,6 +602,18 @@ const $remaining = countdownAtom($delay, { interval: TICK });
 
 The comment marks the whole statement below it, so a call that makes several stores marks all of
 them. Either channel alone is enough, and a store you marked by hand never warns.
+
+**The comment also takes a rate of its own**, in milliseconds:
+
+```ts
+// @devtools-throttle 100
+const $frame = atom(0);
+```
+
+That store draws one row per 100ms, and every other throttled store keeps the default second. Edit
+the number and the reload the edit causes carries the new rate. Anything that is not a positive
+number of milliseconds, `// @devtools-throttle 100ms`, still marks the store, at the default rate:
+the mark is what the comment is for, and a rate nobody can read must not cost you one.
 
 **A follower rides in the row its source opened**, so marking one store quiets the whole chain
 behind it and no computed needs a mark of its own. Lifecycle rows are never throttled;
