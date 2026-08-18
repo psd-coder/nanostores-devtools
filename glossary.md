@@ -70,7 +70,9 @@ state: the `throttle` option, the `// @devtools-throttle` comment, and `autoThro
 and catches a store writing more than ten times a second. The comment alone can name another rate
 for its store, `// @devtools-throttle 100`, in milliseconds; everything else holds to the second.
 A store `autoThrottle` caught stays throttled for the rest of the session, so the timeline does
-not flip between full entries and thinned ones as the rate moves. The tree is never behind; only
+not flip between full entries and thinned ones as the rate moves. The `// @devtools-no-throttle`
+comment takes one store out of that catch and out of the warning with it; it says nothing about
+the other two, which are the developer asking for the throttle. The tree is never behind; only
 the steps between entries are lost. The tree key says the word while it holds:
 `$frame [store, throttled]`.
 

@@ -22,7 +22,7 @@ function register(
   name: string,
   store: Store,
   type: StoreType = "atom",
-  throttle: boolean | number = false,
+  throttle: boolean | number | undefined = undefined,
 ): void {
   registerStore({
     store,
@@ -466,6 +466,78 @@ describe("the plugin's comment", () => {
   });
 });
 
+describe("the plugin's no-throttle comment", () => {
+  it("keeps every row of a store the write rate would have taken over", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame, "atom", false);
+    await listen({ autoThrottle: 2 });
+
+    for (let value = 1; value <= 5; value += 1) {
+      $frame.set(value);
+    }
+
+    await endOfTurn();
+
+    expect(rows()).toHaveLength(5);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("frees a store that already tripped, once the edit that adds it reloads the file", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame);
+    await listen({ autoThrottle: 2 });
+
+    $frame.set(1);
+    $frame.set(2);
+    $frame.set(3);
+
+    await endOfTurn();
+    vi.advanceTimersByTime(1000);
+
+    expect(rows()).toHaveLength(3);
+
+    register("$frame", $frame, "atom", false);
+    $frame.set(4);
+    $frame.set(5);
+
+    await endOfTurn();
+
+    expect(rows()).toHaveLength(5);
+  });
+
+  it("leaves the throttle option alone, which says it on purpose", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame, "atom", false);
+    await listen({ autoThrottle: false, throttle: ["cart/$frame"] });
+
+    $frame.set(1);
+    $frame.set(2);
+
+    await endOfTurn();
+
+    expect(rows()).toEqual(["$frame/set"]);
+  });
+
+  it("goes away when a hot reload registers the store without it", async () => {
+    const $frame = atom(0);
+
+    register("$frame", $frame, "atom", false);
+    await listen({ autoThrottle: 2 });
+    register("$frame", $frame);
+
+    $frame.set(1);
+    $frame.set(2);
+    $frame.set(3);
+
+    await endOfTurn();
+
+    expect(rows()).toHaveLength(2);
+  });
+});
+
 describe("autoThrottle", () => {
   it("trips on the eleventh write in a second, and the ten before it lose nothing", async () => {
     const $frame = atom(0);
@@ -659,6 +731,32 @@ describe("autoThrottle", () => {
     expect(console.warn).toHaveBeenCalledWith(
       expect.stringContaining('pass throttle: ["cart/$frame"]'),
     );
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("write // @devtools-no-throttle above it"),
+    );
+  });
+
+  it("names no comment for a store the developer registered by hand", async () => {
+    const $frame = atom(0);
+
+    registerStore({
+      store: $frame,
+      name: "$frame",
+      home: "cart",
+      type: "atom",
+      origin: "explicit",
+      external: false,
+      fn: null,
+    });
+    await listen({ autoThrottle: 1 });
+
+    $frame.set(1);
+    $frame.set(2);
+
+    await endOfTurn();
+
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("pass autoThrottle: false"));
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("@devtools-no-throttle"));
   });
 
   it("says the name the developer reads, not the qualified label", async () => {

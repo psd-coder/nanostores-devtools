@@ -12,7 +12,10 @@ export type ThrottleTarget = {
 
 export type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boolean);
 
-/** What the plugin read over a creation site: nothing, a bare mark, or the rate the mark named. */
+/**
+ * What the plugin read over a creation site: nothing, a bare mark, the rate the mark named, or
+ * `false`, which is `// @devtools-no-throttle` taking the store out of the automatic catch.
+ */
 export type ThrottleComment = boolean | number | undefined;
 
 /** Both options, read once at connect: which stores are marked, and the rate that marks one. */
@@ -28,6 +31,8 @@ export type ThrottleState = {
   marked: boolean;
   /** The comment the plugin read, kept apart so a rename re-running the option cannot drop it. */
   commented: boolean;
+  /** The other comment: this store is the developer's to throttle, so the write rate never does. */
+  exempt: boolean;
   /** The rate the comment named, in milliseconds, or nothing for the default one row a second. */
   period: number | undefined;
   writes: number;
@@ -62,6 +67,7 @@ export function createThrottleState(comment: ThrottleComment): ThrottleState {
   return {
     marked: false,
     commented: hasComment(comment),
+    exempt: comment === false,
     period: periodOf(comment),
     writes: 0,
     windowStart: 0,
@@ -77,6 +83,7 @@ export function createThrottleState(comment: ThrottleComment): ThrottleState {
  */
 export function applyComment(state: ThrottleState, comment: ThrottleComment): void {
   state.commented = hasComment(comment);
+  state.exempt = comment === false;
   state.period = periodOf(comment);
 }
 
@@ -173,8 +180,13 @@ function periodOf(comment: ThrottleComment): number | undefined {
     : undefined;
 }
 
+/**
+ * The exemption is read here rather than kept out of the counter, because a store can trip before
+ * the comment above it reaches us: an edit that adds the comment registers a store that already
+ * writes fast, and only the read side lets that store go again.
+ */
 function throttled(state: ThrottleState): boolean {
-  return state.marked || state.tripped;
+  return state.marked || (state.tripped && !state.exempt);
 }
 
 /**
@@ -190,10 +202,17 @@ function warnAutoThrottle(entry: StoreEntry): void {
     "auto-throttle",
     entry.label,
     `${target} wrote ${entry.throttle.writes} times in a second, so the bridge throttles it to ` +
-      `one row a second and keeps it there for the rest of the session. To keep every row, pass ` +
-      `autoThrottle: false. To say this on purpose and stop this warning, pass ` +
+      `one row a second and keeps it there for the rest of the session. To keep every row of this ` +
+      `store, ${keepRows(entry)}. To say this on purpose and stop this warning, pass ` +
       `throttle: ["${target}"].`,
   );
+}
+
+/** The comment is only worth naming for a store the plugin found, since nothing else reads one. */
+function keepRows(entry: StoreEntry): string {
+  return entry.origin === "plugin"
+    ? "write // @devtools-no-throttle above it, or pass autoThrottle: false for every store"
+    : "pass autoThrottle: false";
 }
 
 function matched(entry: StoreEntry): boolean {

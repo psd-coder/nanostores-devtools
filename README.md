@@ -561,8 +561,8 @@ is too slow, and know what you are paying for it.
 **`autoThrottle` is on, and it is the one default that drops rows.** A store that writes more than
 10 times a second is held to **one row a second** from the write that passes that count. Its first
 write in a second draws a row at once, the writes after it inside that second draw none, and the
-last of them draws the row that closes the second. We warn once, naming the store and the two ways
-to say something else.
+last of them draws the row that closes the second. We warn once, naming the store and the ways to
+say something else.
 
 **A store it picks up stays throttled for the rest of the session.** The rate is a fact about the
 store, not about the moment: a frame loop that pauses, or a countdown between two runs, would
@@ -579,7 +579,8 @@ A frame loop writes about 60 times a second, so it costs about 60 full trees a s
 That is what fills `maxAge` in eight seconds and pushes every row you came to read out of the panel.
 
 Pass a number for your own rate, `autoThrottle: 20`, or `false` to keep every row. What comes out is
-one row a second, and the plugin's comment below is the only way to hold one store to another rate.
+one row a second, and the plugin's comment below is the only way to hold one store to another rate,
+or to keep every row of one store while the rest still gets caught.
 
 **`throttle` says it on purpose, and turns the warning off.** It takes the names as the tree writes
 them, `"home/name"`, or a rule over them:
@@ -614,6 +615,20 @@ That store draws one row per 100ms, and every other throttled store keeps the de
 the number and the reload the edit causes carries the new rate. Anything that is not a positive
 number of milliseconds, `// @devtools-throttle 100ms`, still marks the store, at the default rate:
 the mark is what the comment is for, and a rate nobody can read must not cost you one.
+
+**`// @devtools-no-throttle` keeps every row of one store**, which is the other half of the same
+comment:
+
+```ts
+// @devtools-no-throttle
+const $frame = atom(0);
+```
+
+That store writes fast on purpose, so `autoThrottle` never takes it over, however fast it writes,
+and it never warns. It reaches the whole statement below it, the way the mark does, and anything
+written behind the marker leaves the store spared all the same. It says nothing about the other
+two channels: a store you named in `throttle`, or marked with `// @devtools-throttle`, is throttled
+because you asked for it, and a statement carrying both comments follows the mark.
 
 **A follower rides in the row its source opened**, so marking one store quiets the whole chain
 behind it and no computed needs a mark of its own. Lifecycle rows are never throttled;

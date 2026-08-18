@@ -92,9 +92,10 @@ type Span = { start: number; end: number };
 
 /**
  * A range a throttle comment settles, and what the comment said: the rate in milliseconds it named,
- * or `true` for a bare mark, which the store holds to the default rate.
+ * `true` for a bare mark, which the store holds to the default rate, or `false` for the comment
+ * that keeps the store out of the automatic catch.
  */
-type Mark = Span & { throttle: number | true };
+type Mark = Span & { throttle: number | boolean };
 
 /**
  * The comment that holds a store to one row a second, written on its own line above the store. It
@@ -102,6 +103,13 @@ type Mark = Span & { throttle: number | true };
  * comment that names no readable rate still marks its store.
  */
 const THROTTLE_COMMENT = /^@devtools-throttle(?:\s+([^]*))?$/;
+
+/**
+ * The other one: this store writes fast on purpose, so the write rate never takes it over. It reads
+ * nothing after the marker, and whatever a developer wrote there leaves the store spared all the
+ * same, the way an unreadable rate still marks one.
+ */
+const NO_THROTTLE_COMMENT = /^@devtools-no-throttle(?:\s+[^]*)?$/;
 
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
@@ -389,7 +397,12 @@ export function transformStores(input: TransformInput): StoreTransform {
 
   for (const statement of parsed.program.body) {
     /** A comment with no statement between it and this one stands over this one. */
-    const mark = marks.find((held) => held.start >= previousEnd && held.end <= statement.start);
+    const above = marks.filter((held) => held.start >= previousEnd && held.end <= statement.start);
+    /**
+     * Both comments over one statement: the mark wins, because it asks for a rate that the other
+     * one has nothing to say about, while all the other one asks for is to be left alone.
+     */
+    const mark = above.find((held) => held.throttle !== false) ?? above[0];
 
     if (mark !== undefined) {
       throttled.push({ start: statement.start, end: statement.end, throttle: mark.throttle });
@@ -641,7 +654,14 @@ function lineOf(starts: readonly number[], offset: number): number {
  * can read as a positive count of milliseconds costs the developer the rate, never the mark.
  */
 function readThrottleComment(comment: Comment): Mark[] {
-  const match = THROTTLE_COMMENT.exec(comment.value.trim());
+  const text = comment.value.trim();
+  const span = { start: comment.start, end: comment.end };
+
+  if (NO_THROTTLE_COMMENT.test(text)) {
+    return [{ ...span, throttle: false }];
+  }
+
+  const match = THROTTLE_COMMENT.exec(text);
 
   if (match === null) {
     return [];
@@ -649,11 +669,5 @@ function readThrottleComment(comment: Comment): Mark[] {
 
   const rate = Number(match[1]);
 
-  return [
-    {
-      start: comment.start,
-      end: comment.end,
-      throttle: Number.isFinite(rate) && rate > 0 ? rate : true,
-    },
-  ];
+  return [{ ...span, throttle: Number.isFinite(rate) && rate > 0 ? rate : true }];
 }

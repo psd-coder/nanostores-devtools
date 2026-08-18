@@ -36,8 +36,8 @@ export type CreationSite = {
   line: number;
   type: StoreType;
   /**
-   * What a `// @devtools-throttle` comment standing over the statement said: a bare mark, or the
-   * rate in milliseconds it holds the store to.
+   * What a comment standing over the statement said: a bare mark, the rate in milliseconds it holds
+   * the store to, or `false` from `// @devtools-no-throttle`, which spares it the automatic catch.
    */
   throttle?: ThrottleComment;
 };

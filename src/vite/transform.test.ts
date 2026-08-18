@@ -763,6 +763,66 @@ describe("the throttle comment", () => {
   });
 });
 
+describe("the no-throttle comment", () => {
+  const IMPORT = `import { atom } from "nanostores";\n`;
+
+  it("spares the store made in the statement below it", () => {
+    const result = transform(`${IMPORT}// @devtools-no-throttle\nconst $frame = atom(0);\n`);
+
+    expect(metas(result)).toEqual([
+      { name: "$frame", fn: null, line: 3, type: "atom", throttle: false },
+    ]);
+  });
+
+  it("reads a block comment the same way, and spares every store of the statement", () => {
+    const result = transform(
+      `${IMPORT}/* @devtools-no-throttle */\nconst $pair = merge([atom(0), atom(1)]);\n`,
+    );
+
+    expect(metas(result).map((site) => site.throttle)).toEqual([false, false, false, false]);
+  });
+
+  it("reaches no further than that statement", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-no-throttle\nconst $frame = atom(0);\nconst $other = atom(0);\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: "$frame", fn: null, line: 3, type: "atom", throttle: false },
+      { name: "$other", fn: null, line: 4, type: "atom" },
+    ]);
+  });
+
+  it("spares the store whatever a developer wrote behind the marker", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-no-throttle it runs at 60fps\nconst $frame = atom(0);\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: "$frame", fn: null, line: 3, type: "atom", throttle: false },
+    ]);
+  });
+
+  it("leaves a comment alone that only starts like the marker", () => {
+    const result = transform(`${IMPORT}// @devtools-no-throttled\nconst $frame = atom(0);\n`);
+
+    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+  });
+
+  /** Two comments say two things, and the rate the mark names is the one nothing else can say. */
+  it("loses to a throttle comment over the same statement, whichever stands first", () => {
+    const marked = transform(
+      `${IMPORT}// @devtools-no-throttle\n// @devtools-throttle 100\nconst $frame = atom(0);\n`,
+    );
+    const reversed = transform(
+      `${IMPORT}// @devtools-throttle 100\n// @devtools-no-throttle\nconst $frame = atom(0);\n`,
+    );
+
+    expect(metas(marked).map((site) => site.throttle)).toEqual([100]);
+    expect(metas(reversed).map((site) => site.throttle)).toEqual([100]);
+  });
+});
+
 describe("the creation frame", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 

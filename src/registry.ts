@@ -87,8 +87,8 @@ export type Registration = {
   external: boolean;
   fn: string | null;
   /**
-   * What the `// @devtools-throttle` comment over the store's creation site said: nothing, a bare
-   * mark, or the rate in milliseconds it holds the store to.
+   * What the comment over the store's creation site said: nothing, a bare mark, the rate in
+   * milliseconds it holds the store to, or `false` from `// @devtools-no-throttle`.
    */
   throttle?: ThrottleComment;
 } & Partial<NameParts>;
