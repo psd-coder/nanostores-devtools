@@ -615,10 +615,13 @@ your wrapper with the `Point` inside it drawn by our rules, and the walk ends. Y
 over the whole tree it built, which is also what it costs: a result that a later serializer's
 `match` would match does not reach that serializer either.
 
-**Put the values of a result in plain properties, not behind getters.** We read a result through
-property descriptors and never call a getter, so a value behind one is a value we cannot keep out
-of your serializers. A getter handing back the input converts it over and over; that one slot then
-shows `ConversionError` and the rest of the tree still reaches the panel.
+**Put the values of a result in plain properties, not behind getters.** Your result is the one thing
+the bridge hands to the encoder as it is, and the encoder reads it with plain reads, so **a getter on
+your result does run**. The bridge tracks the result's values through property descriptors instead,
+which is what keeps them out of your serializers, and a value behind a getter is invisible to that
+tracking. Two things follow: your getter's answer reaches the panel without any rule of yours seeing
+it, and a getter handing back the input converts it over and over, so that one slot shows
+`ConversionError` and the rest of the tree still reaches the panel.
 
 **A `Map` and a `Set` are keyed by the bridge, and no list of ours reaches your rules.** We read
 both into an array on the way, and that array never leaves the bridge, so a rule as wide as
@@ -935,11 +938,117 @@ One shape is left over. **A store whose value can reach that store again keeps t
 the kind in front of the value and no kind in the key. That loop is what the extension's encoder
 finds by the path it built, and it only finds it while the wrapper's own key stands in that path.
 
+### What an object's own fields show
+
+**Almost every value the bridge draws starts here: its own fields.** One rule, and it reaches a plain
+object, a class instance and an `Error`. The one thing it does not reach is a result your own
+serializer returned, which goes to the encoder untouched.
+
+**A field counts when it is own, enumerable, named by a string, and holds a plain value.** Each of
+those four is doing work:
+
+| the value holds               | what arrives         | why                                                             |
+| ----------------------------- | -------------------- | --------------------------------------------------------------- |
+| `{ open: true, width: 320 }`  | both                 | ordinary state                                                  |
+| a getter you wrote            | nothing for that key | reading it runs your code                                       |
+| a method, `toggle() {}`       | nothing for that key | the panel draws state, and your source already spells behaviour |
+| a symbol key                  | nothing for that key | there is no name to draw                                        |
+| a key you made non-enumerable | nothing for that key | you already marked it internal                                  |
+
+A function is dropped **wherever it sits at a key**, whether or not you would call it a method. It
+still arrives in the two places where the function is the state itself: as a store's own value, and
+at an array index. Both come with the body stripped.
+
+**Keys arrive in the order the value lists them, and the panel does not sort.** That order is
+JavaScript's own: any key that looks like an array index comes first in numeric order, then the rest
+in the order they were assigned. So a class draws its fields in assignment order, class fields before
+whatever the constructor body added.
+
+```
+class Cart {
+  id = "c1";
+  constructor(total) { this.total = total }
+}
+
+$cart [store]: Cart {
+  id: "c1"
+  total: 12
+}
+```
+
+(The panel has a "Sort Alphabetically" setting, off by default. Turning it on throws this order
+away.)
+
+**A prototype is never walked for fields.** Only what sits on the value itself is read, so a field
+your class declared on its prototype does not arrive. The prototype is still read for two things that
+are not fields: the class name in front of the value, and the `valueOf` or `toString` a value with no
+own fields is asked for. An `Error` is read by name rather than by this rule, and its four names are
+looked up along the chain.
+
+**Own fields win over everything else a value could say.** A class that writes a `toString` is asked
+for it only when it has no own field at all:
+
+```
+class Priced { amount = 500;  toString() { return "$5.00" } }
+class Silent  {               toString() { return "$5.00" } }
+
+$a [store]: Priced { amount: 500 }          <- the method is never called
+$b [store]: Silent { (toString): "$5.00" }
+```
+
+See [what a platform object shows](#what-a-platform-object-shows) for the second half of that rule.
+
+**Where the fields are read from, in one table:**
+
+| value                                    | what it draws                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| a plain object, or one with no prototype | its own fields                                                      |
+| a class instance                         | its own fields, then its class name in front                        |
+| an `Error`                               | `name`, `message`, `stack` and `cause`, then its own fields on top  |
+| a result your `convert` returned         | nothing of this rule: the encoder reads it plainly, getters and all |
+| an array                                 | its own **indices**, read one by one, and never its named keys      |
+| a `Map`, a `Set`                         | its entries, read through the built-in `forEach`                    |
+| a typed array                            | its elements                                                        |
+| a DOM node                               | **nothing** — see below                                             |
+| the global object                        | **nothing** — see below                                             |
+
+The last two are the only values whose own fields are skipped on purpose, and each has a reason
+worth knowing:
+
+- **A DOM node.** A framework parks its own state on an element as an ordinary property, React's
+  `__reactFiber$…` above all. Reading those would pull a whole render tree into any row holding an
+  element.
+- **The global object.** Everything you park on `window`, by assignment or by a top-level `var`, is
+  an own enumerable property. Its keys are never even listed.
+
+**An object that refuses to be read gives up all of it, not half.** Listing keys and reading a
+descriptor can both be trapped on a `Proxy`, and a trap of yours may throw. Half an object is worse
+to read than none, so nothing partial is ever drawn. The keys are listed once before any rule runs,
+so in practice such a value fills its one slot with `ConversionError`, and the rest of the tree still
+arrives.
+
+**Nesting keeps the same rule at every level**, and a plain object inside a class instance does not
+escape the caps by being plain:
+
+```
+$editor [store]: Holder {
+  at: Point {
+    x: 1
+    y: 2
+  }
+  label: "one"
+}
+```
+
+The one thing that trims this list is the width cap, and only under a class instance. See
+[values are shortened only under a class instance](#values-are-shortened-only-under-a-class-instance).
+
 ### What a platform object shows
 
-**A class instance is drawn by the own data it holds.** An event, a `DOMRect`, a `Blob` and an
-`AbortSignal` hold none: every field on them is a getter on their prototype, and a getter is never
-read, whoever wrote it. So each of them draws its class name over an empty object:
+**A class instance is drawn by [the own data it holds](#what-an-objects-own-fields-show).** An event,
+a `DOMRect`, a `Blob` and an `AbortSignal` hold none: every field on them is a getter on their
+prototype, and a getter is never read, whoever wrote it. So each of them draws its class name over an
+empty object:
 
 ```
 $lastMove [store]: <MouseEvent> {}

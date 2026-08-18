@@ -101,6 +101,14 @@ five, so without it the second takes the first one's place. An array names its m
 instead, but only where the array is the value the binding holds, because only then is `$totals[0]`
 a name that reaches the store.
 
+**Own fields** — what a value holds itself, and the first reading of every value the bridge draws: a
+property that is own, enumerable, named by a string, and holds a plain value. An inherited field, a
+getter, a symbol key and a key the developer made non-enumerable are each refused, and a function at
+a key is left out because the panel draws state. They arrive in the value's own order, nothing sorts
+them, and a value that refuses to be read gives up all of them rather than half. Where a value has
+none, it is asked for **a published reading** instead. A DOM node and **the global object** are the
+two values whose own fields are skipped on purpose.
+
 **Platform object** — one whose fields all sit behind getters on its prototype and which holds no
 own data: an event, a `URL`, a `DOMRect`, a `Blob`. The bridge reads no getter, whoever wrote it, so
 such an object draws its class name over an empty object, plus **a published reading** where its
