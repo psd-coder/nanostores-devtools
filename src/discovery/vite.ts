@@ -1,5 +1,7 @@
 import type { Plugin } from "vite";
 
+import { createUnplugin, type UnpluginFactory } from "unplugin";
+
 import { createDiscovery, type Discovery, type DiscoveryOptions } from "./core.ts";
 import { loadParser } from "./parser.ts";
 import { findWorkspaceRoot } from "./workspace.ts";
@@ -25,34 +27,26 @@ export function viteHotReload(clear: string): string {
 }
 
 /**
- * `apply: "serve"` keeps a production build clean: it never loads this plugin, so nothing the
- * plugin injects can reach a bundle. `enforce: "pre"` puts the walk on the developer's own
- * source, before another plugin has rewritten it.
+ * `enforce: "pre"` puts the walk on the developer's own source, before the bundler's own TypeScript
+ * transform collapses the blank lines and drops the type arguments. unplugin carries it to Vite,
+ * webpack and Rspack, and drops it on Rollup and esbuild. Neither of those two runs a dev server,
+ * and `apply: "serve"` holds this plugin to one, so the pair it drops costs nothing here.
  *
- * Vite hands out module ids and a root with `/` separators on every platform, Windows drive letters
- * included, and marks a virtual module with a leading `\0`, which is the shape discovery reads, so
- * the normalising it asks its caller for costs this adapter nothing.
+ * `apply: "serve"` also keeps a production build clean: Vite never loads the plugin, so nothing the
+ * plugin injects can reach a bundle. unplugin has no neutral word for either that or the root the
+ * bundler resolved, so both go through the `vite` key and each bundler answers them its own way.
+ *
+ * The id gate is its own hook, because webpack filters outside its loader, so `keysFor` runs twice
+ * for a file it accepts: once to answer the gate and once to name the module.
  */
-export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
+const factory: UnpluginFactory<VitePluginOptions, false> = (options) => {
   let discovery: Discovery | undefined;
 
   return {
     name: "nanostores-devtools",
-    apply: "serve",
     enforce: "pre",
 
-    async configResolved(config) {
-      discovery = createDiscovery({
-        ...options,
-        roots: {
-          root: config.root,
-          projectRoot: options.projectRoot ?? (await findWorkspaceRoot(config.root)),
-        },
-        loadParser,
-        runtimeModule: RUNTIME_MODULE,
-        hotReload: viteHotReload,
-      });
-    },
+    transformInclude: (id) => discovery?.keysFor(id) !== undefined,
 
     async transform(code, id) {
       const keys = discovery?.keysFor(id);
@@ -69,5 +63,31 @@ export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
 
       return result.changed ? { code: result.code, map: result.map } : null;
     },
+
+    vite: {
+      apply: "serve",
+
+      async configResolved(config) {
+        discovery = createDiscovery({
+          ...options,
+          roots: {
+            root: config.root,
+            projectRoot: options.projectRoot ?? (await findWorkspaceRoot(config.root)),
+          },
+          loadParser,
+          runtimeModule: RUNTIME_MODULE,
+          hotReload: viteHotReload,
+        });
+      },
+    },
   };
+};
+
+/**
+ * Vite hands out module ids and a root with `/` separators on every platform, Windows drive letters
+ * included, and marks a virtual module with a leading `\0`, which is the shape discovery reads, so
+ * the normalising it asks its caller for costs this adapter nothing.
+ */
+export function nanostoresDevtools(options: VitePluginOptions = {}): Plugin {
+  return createUnplugin(factory).vite(options);
 }

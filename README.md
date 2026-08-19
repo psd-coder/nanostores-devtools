@@ -753,11 +753,11 @@ and 7** it needs `oxc-parser` as a dev dependency, declared here as an optional 
 
 ## Subpaths
 
-| subpath                       | runs in        | may depend on                                                         |
-| ----------------------------- | -------------- | --------------------------------------------------------------------- |
-| `nanostores-devtools`         | browser        | `nanostores` (peer) only                                              |
-| `nanostores-devtools/vite`    | Node, dev only | `magic-string` (dependency), `vite` and `oxc-parser` (optional peers) |
-| `nanostores-devtools/runtime` | browser        | nothing                                                               |
+| subpath                       | runs in        | may depend on                                                                          |
+| ----------------------------- | -------------- | -------------------------------------------------------------------------------------- |
+| `nanostores-devtools`         | browser        | `nanostores` (peer) only                                                               |
+| `nanostores-devtools/vite`    | Node, dev only | `magic-string` and `unplugin` (dependencies), `vite` and `oxc-parser` (optional peers) |
+| `nanostores-devtools/runtime` | browser        | nothing                                                                                |
 
 **`nanostores-devtools/runtime` is internal.** The plugin injects an import of it into your
 modules during development, so it appears in your module graph. Never import it yourself.
