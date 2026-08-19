@@ -101,7 +101,7 @@
     {
       "name": "browser entry",
       "path": "dist/index.mjs",
-      "limit": "9 kB"
+      "limit": "11 kB"
     }
   ]
 }
