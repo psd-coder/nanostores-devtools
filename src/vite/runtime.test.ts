@@ -3,15 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "../redux/connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
+import { qualify } from "../labels.ts";
 import { nodeInfoOf, ownerLinkOf } from "../placement.ts";
-import {
-  getEntry,
-  listEntries,
-  qualify,
-  trackStores,
-  unregisterStore,
-  untrack,
-} from "../registry.ts";
+import { getEntry, listEntries, trackStores, unregisterStore, untrack } from "../registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import { keepHooks } from "../unhook.ts";
 import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";

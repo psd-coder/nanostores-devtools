@@ -18,11 +18,11 @@ import {
 } from "../descriptor.ts";
 import { noteDrawn } from "../drawn.ts";
 import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "../limits.ts";
-import { MORE_KEY, TO_STRING_KEY, VALUE_OF_KEY } from "./keys.ts";
+import { MORE_KEY, noted, TO_STRING_KEY, VALUE_OF_KEY } from "./keys.ts";
 import { dataForMark, noteFor, reachesStore } from "./boxing.ts";
 import { box, isBuilt, isMarked, keepBuilt, mark, type Marked } from "./marker.ts";
 import { printedFields } from "../printed.ts";
-import { getEntry, isStore, noted, storeWord } from "../registry.ts";
+import { getEntry, isStore, storeWord } from "../registry.ts";
 import { staleNote } from "../slot.ts";
 import { isThrottled } from "../throttle.ts";
 import {

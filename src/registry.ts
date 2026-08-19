@@ -7,6 +7,7 @@ import {
   getDevtoolsGlobal,
   peekDevtoolsGlobal,
 } from "./global.ts";
+import { makeLabel, qualify } from "./labels.ts";
 import {
   applyComment,
   clearThrottle,
@@ -113,10 +114,6 @@ export type RegistryChange =
 
 const TOTAL_WARNING_AT = 2000;
 
-export function makeLabel(home: string, name: string): string {
-  return `${home}/${name}`;
-}
-
 /**
  * A separator no part can hold, so two names cannot make one key: a home, a name and a place are
  * all written by a developer, and every character they can type has to stay theirs.
@@ -130,41 +127,6 @@ const NAME_SEPARATOR = "\u0000";
  */
 export function nameKey(place: NamePlace): string {
   return [place.home, place.name, place.file, place.place, place.number].join(NAME_SEPARATOR);
-}
-
-/**
- * A name with the store's type behind it, `$total [computed]`. Every key pointing at a store carries
- * one, in the tree and inside a value alike, so a store reads the same wherever it is drawn.
- *
- * A throttled store says so in the same brackets, `$frame [store, throttled]`, because a developer
- * counting fewer rows than writes has to be able to see why from the tree. The word comes and goes
- * with the throttling itself, so a key changes shape around a burst.
- */
-export function noted(name: string, type: StoreType, throttled = false): string {
-  return `${name} [${storeWord(type)}${throttled ? ", throttled" : ""}]`;
-}
-
-/**
- * `$counter (a.ts, makeCart, line 12) #2`: a head, then everything that tells this store from
- * another one the same name was given. The file first, because it says where to look before the
- * line says where in the file, and the number last, spaced, so it never reads as part of the place.
- *
- * The head is a parameter so that one function spells the parts for every caller: whatever sits in
- * front of them, they arrive in one order.
- */
-export function qualify(head: string, parts: NameParts): string {
-  const group = groupOf(parts);
-  const placed = group === null ? head : `${head} (${group})`;
-
-  return parts.number > 1 ? `${placed} #${parts.number}` : placed;
-}
-
-function groupOf(parts: NameParts): string | null {
-  if (parts.file === null) {
-    return parts.place;
-  }
-
-  return parts.place === null ? parts.file : `${parts.file}, ${parts.place}`;
 }
 
 function labelOf(place: EntryPlace): string {

@@ -7,9 +7,9 @@ import {
   type NameHolder,
   type SiteState,
 } from "./global.ts";
+import { makeLabel } from "./labels.ts";
 import {
   getEntry,
-  makeLabel,
   type NameParts,
   registerStore,
   renameEntry,

@@ -10,13 +10,16 @@ it is not a fork of the extension.
 **Extension** — the redux-devtools browser extension, installed by the user. We only
 speak its protocol.
 
-**Model** — the half of the bridge that holds facts about the app's stores: which ones exist,
-what owns what, what each is called, what the tree of them looks like. It lives in `src/*.ts` and
-knows nothing about the extension. A model file never imports a view file.
+**Model** — the half of the bridge that holds facts about the app's stores: which ones exist, what
+owns what, what each is called, what the tree of them looks like, and what a value really holds. It
+lives in `src/*.ts`, knows nothing about the extension, and hands its answers out as records rather
+than as strings a reader would have to parse back. A model file never imports a view file, and
+`src/boundary.test.ts` fails on one that does.
 
-**View** — the half of the bridge that speaks the extension's protocol and nothing else: the
-connection, the message shapes, the config and the jsan replacer. It lives in `src/redux/*.ts` and
-is free to import the model.
+**View** — the half of the bridge that speaks one devtools client's protocol and nothing else: the
+connection, the message shapes, the config, every key string and the jsan replacer. Today there is
+one, in `src/redux/*.ts`. It is free to import the model, it supplies a session
+(`src/session.ts`), and its value walk owes `noteDrawn` for every store it draws.
 
 **Registry** — the thing inside the bridge that knows which stores exist and what each
 one is called. Both ways in (the explicit map and the Vite plugin) write to the same

@@ -8,8 +8,9 @@ import {
   type OwnerSource,
   peekDevtoolsGlobal,
 } from "./global.ts";
+import { makeLabel } from "./labels.ts";
 import { claimBindingFile, type NameSource } from "./names.ts";
-import { getEntry, isStore, makeLabel, renameEntry } from "./registry.ts";
+import { getEntry, isStore, renameEntry } from "./registry.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /**

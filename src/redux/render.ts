@@ -1,8 +1,8 @@
-import { MORE_KEY, VALUE_KEY } from "./keys.ts";
+import { MORE_KEY, noted, VALUE_KEY } from "./keys.ts";
 import { noteFor } from "./boxing.ts";
 import { keepBuilt, mark } from "./marker.ts";
 import { MAX_MEMBERS } from "../ownership.ts";
-import { noted, qualify } from "../registry.ts";
+import { qualify } from "../labels.ts";
 import { isThrottled } from "../throttle.ts";
 import {
   buildTree,

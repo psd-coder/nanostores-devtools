@@ -9,6 +9,9 @@ const SRC = path.dirname(fileURLToPath(import.meta.url));
  * `src/*.ts` is the model and `src/redux/*.ts` is the view. A model file never imports a view file;
  * the other direction is free. `src/vite/*.ts` follows the model rule, because the injected runtime
  * registers stores and a second bundler adapter must inherit that rule instead of rediscovering it.
+ *
+ * A crossing fails here and is fixed in the source. A crossing written down somewhere instead is a
+ * rule the next reader has to argue with before they can trust it.
  */
 const VIEW_DIR = "redux";
 
@@ -23,27 +26,6 @@ type Crossing = {
   view: string;
   names: string[];
 };
-
-type Exception = {
-  model: string;
-  /** Every view file this model file still reaches for, and the names it takes from each. */
-  views: Record<string, string[]>;
-  /** The ticket that removes this crossing. */
-  clearedBy: string;
-};
-
-/**
- * One line per crossing the source still makes, each naming the ticket that clears it. The test
- * compares this list to what the source really does, so a new crossing and a stale line fail the
- * same way. It is empty: every model file today answers without naming the view.
- */
-const EXCEPTIONS: Exception[] = [];
-
-function allowedCrossings(): Crossing[] {
-  return EXCEPTIONS.flatMap(({ model, views }) =>
-    Object.entries(views).map(([view, names]) => ({ model, view, names })),
-  );
-}
 
 /** Matches `import … from "./x.ts"` and `export … from "./x.ts"`, over one line or several. */
 const RELATIVE_IMPORT = /^(?:import|export)\s+([^;]*?)\s+from\s+"(\.[^"]+)";/gm;
@@ -132,10 +114,8 @@ function describeCrossings(crossings: readonly Crossing[]): string[] {
 }
 
 describe("the model and view boundary", () => {
-  it("crosses only where the written exception list says it may", () => {
-    expect(describeCrossings(findCrossings(readSources()))).toEqual(
-      describeCrossings(allowedCrossings()),
-    );
+  it("is never crossed, and nothing on either side may record a crossing", () => {
+    expect(describeCrossings(findCrossings(readSources()))).toEqual([]);
   });
 
   it("catches a model file that reaches for the view", () => {

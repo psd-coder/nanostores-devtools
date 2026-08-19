@@ -1,3 +1,5 @@
+import { storeWord, type StoreType } from "../registry.ts";
+
 /**
  * What a capped shape says it left out, so silence never reads as "this is all of it". Beside
  * `VALUE_KEY` because both are invented keys, and both writers, the tree and the converter, spell
@@ -21,3 +23,15 @@ export const VALUE_KEY = "(value)";
 export const VALUE_OF_KEY = "(valueOf)";
 
 export const TO_STRING_KEY = "(toString)";
+
+/**
+ * A name with the store's type behind it, `$total [computed]`. Every key pointing at a store carries
+ * one, in the tree and inside a value alike, so a store reads the same wherever it is drawn.
+ *
+ * A throttled store says so in the same brackets, `$frame [store, throttled]`, because a developer
+ * counting fewer rows than writes has to be able to see why from the tree. The word comes and goes
+ * with the throttling itself, so a key changes shape around a burst.
+ */
+export function noted(name: string, type: StoreType, throttled = false): string {
+  return `${name} [${storeWord(type)}${throttled ? ", throttled" : ""}]`;
+}
