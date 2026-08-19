@@ -1,10 +1,10 @@
 import type { Store } from "nanostores";
 
-import { chainValue, ownFields, ownIndexes } from "../descriptor.ts";
+import { chainValue, ownFields, ownIndexes } from "../values/descriptor.ts";
 import { box } from "./marker.ts";
-import { isStore } from "../registry.ts";
-import { storeValue } from "../slot.ts";
-import type { Slot } from "../tree.ts";
+import { isStore } from "../stores/registry.ts";
+import { storeValue } from "../tree/slot.ts";
+import type { Slot } from "../tree/tree.ts";
 
 /** The label a marked slot carries, and what sits under it. */
 export type Note = { label: string; data: object };

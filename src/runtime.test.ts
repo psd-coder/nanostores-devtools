@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./redux/connect.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
-import { qualify } from "./labels.ts";
-import { nodeInfoOf, ownerLinkOf } from "./placement.ts";
-import { getEntry, listEntries, trackStores, unregisterStore, untrack } from "./registry.ts";
+import { qualify } from "./stores/labels.ts";
+import { nodeInfoOf, ownerLinkOf } from "./tree/placement.ts";
+import { getEntry, listEntries, trackStores, unregisterStore, untrack } from "./stores/registry.ts";
 import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
-import { keepHooks } from "./unhook.ts";
+import { keepHooks } from "./stores/unhook.ts";
 import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";
 
 const MODULE_ID = "/repo/src/stores/cart.ts";

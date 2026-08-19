@@ -11,11 +11,11 @@ import {
 } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { connectDevtools } from "./redux/connect.ts";
-import { resetDevtoolsGlobal } from "./global.ts";
-import { ownBindings } from "./ownership.ts";
-import { registerStore, type StoreType, trackStores } from "./registry.ts";
-import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
+import { connectDevtools } from "../redux/connect.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
+import { ownBindings } from "../stores/ownership.ts";
+import { registerStore, type StoreType, trackStores } from "../stores/registry.ts";
+import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 
 let fake: FakeExtension;
 

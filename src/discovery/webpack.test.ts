@@ -9,7 +9,7 @@ import webpack from "webpack";
 
 import { resetDevtoolsGlobal } from "../global.ts";
 import { connectDevtools } from "../redux/connect.ts";
-import { listEntries, type StoreEntry } from "../registry.ts";
+import { listEntries, type StoreEntry } from "../stores/registry.ts";
 import * as runtime from "../runtime.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import type { BundlerPlugin } from "./bundler.ts";

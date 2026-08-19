@@ -1,9 +1,9 @@
 import { MORE_KEY, noted, VALUE_KEY } from "./keys.ts";
 import { noteFor } from "./boxing.ts";
 import { keepBuilt, mark } from "./marker.ts";
-import { MAX_MEMBERS } from "../ownership.ts";
-import { qualify } from "../labels.ts";
-import { isThrottled } from "../throttle.ts";
+import { MAX_MEMBERS } from "../stores/ownership.ts";
+import { qualify } from "../stores/labels.ts";
+import { isThrottled } from "../timeline/throttle.ts";
 import {
   buildTree,
   type HolderNode,
@@ -11,7 +11,7 @@ import {
   type StoreNode,
   type TreeModel,
   type TreeNode,
-} from "../tree.ts";
+} from "../tree/tree.ts";
 
 export type Snapshot = Record<string, Record<string, unknown>>;
 

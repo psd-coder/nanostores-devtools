@@ -11,10 +11,12 @@ it is not a fork of the extension.
 speak its protocol.
 
 **Model** — the half of the bridge that holds facts about the app's stores: which ones exist, what
-owns what, what each is called, what the tree of them looks like, and what a value really holds. It
-lives in `src/*.ts`, knows nothing about the extension, and hands its answers out as records rather
-than as strings a reader would have to parse back. A model file never imports a view file, and
-`src/boundary.test.ts` fails on one that does.
+owns what, what each is called, what the tree of them looks like, what changed and when, and what a
+value really holds. It is every file under `src/` outside `src/redux/` and `src/testing/`, grouped
+by the question it answers: `src/stores/`, `src/tree/`, `src/timeline/`, `src/values/` and `src/utils/`, with
+the entry points and the state they share left at `src/`. It knows nothing about the extension, and
+hands its answers out as records rather than as strings a reader would have to parse back. A model
+file never imports a view file, and `src/boundary.test.ts` fails on one that does.
 
 **View** — the half of the bridge that speaks one devtools client's protocol and nothing else: the
 connection, the message shapes, the config, every key string and the jsan replacer. Today there is
@@ -50,7 +52,7 @@ clashing stores would hold one key and the registry would keep one.
 
 **Tree** — what the app's stores look like once the bridge has arranged them: homes on top, and
 below each home a store under whatever built it, at any depth. The **model** owns it, as the
-`TreeModel` that `src/tree.ts` builds, and it holds records rather than strings. The **view** turns
+`TreeModel` that `src/tree/tree.ts` builds, and it holds records rather than strings. The **view** turns
 it into the single state object the extension is sent, in `src/redux/render.ts`. The extension
 expects one root state; nanostores has none, so the bridge invents this. The home level exists to
 keep two stores with the same name apart.
@@ -146,7 +148,7 @@ a key is left out because the panel draws state. They arrive in the value's own 
 them, and a value that refuses to be read gives up all of them rather than half. Where a value has
 none, it is asked for **a published reading** instead. A DOM node and **the global object** are the
 two values whose own fields are skipped on purpose. It is a **model** thing, `ownFields` in
-`src/descriptor.ts`: every view asks the same question and gets the same answer.
+`src/values/descriptor.ts`: every view asks the same question and gets the same answer.
 
 **Platform object** — one whose fields all sit behind getters on its prototype and which holds no
 own data: an event, a `URL`, a `DOMRect`, a `Blob`. The bridge reads no getter, whoever wrote it, so
@@ -162,14 +164,14 @@ One rule for every such value: a class instance, a DOM node and the global objec
 `window` draw their class name alone. `Object.prototype`'s own two are refused by identity, which is
 what separates the two groups. This is the one place the bridge runs a line of the app's code: the
 method is found through a descriptor, called by name, kept only where the answer is a primitive, and
-a throw costs that one key. It is a **model** thing, `printedFields` in `src/printed.ts`, and it
+a throw costs that one key. It is a **model** thing, `printedFields` in `src/values/printed.ts`, and it
 names no key: the two spellings above are the view's, in `src/redux/keys.ts`.
 
 **Shipped serializer** — a rule the bridge carries for a platform class with one obvious reading and
 no field to choose: `Headers`, `FormData`, `URLSearchParams`, `ArrayBuffer`, `SharedArrayBuffer`,
 `DataView`, and a boxed `String`, `Number` or `Boolean`. Checked after the developer's own
 serializers and ahead of every other rule of ours, and `platformSerializers: false` leaves the whole
-list out. The rule is a **model** thing, `platformRules` in `src/platform.ts`, and it answers what
+list out. The rule is a **model** thing, `platformRules` in `src/values/platform.ts`, and it answers what
 the class holds; `src/redux/platform-rules.ts` is what turns each answer into a serializer.
 
 **The global object** — `globalThis`, wherever a row reaches it: `currentTarget` on a `window`

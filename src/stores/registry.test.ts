@@ -1,7 +1,7 @@
 import { atom, batched, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GLOBAL_KEY, resetDevtoolsGlobal } from "./global.ts";
+import { GLOBAL_KEY, resetDevtoolsGlobal } from "../global.ts";
 import {
   findEntry,
   getEntry,
@@ -506,7 +506,7 @@ describe("registry", () => {
     it("creates nothing until the first registration", async () => {
       vi.resetModules();
 
-      const fresh = await import("./index.ts");
+      const fresh = await import("../index.ts");
 
       expect(Object.getOwnPropertySymbols(globalThis)).not.toContain(GLOBAL_KEY);
 

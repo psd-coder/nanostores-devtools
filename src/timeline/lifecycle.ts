@@ -1,6 +1,6 @@
-import { isPlaced } from "./placement.ts";
-import { nameKey, type RegistryChange, type StoreEntry } from "./registry.ts";
-import { activeSession, type Session } from "./session.ts";
+import { isPlaced } from "../tree/placement.ts";
+import { nameKey, type RegistryChange, type StoreEntry } from "../stores/registry.ts";
+import { activeSession, type Session } from "../session.ts";
 import {
   type Change,
   openLifecycleRow,

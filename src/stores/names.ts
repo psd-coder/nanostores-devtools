@@ -6,7 +6,7 @@ import {
   type NameClaim,
   type NameHolder,
   type SiteState,
-} from "./global.ts";
+} from "../global.ts";
 import { makeLabel } from "./labels.ts";
 import {
   getEntry,
@@ -15,7 +15,7 @@ import {
   renameEntry,
   type StoreEntry,
 } from "./registry.ts";
-import { warnOnce } from "./warn.ts";
+import { warnOnce } from "../utils/warn.ts";
 
 /** What decides a name: the display home the entry sits in, and the module that wrote it. */
 export type NameSource = { home: string; moduleKey: string };

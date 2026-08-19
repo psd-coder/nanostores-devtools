@@ -1,5 +1,5 @@
-import { rowName } from "../placement.ts";
-import type { Change, Row, RowOp } from "../timeline.ts";
+import { rowName } from "../tree/placement.ts";
+import type { Change, Row, RowOp } from "../timeline/timeline.ts";
 
 /** One change as the panel prints it: the store spelled for a reader, and what it did. */
 type DrawnChange = {

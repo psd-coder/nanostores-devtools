@@ -1,7 +1,7 @@
 import type { Store } from "nanostores";
 
-import { chainValue } from "./descriptor.ts";
-import { DERIVED, type StoreEntry, type StoreType } from "./registry.ts";
+import { chainValue } from "../values/descriptor.ts";
+import { DERIVED, type StoreEntry, type StoreType } from "../stores/registry.ts";
 
 /** `set` writes `value` with no check on `lc`, so an unmounted one still holds the true value. */
 const TRUSTED_UNMOUNTED: ReadonlySet<StoreType> = new Set<StoreType>(["atom", "map", "deepMap"]);

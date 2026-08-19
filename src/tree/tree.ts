@@ -1,6 +1,6 @@
-import type { NodeInfo } from "./global.ts";
+import type { NodeInfo } from "../global.ts";
 import { drawable, drawnOwner, isPlaced, nodeInfoOf, placedByDeveloper } from "./placement.ts";
-import { isStore, listEntries, type NameParts, type StoreEntry } from "./registry.ts";
+import { isStore, listEntries, type NameParts, type StoreEntry } from "../stores/registry.ts";
 import { type Slot, staleNote } from "./slot.ts";
 
 export type { Slot } from "./slot.ts";

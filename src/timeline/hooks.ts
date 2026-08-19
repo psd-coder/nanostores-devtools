@@ -1,10 +1,10 @@
 import { onNotify, onSet, onStart, onStop } from "nanostores";
 
-import { catchAndWarn } from "./catch-and-warn.ts";
+import { catchAndWarn } from "../utils/catch-and-warn.ts";
 import { noteMount, noteUnmount } from "./lifecycle.ts";
-import { DERIVED, listEntries, type StoreEntry } from "./registry.ts";
+import { DERIVED, listEntries, type StoreEntry } from "../stores/registry.ts";
 import { appendFollower, flushOpenRow, openDirectRow } from "./timeline.ts";
-import { detachEntryHooks, hasHooks, keepHooks } from "./unhook.ts";
+import { detachEntryHooks, hasHooks, keepHooks } from "../stores/unhook.ts";
 
 /** Registration records, connect attaches: only connect knows whether the extension is there. */
 export function attachHooks(): void {

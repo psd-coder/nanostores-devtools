@@ -1,7 +1,7 @@
 import type { Store } from "nanostores";
 
-import { forgetDrawn } from "./drawn.ts";
-import type { RegistryChange, StoreEntry, StoreType } from "./registry.ts";
+import { forgetDrawn } from "./tree/drawn.ts";
+import type { RegistryChange, StoreEntry, StoreType } from "./stores/registry.ts";
 import type { Session } from "./session.ts";
 
 export type ChangeListener = (change: RegistryChange) => void;

@@ -15,7 +15,7 @@ import type {
   VisitorObject,
 } from "oxc-parser";
 
-import type { StoreType } from "../registry.ts";
+import type { StoreType } from "../stores/registry.ts";
 import type { Parser } from "./parser.ts";
 import type { CreationSite } from "../runtime.ts";
 

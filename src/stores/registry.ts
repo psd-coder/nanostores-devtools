@@ -1,12 +1,12 @@
 import type { Store } from "nanostores";
 
-import { chainValue } from "./descriptor.ts";
+import { chainValue } from "../values/descriptor.ts";
 import {
   type ChangeListener,
   type DevtoolsGlobal,
   getDevtoolsGlobal,
   peekDevtoolsGlobal,
-} from "./global.ts";
+} from "../global.ts";
 import { makeLabel, qualify } from "./labels.ts";
 import {
   applyComment,
@@ -15,9 +15,9 @@ import {
   resolveMark,
   type ThrottleComment,
   type ThrottleState,
-} from "./throttle.ts";
+} from "../timeline/throttle.ts";
 import { detachEntryHooks } from "./unhook.ts";
-import { warnOnce } from "./warn.ts";
+import { warnOnce } from "../utils/warn.ts";
 
 export type StoreType = "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
 

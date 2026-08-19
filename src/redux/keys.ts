@@ -1,4 +1,4 @@
-import { storeWord, type StoreType } from "../registry.ts";
+import { storeWord, type StoreType } from "../stores/registry.ts";
 
 /**
  * What a capped shape says it left out, so silence never reads as "this is all of it". Beside

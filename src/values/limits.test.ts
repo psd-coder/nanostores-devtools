@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetDevtoolsGlobal } from "./global.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
 import { DEFAULT_VALUE_LIMITS, resolveValueLimits } from "./limits.ts";
 
 describe("resolveValueLimits", () => {

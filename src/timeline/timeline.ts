@@ -1,8 +1,8 @@
-import { catchAndWarn } from "./catch-and-warn.ts";
-import { peekDevtoolsGlobal } from "./global.ts";
-import { isDrawn } from "./placement.ts";
-import { getEntry, listEntries, type StoreEntry } from "./registry.ts";
-import { activeSession, type Session } from "./session.ts";
+import { catchAndWarn } from "../utils/catch-and-warn.ts";
+import { peekDevtoolsGlobal } from "../global.ts";
+import { isDrawn } from "../tree/placement.ts";
+import { getEntry, listEntries, type StoreEntry } from "../stores/registry.ts";
+import { activeSession, type Session } from "../session.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
 import { clearThrottle, suppressWrite, throttlePeriod } from "./throttle.ts";
 

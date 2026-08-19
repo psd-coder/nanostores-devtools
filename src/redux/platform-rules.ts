@@ -1,4 +1,4 @@
-import { platformRules } from "../platform.ts";
+import { platformRules } from "../values/platform.ts";
 import { box, keepBuilt, mark } from "./marker.ts";
 import type { Serializer } from "./replacer.ts";
 

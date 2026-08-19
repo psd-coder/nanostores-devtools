@@ -10,7 +10,7 @@ import {
   noteBirth,
   ownBindings,
   ownField,
-} from "../ownership.ts";
+} from "../stores/ownership.ts";
 import {
   listEntries,
   registerStore,
@@ -18,7 +18,7 @@ import {
   type StoreType,
   trackStores,
   untrack,
-} from "../registry.ts";
+} from "../stores/registry.ts";
 import { buildSnapshot, type Snapshot } from "./render.ts";
 import { createReplacer } from "./replacer.ts";
 import { EXTENSION_OPTIONS, labelOf, parsePanel } from "../testing/panel.ts";

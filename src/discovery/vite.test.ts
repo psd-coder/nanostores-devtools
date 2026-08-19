@@ -4,7 +4,7 @@ import { build, createLogger, createServer, type Plugin, type ViteDevServer } fr
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
-import { listEntries, type StoreEntry } from "../registry.ts";
+import { listEntries, type StoreEntry } from "../stores/registry.ts";
 import { buildSnapshot } from "../redux/render.ts";
 import { labelled, panelNode } from "../testing/shapes.ts";
 import { nanostoresDevtools, type VitePluginOptions, viteHotReload } from "./vite.ts";

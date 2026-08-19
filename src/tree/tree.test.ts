@@ -1,9 +1,9 @@
 import { atom, computed, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { resetDevtoolsGlobal } from "./global.ts";
-import { beginFrame, endFrame, noteBirth, ownBindings } from "./ownership.ts";
-import { registerStore, type StoreType, trackStores } from "./registry.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
+import { beginFrame, endFrame, noteBirth, ownBindings } from "../stores/ownership.ts";
+import { registerStore, type StoreType, trackStores } from "../stores/registry.ts";
 import { buildTree, type HolderNode, type StoreNode, type TreeNode } from "./tree.ts";
 
 const HOME = "src/stores/cart.ts";

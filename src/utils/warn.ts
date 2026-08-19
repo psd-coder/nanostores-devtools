@@ -1,4 +1,4 @@
-import { getDevtoolsGlobal } from "./global.ts";
+import { getDevtoolsGlobal } from "../global.ts";
 
 const PREFIX = "[nanostores-devtools]";
 

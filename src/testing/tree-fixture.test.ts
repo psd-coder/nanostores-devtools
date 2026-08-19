@@ -2,8 +2,8 @@ import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
-import { ownerLinkOf } from "../placement.ts";
-import { listEntries, type StoreEntry } from "../registry.ts";
+import { ownerLinkOf } from "../tree/placement.ts";
+import { listEntries, type StoreEntry } from "../stores/registry.ts";
 import { buildSnapshot } from "../redux/render.ts";
 import { nanostoresDevtools, type VitePluginOptions } from "../discovery/vite.ts";
 import { labelled, panelNode } from "./shapes.ts";

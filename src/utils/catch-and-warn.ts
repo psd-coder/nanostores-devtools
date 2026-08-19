@@ -1,4 +1,4 @@
-import type { StoreEntry } from "./registry.ts";
+import type { StoreEntry } from "../stores/registry.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /**

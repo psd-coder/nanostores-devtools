@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetDevtoolsGlobal } from "./global.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
 import { warnOnce } from "./warn.ts";
 
 describe("warnOnce", () => {

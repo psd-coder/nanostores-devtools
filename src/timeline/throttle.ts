@@ -1,7 +1,7 @@
-import { peekDevtoolsGlobal } from "./global.ts";
-import type { StoreEntry, StoreType } from "./registry.ts";
+import { peekDevtoolsGlobal } from "../global.ts";
+import type { StoreEntry, StoreType } from "../stores/registry.ts";
 import type { Row } from "./timeline.ts";
-import { describeError, warnOnce } from "./warn.ts";
+import { describeError, warnOnce } from "../utils/warn.ts";
 
 /** What the `throttle` option is handed: the two parts a name in the tree is made of, and the type. */
 export type ThrottleTarget = {

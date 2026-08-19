@@ -7,7 +7,7 @@ import {
   type SiteState,
   type SiteStore,
 } from "./global.ts";
-import { claimSiteName, releaseSiteNames, siteParts } from "./names.ts";
+import { claimSiteName, releaseSiteNames, siteParts } from "./stores/names.ts";
 import {
   beginFrame,
   type Binding,
@@ -16,7 +16,7 @@ import {
   noteBirth,
   ownBindings,
   ownField,
-} from "./ownership.ts";
+} from "./stores/ownership.ts";
 import {
   evictStore,
   getEntry,
@@ -24,8 +24,8 @@ import {
   registerStore,
   type StoreType,
   unregisterStore,
-} from "./registry.ts";
-import type { ThrottleComment } from "./throttle.ts";
+} from "./stores/registry.ts";
+import type { ThrottleComment } from "./timeline/throttle.ts";
 
 export type { StoreType };
 

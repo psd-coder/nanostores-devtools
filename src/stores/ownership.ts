@@ -7,11 +7,11 @@ import {
   type OwnerLink,
   type OwnerSource,
   peekDevtoolsGlobal,
-} from "./global.ts";
+} from "../global.ts";
 import { makeLabel } from "./labels.ts";
 import { claimBindingFile, type NameSource } from "./names.ts";
 import { getEntry, isStore, renameEntry } from "./registry.ts";
-import { describeError, warnOnce } from "./warn.ts";
+import { describeError, warnOnce } from "../utils/warn.ts";
 
 /**
  * What nanostores itself puts on a store. Skipped while walking, or an atom holding a store would

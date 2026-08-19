@@ -7,7 +7,7 @@
  */
 import type { Store } from "nanostores";
 
-import { mapEntries, setMembers } from "../collections.ts";
+import { mapEntries, setMembers } from "../values/collections.ts";
 import {
   chainDescriptor,
   chainValue,
@@ -15,16 +15,16 @@ import {
   type Fields,
   ownFields,
   ownIndexes,
-} from "../descriptor.ts";
-import { noteDrawn } from "../drawn.ts";
-import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "../limits.ts";
+} from "../values/descriptor.ts";
+import { noteDrawn } from "../tree/drawn.ts";
+import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "../values/limits.ts";
 import { MORE_KEY, noted, TO_STRING_KEY, VALUE_OF_KEY } from "./keys.ts";
 import { dataForMark, noteFor, reachesStore } from "./boxing.ts";
 import { box, isBuilt, isMarked, keepBuilt, mark, type Marked } from "./marker.ts";
-import { printedFields } from "../printed.ts";
-import { getEntry, isStore, storeWord } from "../registry.ts";
-import { staleNote } from "../slot.ts";
-import { isThrottled } from "../throttle.ts";
+import { printedFields } from "../values/printed.ts";
+import { getEntry, isStore, storeWord } from "../stores/registry.ts";
+import { staleNote } from "../tree/slot.ts";
+import { isThrottled } from "../timeline/throttle.ts";
 import {
   childValues,
   constructorName,
@@ -33,8 +33,8 @@ import {
   isWalkable,
   refuseUnlistable,
   stackDescriptor,
-} from "../value-kinds.ts";
-import { describeError, warnOnce } from "../warn.ts";
+} from "../values/value-kinds.ts";
+import { describeError, warnOnce } from "../utils/warn.ts";
 
 /**
  * Checked in array order, ahead of every rule of ours, and the first match wins. What a `convert`

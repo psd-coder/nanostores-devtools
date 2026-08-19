@@ -4,7 +4,7 @@ import type { DevtoolsHandle, DevtoolsOptions } from "./redux/connect.ts";
 
 export type { DevtoolsHandle, DevtoolsOptions } from "./redux/connect.ts";
 export type { Serializer } from "./redux/replacer.ts";
-export type { ThrottleOption, ThrottleTarget } from "./throttle.ts";
+export type { ThrottleOption, ThrottleTarget } from "./timeline/throttle.ts";
 
 /**
  * What the package resolves to under the `production` export condition: the same three names with

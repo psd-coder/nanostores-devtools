@@ -1,7 +1,7 @@
 import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getDevtoolsGlobal, peekDevtoolsGlobal, resetDevtoolsGlobal } from "./global.ts";
+import { getDevtoolsGlobal, peekDevtoolsGlobal, resetDevtoolsGlobal } from "../global.ts";
 import {
   beginFrame,
   endFrame,
@@ -10,7 +10,7 @@ import {
   ownBindings,
   ownField,
 } from "./ownership.ts";
-import { namedByBinding, nodeInfoOf, ownerLinkOf } from "./placement.ts";
+import { namedByBinding, nodeInfoOf, ownerLinkOf } from "../tree/placement.ts";
 import { listEntries, registerStore, unregisterStore } from "./registry.ts";
 
 const HOME = "src/model.ts";

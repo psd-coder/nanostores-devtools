@@ -1,4 +1,4 @@
-import { warnOnce } from "./warn.ts";
+import { warnOnce } from "../utils/warn.ts";
 
 /**
  * How far down and how wide a value may be drawn once the walk is inside something the developer

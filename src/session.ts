@@ -1,7 +1,7 @@
 import { peekDevtoolsGlobal } from "./global.ts";
-import type { LifecycleState } from "./lifecycle.ts";
-import type { ThrottleSettings } from "./throttle.ts";
-import type { Row, TimelineState } from "./timeline.ts";
+import type { LifecycleState } from "./timeline/lifecycle.ts";
+import type { ThrottleSettings } from "./timeline/throttle.ts";
+import type { Row, TimelineState } from "./timeline/timeline.ts";
 
 /** What the entry call hands back: whether a view took the page, and the way to let it go. */
 export type DevtoolsHandle = {

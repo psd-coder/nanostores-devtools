@@ -1,11 +1,11 @@
 import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { connectDevtools } from "./redux/connect.ts";
-import { resetDevtoolsGlobal } from "./global.ts";
-import { getEntry, registerStore, type StoreType } from "./registry.ts";
-import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
-import { hasHooks } from "./unhook.ts";
+import { connectDevtools } from "../redux/connect.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
+import { getEntry, registerStore, type StoreType } from "../stores/registry.ts";
+import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
+import { hasHooks } from "../stores/unhook.ts";
 
 const HOME = "src/stores/cart.ts";
 

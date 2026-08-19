@@ -1,4 +1,4 @@
-import { forgetDrawn } from "../drawn.ts";
+import { forgetDrawn } from "../tree/drawn.ts";
 import {
   EXTENSION_SOURCE,
   type ExtensionConfig,
@@ -6,23 +6,23 @@ import {
   type ExtensionMessage,
 } from "./extension.ts";
 import { getDevtoolsGlobal, peekDevtoolsGlobal } from "../global.ts";
-import { attachHooks, detachHooks } from "../hooks.ts";
-import { resolveValueLimits } from "../limits.ts";
+import { attachHooks, detachHooks } from "../timeline/hooks.ts";
+import { resolveValueLimits } from "../values/limits.ts";
 import {
   createLifecycle,
   dropPendingRows,
   noteInitSent,
   noteRegistryChange,
-} from "../lifecycle.ts";
+} from "../timeline/lifecycle.ts";
 import { shippedSerializers } from "./platform-rules.ts";
-import { listEntries, onRegistryChange } from "../registry.ts";
+import { listEntries, onRegistryChange } from "../stores/registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
 import { buildSnapshot } from "./render.ts";
 import { renderRow } from "./row.ts";
 import type { DevtoolsHandle, Session } from "../session.ts";
-import { createTimeline, currentStack, dropOpenRow, dropParkedRows } from "../timeline.ts";
-import { createThrottleSettings, resolveMark, type ThrottleOption } from "../throttle.ts";
-import { describeError, warnOnce } from "../warn.ts";
+import { createTimeline, currentStack, dropOpenRow, dropParkedRows } from "../timeline/timeline.ts";
+import { createThrottleSettings, resolveMark, type ThrottleOption } from "../timeline/throttle.ts";
+import { describeError, warnOnce } from "../utils/warn.ts";
 
 export type DevtoolsOptions = {
   name?: string | undefined;
