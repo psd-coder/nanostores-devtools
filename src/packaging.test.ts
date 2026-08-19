@@ -115,6 +115,12 @@ describe("the export map", () => {
       expect(await resolveSubpath("nanostores-devtools/vite")).toMatch(
         /dist\/discovery\/vite\.mjs$/,
       );
+      expect(await resolveSubpath("nanostores-devtools/webpack")).toMatch(
+        /dist\/discovery\/webpack\.mjs$/,
+      );
+      expect(await resolveSubpath("nanostores-devtools/rspack")).toMatch(
+        /dist\/discovery\/rspack\.mjs$/,
+      );
       expect(await resolveSubpath("nanostores-devtools/runtime")).toMatch(/dist\/runtime\.mjs$/);
 
       for (const file of [
@@ -123,6 +129,10 @@ describe("the export map", () => {
         "dist/noop.mjs",
         "dist/discovery/vite.mjs",
         "dist/discovery/vite.d.mts",
+        "dist/discovery/webpack.mjs",
+        "dist/discovery/webpack.d.mts",
+        "dist/discovery/rspack.mjs",
+        "dist/discovery/rspack.d.mts",
         "dist/runtime.mjs",
         "dist/runtime.d.mts",
       ]) {
@@ -156,6 +166,21 @@ describe("the export map", () => {
 
     expect(types).not.toContain("oxc-parser");
   });
+
+  /**
+   * The two bundlers are no dependency of this package at all, not even an optional peer, so the
+   * types each adapter publishes have to name neither one, and unplugin's own types, which do name
+   * both, must stay behind the entry.
+   */
+  it("keeps the webpack and Rspack types clear of every bundler", async () => {
+    for (const entry of ["dist/discovery/webpack.d.mts", "dist/discovery/rspack.d.mts"]) {
+      const types = await readFile(path.join(ROOT, entry), "utf8");
+
+      expect(types).not.toContain(`from "webpack"`);
+      expect(types).not.toContain("@rspack/core");
+      expect(types).not.toContain(`from "unplugin"`);
+    }
+  });
 });
 
 describe("importing the package in plain Node", () => {
@@ -165,6 +190,8 @@ describe("importing the package in plain Node", () => {
       "-e",
       `await import("nanostores-devtools");
        await import("nanostores-devtools/vite");
+       await import("nanostores-devtools/webpack");
+       await import("nanostores-devtools/rspack");
        await import("nanostores-devtools/runtime");
        if (globalThis[Symbol.for("nanostores-devtools/v1")] !== undefined) {
          process.stdout.write("the registry was created at import time");

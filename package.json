@@ -33,6 +33,14 @@
     "./vite": {
       "types": "./dist/discovery/vite.d.mts",
       "default": "./dist/discovery/vite.mjs"
+    },
+    "./webpack": {
+      "types": "./dist/discovery/webpack.d.mts",
+      "default": "./dist/discovery/webpack.mjs"
+    },
+    "./rspack": {
+      "types": "./dist/discovery/rspack.d.mts",
+      "default": "./dist/discovery/rspack.mjs"
     }
   },
   "scripts": {
@@ -77,6 +85,7 @@
     "@arethetypeswrong/cli": "^0.18.5",
     "@jridgewell/sourcemap-codec": "^1.5.5",
     "@nanostores/router": "1.1.0",
+    "@rspack/core": "^2.1.10",
     "@size-limit/preset-small-lib": "^13.0.3",
     "@types/node": "^24.13.3",
     "jsan": "3.1.14",
@@ -91,7 +100,8 @@
     "tsdown": "^0.22.14",
     "typescript": "^7.0.2",
     "vite": "8.2.1",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "webpack": "^5.109.2"
   },
   "packageManager": "pnpm@11.21.0+sha512.521705bce689924eac72f5a3587122f362689ef6571e55ba80076fd637c11132ecffada26fad4ea79c485bfddbfd3d5a2a5b05805a77e893de71ec8a6cca3bb1",
   "dependencies": {

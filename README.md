@@ -23,7 +23,7 @@ package does nothing, logs nothing, and attaches no hook.
 
 Two steps.
 
-Add the Vite plugin:
+Add the plugin for your bundler.
 
 ```ts
 // vite.config.ts
@@ -34,6 +34,41 @@ export default defineConfig({
   plugins: [nanostoresDevtools()],
 });
 ```
+
+```js
+// webpack.config.dev.mjs
+import { nanostoresDevtools } from "nanostores-devtools/webpack";
+
+export default {
+  mode: "development",
+  plugins: [nanostoresDevtools()],
+};
+```
+
+```js
+// rspack.config.dev.mjs
+import { nanostoresDevtools } from "nanostores-devtools/rspack";
+
+export default {
+  mode: "development",
+  plugins: [nanostoresDevtools()],
+};
+```
+
+**webpack and Rspack have no dev-only flag, so add it under your development config.** Vite loads
+its plugin on the dev server alone. These two load whatever the config lists, so a shared config
+would carry the plugin into your release build. A build running in `mode: "production"` is refused:
+the plugin transforms nothing and prints one line saying why, so nothing it injects can reach a
+shipped bundle. This package is ESM only, so the config file holding it has to be ESM too.
+
+**webpack and Rspack also need `oxc-parser` as a dev dependency**, which is what reads your source.
+Vite 8 ships a parser this plugin can use and these two do not, so `pnpm add -D oxc-parser` goes
+with the plugin.
+
+**Turbopack cannot run this**, and Next.js dev uses Turbopack by default. Turbopack runs a subset of
+webpack loaders, and every loader option it takes has to be a plain value, so `fileKey`, which is a
+function, cannot cross into it at all. A Next.js app reaches this plugin through its own
+`bundler: "webpack"` escape hatch and no other way.
 
 Call `connectDevtools()` in your entry file:
 
@@ -46,8 +81,8 @@ connectDevtools({ name: "my-app" });
 
 That is the whole setup. There is no `import.meta.env.DEV` guard and no dynamic import, because
 [export conditions](#turning-it-off-in-a-production-build) resolve the package to a no-op module in
-a production build. The plugin runs in the dev server only, so a production build also carries no
-instrumentation.
+a production build. The Vite plugin runs in the dev server only, and the webpack and Rspack ones
+refuse a production build, so a production build also carries no instrumentation.
 
 `connectDevtools()` never throws and never needs `await`. Called twice it warns once and returns
 the same handle, which is what makes a hot reload safe.
@@ -701,12 +736,12 @@ First, what a **creation site** is, because the cap below only makes sense once 
 factory or a loop makes a new store every time it runs, and all of them share one name. The
 registry holds strong references on purpose, so nothing leaves it on its own.
 
-| option             | default                   | what it does                                       |
-| ------------------ | ------------------------- | -------------------------------------------------- |
-| `fileKey`          | the home unchanged        | rewrites the path shown as a store's home          |
-| `adoptFactories`   | `true`                    | wrap `$`-named calls the plugin does not recognise |
-| `maxStoresPerSite` | `50`                      | live stores one creation site may hold, 1 or more  |
-| `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from |
+| option             | default                   | what it does                                                  |
+| ------------------ | ------------------------- | ------------------------------------------------------------- |
+| `fileKey`          | the home unchanged        | rewrites the path shown as a store's home                     |
+| `adoptFactories`   | `true`                    | wrap `$`-named calls the plugin does not recognise            |
+| `maxStoresPerSite` | `50`                      | live stores one creation site may hold, 1 or more             |
+| `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from, Vite only |
 
 `maxStoresPerSite` keeps the last 50 live stores of a site. It evicts unmounted stores first,
 oldest of those first, and never the store just made. So **a table with 200 rows, one store per
@@ -736,8 +771,11 @@ as every key deleted and added again. Write a fixed rule instead, such as
 `fileKey: (path) => path.replace(/^src\/stores\//, "")`. A fixed rule gives the same key on every
 page load.
 
+**`projectRoot` is a Vite option.** Under webpack and Rspack the wider root is always the climb
+above `context`, which stops at the same workspace file Vite stops at.
+
 **`projectRoot` defaults to Vite's own `searchForWorkspaceRoot`**, which climbs until it meets a
-lockfile or a workspace file. That is right for a real app: a linked package then reads as
+workspace file. That is right for a real app: a linked package then reads as
 `packages/…`. Pin it when that default sits so high above your app that every external home gets
 long. It changes no path inside the Vite root. A file the project root cannot reach either keeps its
 full path, which still opens in an editor.
@@ -757,6 +795,8 @@ and 7** it needs `oxc-parser` as a dev dependency, declared here as an optional 
 | ----------------------------- | -------------- | -------------------------------------------------------------------------------------- |
 | `nanostores-devtools`         | browser        | `nanostores` (peer) only                                                               |
 | `nanostores-devtools/vite`    | Node, dev only | `magic-string` and `unplugin` (dependencies), `vite` and `oxc-parser` (optional peers) |
+| `nanostores-devtools/webpack` | Node, dev only | `magic-string` and `unplugin` (dependencies), `oxc-parser` (optional peer)             |
+| `nanostores-devtools/rspack`  | Node, dev only | `magic-string` and `unplugin` (dependencies), `oxc-parser` (optional peer)             |
 | `nanostores-devtools/runtime` | browser        | nothing                                                                                |
 
 **`nanostores-devtools/runtime` is internal.** The plugin injects an import of it into your

@@ -108,9 +108,15 @@ and required, which is deliberately not the shape `@nanostores/logger` uses.
 
 **Automatic discovery** — finding store creation in the source at build time and making each
 store register itself, carrying its variable name. The finding is one bundler-neutral core in
-`src/discovery/`, and a **bundler adapter** beside it reaches one bundler with it: it works out
-the roots, hands each file over and prints the warnings that come back. `discovery/vite.ts` is
-the one adapter today.
+`src/discovery/`, and an adapter beside it reaches one bundler with it.
+
+**Adapter** — the one file that turns discovery into a plugin for one bundler, and the only file
+that is allowed to know that bundler's words. It answers four things: the roots a home is measured
+from, the shape of a module id, whether this build is a development one, and the hot-reload line the
+injected header carries. The walk, the rewrite, the skip rules and every name in the tree sit behind
+those four answers and are shared. Today there are three, `discovery/vite.ts`,
+`discovery/webpack.ts` and `discovery/rspack.ts`, and the last two share a factory because unplugin
+builds both from one.
 
 **Creation site** — one place in the source where a store is made, identified by module,
 name, enclosing function and line. The line is the one the developer wrote, which is why the
