@@ -1441,7 +1441,7 @@ describe("buildSnapshot", () => {
 
       describe("a class field", () => {
         /** A class that places its own fields, `this` being what each initializer holds. */
-        class Editor {
+        class Workbench {
           static $opened = atom(3);
 
           $value = atom(1);
@@ -1459,57 +1459,57 @@ describe("buildSnapshot", () => {
         }
 
         /** Two instances mean two stores from one creation site, which the registry numbers. */
-        function trackFields(editor: Editor, made: number): void {
-          trackNumbered(editor.$value, "$value", made);
-          trackNumbered(editor.hidden, "#hidden", made);
+        function trackFields(workbench: Workbench, made: number): void {
+          trackNumbered(workbench.$value, "$value", made);
+          trackNumbered(workbench.hidden, "#hidden", made);
         }
 
         it("draws an instance field, a private field and the class's statics", () => {
-          const editorOne = new Editor();
+          const workbenchOne = new Workbench();
 
-          ownField(FROM, Editor.$opened, Editor);
-          track(Editor.$opened, "$opened");
-          trackFields(editorOne, 1);
-          ownBindings(FROM, [["editorOne", editorOne]]);
+          ownField(FROM, Workbench.$opened, Workbench);
+          track(Workbench.$opened, "$opened");
+          trackFields(workbenchOne, 1);
+          ownBindings(FROM, [["workbenchOne", workbenchOne]]);
 
           expect(buildSnapshot()).toEqual({
             [HOME]: {
-              Editor: { "$opened [store]": 3 },
-              editorOne: labelled("Editor", { "#hidden [store]": 2, "$value [store]": 1 }),
+              Workbench: { "$opened [store]": 3 },
+              workbenchOne: labelled("Workbench", { "#hidden [store]": 2, "$value [store]": 1 }),
             },
           });
         });
 
         it("keeps two instances apart, and neither steals the other's fields", () => {
-          const editorOne = new Editor();
-          const editorTwo = new Editor();
+          const workbenchOne = new Workbench();
+          const workbenchTwo = new Workbench();
 
-          trackFields(editorOne, 1);
-          trackFields(editorTwo, 2);
+          trackFields(workbenchOne, 1);
+          trackFields(workbenchTwo, 2);
           ownBindings(FROM, [
-            ["editorOne", editorOne],
-            ["editorTwo", editorTwo],
+            ["workbenchOne", workbenchOne],
+            ["workbenchTwo", workbenchTwo],
           ]);
 
           expect(buildSnapshot()).toEqual({
             [HOME]: {
-              editorOne: labelled("Editor", { "#hidden [store]": 2, "$value [store]": 1 }),
-              editorTwo: labelled("Editor", { "#hidden [store]": 2, "$value [store]": 1 }),
+              workbenchOne: labelled("Workbench", { "#hidden [store]": 2, "$value [store]": 1 }),
+              workbenchTwo: labelled("Workbench", { "#hidden [store]": 2, "$value [store]": 1 }),
             },
           });
         });
 
         it("draws every store a class field placed exactly once", () => {
-          const editorOne = new Editor();
-          const editorTwo = new Editor();
+          const workbenchOne = new Workbench();
+          const workbenchTwo = new Workbench();
 
-          editorTwo.$value.set(4);
-          editorTwo.hidden.set(5);
-          ownField(FROM, Editor.$opened, Editor);
-          track(Editor.$opened, "$opened");
-          trackFields(editorOne, 1);
-          trackFields(editorTwo, 2);
-          ownBindings(FROM, [["editorOne", editorOne]]);
+          workbenchTwo.$value.set(4);
+          workbenchTwo.hidden.set(5);
+          ownField(FROM, Workbench.$opened, Workbench);
+          track(Workbench.$opened, "$opened");
+          trackFields(workbenchOne, 1);
+          trackFields(workbenchTwo, 2);
+          ownBindings(FROM, [["workbenchOne", workbenchOne]]);
 
           expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
             1, 2, 3, 4, 5,
