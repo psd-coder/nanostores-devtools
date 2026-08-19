@@ -3,7 +3,7 @@ import type { Bridge } from "./redux/connect.ts";
 import { peekDevtoolsGlobal } from "./global.ts";
 import { isDrawn, rowName } from "./placement.ts";
 import { getEntry, listEntries, type StoreEntry } from "./registry.ts";
-import { buildSnapshot } from "./snapshot.ts";
+import { buildSnapshot } from "./redux/render.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
 import { clearThrottle, suppressWrite, throttlePeriod } from "./throttle.ts";
 

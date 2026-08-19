@@ -37,8 +37,6 @@ type Exception = {
  * really does, so a new crossing and a stale line fail the same way.
  */
 const EXCEPTIONS: Exception[] = [
-  { model: "snapshot.ts", views: { "redux/marker.ts": ["keepBuilt", "mark"] }, clearedBy: "02" },
-  { model: "slot.ts", views: { "redux/marker.ts": ["box"] }, clearedBy: "02" },
   {
     model: "platform.ts",
     views: {
@@ -47,7 +45,11 @@ const EXCEPTIONS: Exception[] = [
     },
     clearedBy: "04",
   },
-  { model: "timeline.ts", views: { "redux/connect.ts": ["Bridge"] }, clearedBy: "03" },
+  {
+    model: "timeline.ts",
+    views: { "redux/connect.ts": ["Bridge"], "redux/render.ts": ["buildSnapshot"] },
+    clearedBy: "03",
+  },
   { model: "lifecycle.ts", views: { "redux/connect.ts": ["Bridge"] }, clearedBy: "03" },
   { model: "global.ts", views: { "redux/connect.ts": ["Bridge"] }, clearedBy: "03" },
 ];

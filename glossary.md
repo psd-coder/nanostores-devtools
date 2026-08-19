@@ -41,10 +41,12 @@ Registering a label that is already taken replaces the store behind it, which is
 is part of it: without it two clashing stores would share one label and the registry would keep
 one.
 
-**Tree** — the single state object the bridge sends to the extension. Its top level is the
-home. Below that a store sits under whatever built it, at any depth. The extension expects one
-root state; nanostores has none, so the bridge invents this. The home level exists to keep two
-stores with the same name apart.
+**Tree** — what the app's stores look like once the bridge has arranged them: homes on top, and
+below each home a store under whatever built it, at any depth. The **model** owns it, as the
+`TreeModel` that `src/tree.ts` builds, and it holds records rather than strings. The **view** turns
+it into the single state object the extension is sent, in `src/redux/render.ts`. The extension
+expects one root state; nanostores has none, so the bridge invents this. The home level exists to
+keep two stores with the same name apart.
 
 **Type note** — the store's type in square brackets behind its name, `$total [computed]`. It rides
 on a key and never on the name or the label, which stay bare. Every store carries one, and an `atom`
@@ -244,12 +246,15 @@ window cancels the cleanup, and the mount code does not run again. **The bridge 
 `lc === 0` and does not wait out that window**, so a store inside it counts as unmounted.
 
 **Slot** — one store's place in the tree, the value under its name. Store-only: a slot holds a
-value, and a **node** holds slots and other nodes. A mounted store's slot holds its value bare;
-a marked one wraps. A store that owns others keeps its slot under `(value)`, so its children can
-sit beside it.
+value, and a **node** holds slots and other nodes. The **model** owns the word: a slot is live,
+stale, or a computed that never ran, and it carries the raw value. A mounted store's slot holds its
+value bare; a marked one wraps. A store that owns others keeps its slot under `(value)`, so its
+children can sit beside it.
 
 **Marker** — what a key pointing at a store carries when the store's value cannot be trusted, which is not the same
-as "not mounted". An unmounted `atom`, `map` or `deepMap` holds a correct value and is left bare.
+as "not mounted". It is a **view** thing: the model says which state a slot is in, and the words
+below, the boxing and the wrapper are the view's, in `src/redux/boxing.ts`. An unmounted `atom`,
+`map` or `deepMap` holds a correct value and is left bare.
 Only a `computed`, a `batched` or an unknown-type store is marked, as
 `{ data: <the value>, __serializedType__: "not mounted, may be stale" }`. A `computed` or a
 `batched` that holds `undefined` and never mounted takes `not mounted, never computed` instead,
@@ -270,11 +275,12 @@ v1 meaning, the name a developer passes to `trackStores()` and the unit `untrack
 
 **Owner** — what a store is drawn under. Either another store or a node.
 
-**Placement** — one key in the tree pointing at a store. A store has one entry and may have two
-placements: the home the developer chose for it, drawn flat, and the name its owner knows it by,
-drawn under the owner. That second key is the property the owner really holds it at, and only where
-nothing holds it under a property, as under a creation frame, does it fall back to the name the
-store's creation site gave. They choose a home two ways, a top-level binding of their own and an
+**Placement** — one node in the tree standing for a store, which the view draws as one key. The
+**model** decides how many there are. A store has one entry and may have two placements: the home
+the developer chose for it, drawn flat, and the name its owner knows it by, drawn under the owner.
+That second key is the property the owner really holds it at, and only where nothing holds it under
+a property, as under a creation frame, does it fall back to the name the store's creation site
+gave. They choose a home two ways, a top-level binding of their own and an
 explicit registration, and either one beats the owner the ownership walk recorded.
 
 A store may also have none. One made inside a function and placed by nothing is that function's own
@@ -309,16 +315,18 @@ much by itself. A store never takes one: that slot already holds its marker.
 `WeakMap`. It says plainly that the name is ours. Every unnamed instance shares the base `ref`
 and they number across the file, not per class.
 
-**Name qualifier** — what an entry carries beside its name so two entries never share one label:
+**Name qualifier** — what an entry carries beside its name so two entries never share one label.
+The **model** decides which node takes one and what goes in it; the **view** spells it. The parts:
 the place it was made, `line 20`, for two creation sites in one file, the file it came from,
 `a.ts`, for two files one home holds, and the number of the store among the ones its site made.
 Both sides of a clash take it, so neither name turns on which of the two loaded first. The entry
 keeps the parts, and one function spells them: `$counter (a.ts, line 20) #2` for the label,
 `$counter [store] (a.ts, line 20) #2` for the tree key.
 
-**Key order** — a tree key reads name, type note, one parenthesis group, number, always in that
-order. The group holds the place the store was made, until a home clash needs telling apart: the
-home takes the group then and the place steps aside, so a key carries one group and never two.
+**Key order** — a **view** rule, and the only place these parts are ever put together: a tree key
+reads name, type note, one parenthesis group, number, always in that order. The group holds the
+place the store was made, until a home clash needs telling apart: the home takes the group then and
+the place steps aside, so a key carries one group and never two.
 
 **Lifecycle row** — a timeline entry for something other than a value change: a store
 joining or leaving the registry, or mounting and unmounting. All four are on by default,

@@ -18,7 +18,7 @@ import {
 import { shippedSerializers } from "../platform.ts";
 import { listEntries, onRegistryChange } from "../registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
-import { buildSnapshot } from "../snapshot.ts";
+import { buildSnapshot } from "./render.ts";
 import {
   createTimeline,
   currentStack,

@@ -11,10 +11,11 @@ import {
 import { noteDrawn } from "../drawn.ts";
 import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "../limits.ts";
 import { MORE_KEY } from "../keys.ts";
+import { dataForMark, noteFor, reachesStore } from "./boxing.ts";
 import { box, isBuilt, isMarked, keepBuilt, mark, type Marked } from "./marker.ts";
 import { printedFields } from "../printed.ts";
 import { getEntry, isStore, noted, storeWord } from "../registry.ts";
-import { dataForMark, reachesStore, staleNote, storeValue } from "../slot.ts";
+import { staleNote } from "../slot.ts";
 import { isThrottled } from "../throttle.ts";
 import { describeError, warnOnce } from "../warn.ts";
 
@@ -852,16 +853,18 @@ function slotted(kept: Kept, fields: Fields): Fields {
  */
 function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
   const entry = getEntry(store);
-  const note = staleNote(store, entry);
+  const slot = staleNote(store, entry);
   const named = noted(key, entry?.type ?? "unknown", entry !== undefined && isThrottled(entry));
 
   noteDrawn(store);
 
-  if (note !== undefined) {
+  if (slot.state !== "live") {
+    const note = noteFor(store, slot);
+
     return [named, markAt(kept, store, note.label, note.data, FREE)];
   }
 
-  const value = storeValue(store);
+  const { value } = slot;
 
   if (reachesStore(value, store)) {
     return [key, markStore(kept, store)];
@@ -885,13 +888,17 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
  */
 function markStore(kept: Kept, store: Store): Marked {
   const entry = getEntry(store);
-  const note = staleNote(store, entry);
+  const slot = staleNote(store, entry);
 
   noteDrawn(store);
 
-  return note === undefined
-    ? markAt(kept, store, storeWord(entry?.type), dataForMark(store, storeValue(store)), FREE)
-    : markAt(kept, store, note.label, note.data, FREE);
+  if (slot.state === "live") {
+    return markAt(kept, store, storeWord(entry?.type), dataForMark(store, slot.value), FREE);
+  }
+
+  const note = noteFor(store, slot);
+
+  return markAt(kept, store, note.label, note.data, FREE);
 }
 
 /**

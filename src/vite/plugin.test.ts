@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
 import { listEntries, type StoreEntry } from "../registry.ts";
-import { buildSnapshot } from "../snapshot.ts";
+import { buildSnapshot } from "../redux/render.ts";
 import { labelled, panelNode } from "../testing/shapes.ts";
 import {
   fileHome,

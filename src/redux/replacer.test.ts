@@ -6,7 +6,7 @@ import { resetDevtoolsGlobal } from "../global.ts";
 import { box, mark } from "./marker.ts";
 import { isStore, registerStore, type StoreType } from "../registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
-import { MAX_WALKED_NODES } from "../slot.ts";
+import { MAX_WALKED_NODES } from "./boxing.ts";
 import { EXTENSION_OPTIONS, labelOf, parsePanel } from "../testing/panel.ts";
 
 class Point {

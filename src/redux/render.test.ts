@@ -2,7 +2,7 @@ import { stringify } from "jsan";
 import { atom, computed, deepMap, map, type Store, type WritableAtom } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetDevtoolsGlobal } from "./global.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
 import {
   beginFrame,
   endFrame,
@@ -10,7 +10,7 @@ import {
   noteBirth,
   ownBindings,
   ownField,
-} from "./ownership.ts";
+} from "../ownership.ts";
 import {
   listEntries,
   registerStore,
@@ -18,11 +18,11 @@ import {
   type StoreType,
   trackStores,
   untrack,
-} from "./registry.ts";
-import { createReplacer } from "./redux/replacer.ts";
-import { buildSnapshot, type Snapshot } from "./snapshot.ts";
-import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
-import { labelled } from "./testing/shapes.ts";
+} from "../registry.ts";
+import { buildSnapshot, type Snapshot } from "./render.ts";
+import { createReplacer } from "./replacer.ts";
+import { EXTENSION_OPTIONS, labelOf, parsePanel } from "../testing/panel.ts";
+import { labelled } from "../testing/shapes.ts";
 
 /** A class instance, which the replacer marks, so a store holding one carries two labels. */
 class Point {
@@ -1046,6 +1046,53 @@ describe("buildSnapshot", () => {
         "$row [store]",
         "$row [store] #2",
       ]);
+    });
+
+    /**
+     * The clash rests on the name the tree draws, never on the key the view spells. The type word
+     * moves when adoption learns a type, so a clash decided on it would qualify a pair one moment
+     * and leave it bare the next.
+     */
+    it("qualifies two children of one name whose types differ", () => {
+      const $count = atom(1);
+      const $total = computed(atom(1), (count) => count + 1);
+      const $draft = atom("");
+
+      track($draft, "$draft");
+      track($count, "$sum", HOME, "atom", "line 20", "makeCart");
+      track($total, "$sum", HOME, "computed", "line 30", "makeCart");
+      underFrame($draft, $count, $total);
+
+      expect(keysOf(HOME, "$draft [store]")).toEqual([
+        "(value)",
+        "$sum [store] (line 20)",
+        "$sum [computed] (line 30)",
+      ]);
+    });
+
+    /** The throttle word comes and goes with a burst, so a key resting on it would move with it. */
+    it("keeps a key's shape while a store starts and stops being throttled", () => {
+      const $first = atom(1);
+      const $second = atom(2);
+      const $draft = atom("");
+
+      track($draft, "$draft");
+      const first = trackNumbered($first, "$row", 1, "atom", "makeRows");
+
+      trackNumbered($second, "$row", 2, "atom", "makeRows");
+      underFrame($draft, $first, $second);
+
+      const bare = keysOf(HOME, "$draft [store]");
+
+      first.throttle.marked = true;
+
+      const held = keysOf(HOME, "$draft [store]");
+
+      first.throttle.marked = false;
+
+      expect(bare).toEqual(["(value)", "$row [store]", "$row [store] #2"]);
+      expect(held).toEqual(["(value)", "$row [store, throttled]", "$row [store] #2"]);
+      expect(keysOf(HOME, "$draft [store]")).toEqual(bare);
     });
 
     it("keeps two children of one name apart by the file each came from", () => {

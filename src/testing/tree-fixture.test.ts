@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resetDevtoolsGlobal } from "../global.ts";
 import { ownerLinkOf } from "../placement.ts";
 import { listEntries, type StoreEntry } from "../registry.ts";
-import { buildSnapshot } from "../snapshot.ts";
+import { buildSnapshot } from "../redux/render.ts";
 import { nanostoresDevtools, type VitePluginOptions } from "../vite/plugin.ts";
 import { labelled, panelNode } from "./shapes.ts";
 import {
