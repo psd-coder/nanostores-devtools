@@ -1,7 +1,7 @@
 import { atom } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { connectDevtools } from "../connect.ts";
+import { connectDevtools } from "../redux/connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
 import { nodeInfoOf, ownerLinkOf } from "../placement.ts";
 import {

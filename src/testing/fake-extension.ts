@@ -7,7 +7,7 @@ import {
   type ExtensionListener,
   type ExtensionMessage,
   type ReduxDevtoolsExtension,
-} from "../extension.ts";
+} from "../redux/extension.ts";
 import { EXTENSION_OPTIONS } from "./panel.ts";
 
 /**

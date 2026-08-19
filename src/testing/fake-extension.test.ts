@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ExtensionMessage } from "../extension.ts";
+import type { ExtensionMessage } from "../redux/extension.ts";
 import { type FakeExtension, installFakeExtension } from "./fake-extension.ts";
 
 let fake: FakeExtension | undefined;

@@ -1,9 +1,9 @@
 import type { Store } from "nanostores";
 
-import type { DevtoolsHandle, DevtoolsOptions } from "./connect.ts";
+import type { DevtoolsHandle, DevtoolsOptions } from "./redux/connect.ts";
 
-export type { DevtoolsHandle, DevtoolsOptions } from "./connect.ts";
-export type { Serializer } from "./replacer.ts";
+export type { DevtoolsHandle, DevtoolsOptions } from "./redux/connect.ts";
+export type { Serializer } from "./redux/replacer.ts";
 export type { ThrottleOption, ThrottleTarget } from "./throttle.ts";
 
 /**

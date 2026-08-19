@@ -1,7 +1,7 @@
 import type { Store } from "nanostores";
 
 import { chainValue, ownFields, ownIndexes } from "./descriptor.ts";
-import { box } from "./marker.ts";
+import { box } from "./redux/marker.ts";
 import { DERIVED, isStore, type StoreEntry, type StoreType } from "./registry.ts";
 
 /** `set` writes `value` with no check on `lc`, so an unmounted one still holds the true value. */

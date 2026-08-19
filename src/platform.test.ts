@@ -2,7 +2,7 @@ import { stringify } from "jsan";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { shippedSerializers } from "./platform.ts";
-import { createReplacer } from "./replacer.ts";
+import { createReplacer } from "./redux/replacer.ts";
 import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
 
 const replacer = createReplacer(shippedSerializers);

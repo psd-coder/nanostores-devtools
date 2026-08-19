@@ -1,5 +1,5 @@
 import { chainDescriptor, type Fields } from "./descriptor.ts";
-import { TO_STRING_KEY, VALUE_OF_KEY } from "./marker.ts";
+import { TO_STRING_KEY, VALUE_OF_KEY } from "./keys.ts";
 
 /**
  * What a class wrote down about how its instances read: a `valueOf` and a `toString` of its own,

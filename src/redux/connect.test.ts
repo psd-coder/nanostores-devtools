@@ -3,11 +3,11 @@ import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./connect.ts";
-import { resetDevtoolsGlobal } from "./global.ts";
-import { getEntry, listEntries, trackStores } from "./registry.ts";
-import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
-import { EXTENSION_OPTIONS } from "./testing/panel.ts";
-import { hasHooks, keepHooks } from "./unhook.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
+import { getEntry, listEntries, trackStores } from "../registry.ts";
+import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
+import { EXTENSION_OPTIONS } from "../testing/panel.ts";
+import { hasHooks, keepHooks } from "../unhook.ts";
 
 let fake: FakeExtension;
 

@@ -1,5 +1,5 @@
 import { catchAndWarn } from "./catch-and-warn.ts";
-import type { Bridge } from "./connect.ts";
+import type { Bridge } from "./redux/connect.ts";
 import { peekDevtoolsGlobal } from "./global.ts";
 import { isDrawn, rowName } from "./placement.ts";
 import { getEntry, listEntries, type StoreEntry } from "./registry.ts";

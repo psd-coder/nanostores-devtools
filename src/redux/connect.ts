@@ -1,38 +1,38 @@
-import { forgetDrawn } from "./drawn.ts";
+import { forgetDrawn } from "../drawn.ts";
 import {
   EXTENSION_SOURCE,
   type ExtensionConfig,
   type ExtensionConnection,
   type ExtensionMessage,
 } from "./extension.ts";
-import { getDevtoolsGlobal, peekDevtoolsGlobal } from "./global.ts";
-import { attachHooks, detachHooks } from "./hooks.ts";
-import { resolveValueLimits } from "./limits.ts";
+import { getDevtoolsGlobal, peekDevtoolsGlobal } from "../global.ts";
+import { attachHooks, detachHooks } from "../hooks.ts";
+import { resolveValueLimits } from "../limits.ts";
 import {
   createLifecycle,
   dropPendingRows,
   type LifecycleState,
   noteInitSent,
   noteRegistryChange,
-} from "./lifecycle.ts";
-import { shippedSerializers } from "./platform.ts";
-import { listEntries, onRegistryChange } from "./registry.ts";
+} from "../lifecycle.ts";
+import { shippedSerializers } from "../platform.ts";
+import { listEntries, onRegistryChange } from "../registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
-import { buildSnapshot } from "./snapshot.ts";
+import { buildSnapshot } from "../snapshot.ts";
 import {
   createTimeline,
   currentStack,
   dropOpenRow,
   dropParkedRows,
   type TimelineState,
-} from "./timeline.ts";
+} from "../timeline.ts";
 import {
   createThrottleSettings,
   resolveMark,
   type ThrottleOption,
   type ThrottleSettings,
-} from "./throttle.ts";
-import { describeError, warnOnce } from "./warn.ts";
+} from "../throttle.ts";
+import { describeError, warnOnce } from "../warn.ts";
 
 export type DevtoolsOptions = {
   name?: string | undefined;

@@ -1,6 +1,6 @@
 import type { Store } from "nanostores";
 
-import type { Bridge } from "./connect.ts";
+import type { Bridge } from "./redux/connect.ts";
 import { forgetDrawn } from "./drawn.ts";
 import type { RegistryChange, StoreEntry, StoreType } from "./registry.ts";
 

@@ -19,7 +19,7 @@ import {
   trackStores,
   untrack,
 } from "./registry.ts";
-import { createReplacer } from "./replacer.ts";
+import { createReplacer } from "./redux/replacer.ts";
 import { buildSnapshot, type Snapshot } from "./snapshot.ts";
 import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
 import { labelled } from "./testing/shapes.ts";

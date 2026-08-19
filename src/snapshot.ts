@@ -1,5 +1,6 @@
 import type { NodeInfo } from "./global.ts";
-import { keepBuilt, mark, MORE_KEY, VALUE_KEY } from "./marker.ts";
+import { MORE_KEY, VALUE_KEY } from "./keys.ts";
+import { keepBuilt, mark } from "./redux/marker.ts";
 import { MAX_MEMBERS } from "./ownership.ts";
 import { drawable, drawnOwner, isPlaced, nodeInfoOf, placedByDeveloper } from "./placement.ts";
 import { isStore, listEntries, noted, qualify, type StoreEntry } from "./registry.ts";

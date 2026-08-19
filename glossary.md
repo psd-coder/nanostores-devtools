@@ -10,6 +10,14 @@ it is not a fork of the extension.
 **Extension** — the redux-devtools browser extension, installed by the user. We only
 speak its protocol.
 
+**Model** — the half of the bridge that holds facts about the app's stores: which ones exist,
+what owns what, what each is called, what the tree of them looks like. It lives in `src/*.ts` and
+knows nothing about the extension. A model file never imports a view file.
+
+**View** — the half of the bridge that speaks the extension's protocol and nothing else: the
+connection, the message shapes, the config and the jsan replacer. It lives in `src/redux/*.ts` and
+is free to import the model.
+
 **Registry** — the thing inside the bridge that knows which stores exist and what each
 one is called. Both ways in (the explicit map and the Vite plugin) write to the same
 registry.
@@ -222,6 +230,7 @@ between two placements. A serializer runs before both counts, and the result it 
 by them one level down.
 
 **Wrapper** — the extension's own `{ data, __serializedType__ }` shape, not a shape of ours.
+It is a **view** thing, so the code that builds and recognises it lives in `src/redux/marker.ts`.
 `data` holds what survived and `__serializedType__` names it. The panel's reviver unwraps it and
 prints the type as a label in front of the bare value, so it adds no nesting. It only works
 while `serialize` is truthy, and only when `typeof data === "object"`, which is why every marked

@@ -1,7 +1,7 @@
 import { atom, computed, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { connectDevtools } from "./connect.ts";
+import { connectDevtools } from "./redux/connect.ts";
 import { peekDevtoolsGlobal, resetDevtoolsGlobal } from "./global.ts";
 import { ownBindings } from "./ownership.ts";
 import { getEntry, registerStore, type StoreType, unregisterStore } from "./registry.ts";

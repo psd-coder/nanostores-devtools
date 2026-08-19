@@ -7,15 +7,16 @@ import {
   type Fields,
   ownFields,
   ownIndexes,
-} from "./descriptor.ts";
-import { noteDrawn } from "./drawn.ts";
-import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "./limits.ts";
-import { box, isBuilt, isMarked, keepBuilt, mark, type Marked, MORE_KEY } from "./marker.ts";
-import { printedFields } from "./printed.ts";
-import { getEntry, isStore, noted, storeWord } from "./registry.ts";
-import { dataForMark, reachesStore, staleNote, storeValue } from "./slot.ts";
-import { isThrottled } from "./throttle.ts";
-import { describeError, warnOnce } from "./warn.ts";
+} from "../descriptor.ts";
+import { noteDrawn } from "../drawn.ts";
+import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "../limits.ts";
+import { MORE_KEY } from "../keys.ts";
+import { box, isBuilt, isMarked, keepBuilt, mark, type Marked } from "./marker.ts";
+import { printedFields } from "../printed.ts";
+import { getEntry, isStore, noted, storeWord } from "../registry.ts";
+import { dataForMark, reachesStore, staleNote, storeValue } from "../slot.ts";
+import { isThrottled } from "../throttle.ts";
+import { describeError, warnOnce } from "../warn.ts";
 
 /**
  * Checked in array order, ahead of every rule of ours, and the first match wins. What a `convert`

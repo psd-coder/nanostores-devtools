@@ -1,6 +1,6 @@
 import type { Fields } from "./descriptor.ts";
-import { box, keepBuilt, mark, type Marked } from "./marker.ts";
-import type { Serializer } from "./replacer.ts";
+import { box, keepBuilt, mark, type Marked } from "./redux/marker.ts";
+import type { Serializer } from "./redux/replacer.ts";
 
 /** A primitive inside an object wrapper, which keeps it behind the `valueOf` of its prototype. */
 type Boxed = { valueOf: () => unknown };

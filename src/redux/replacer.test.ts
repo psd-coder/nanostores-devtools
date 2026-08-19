@@ -2,12 +2,12 @@ import { stringify } from "jsan";
 import { atom, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetDevtoolsGlobal } from "./global.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
 import { box, mark } from "./marker.ts";
-import { isStore, registerStore, type StoreType } from "./registry.ts";
+import { isStore, registerStore, type StoreType } from "../registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
-import { MAX_WALKED_NODES } from "./slot.ts";
-import { EXTENSION_OPTIONS, labelOf, parsePanel } from "./testing/panel.ts";
+import { MAX_WALKED_NODES } from "../slot.ts";
+import { EXTENSION_OPTIONS, labelOf, parsePanel } from "../testing/panel.ts";
 
 class Point {
   x = 1;

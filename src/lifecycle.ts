@@ -1,4 +1,4 @@
-import type { Bridge } from "./connect.ts";
+import type { Bridge } from "./redux/connect.ts";
 import { isPlaced, rowName } from "./placement.ts";
 import type { RegistryChange, StoreEntry } from "./registry.ts";
 import { type Change, listeningBridge, openLifecycleRow, sendLifecycleRow } from "./timeline.ts";

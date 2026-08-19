@@ -11,7 +11,7 @@ import {
 } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { connectDevtools } from "./connect.ts";
+import { connectDevtools } from "./redux/connect.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
 import { ownBindings } from "./ownership.ts";
 import { registerStore, type StoreType, trackStores } from "./registry.ts";
