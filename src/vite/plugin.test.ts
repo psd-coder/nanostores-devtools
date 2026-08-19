@@ -14,6 +14,7 @@ import {
   nanostoresDevtools,
   resolveStoreCap,
   type VitePluginOptions,
+  viteHotReload,
 } from "./plugin.ts";
 
 const ROOT = "/repo";
@@ -58,6 +59,14 @@ describe("resolveStoreCap", () => {
       expect(warning).toContain("maxStoresPerSite");
       expect(warning).toContain(String(value));
     }
+  });
+});
+
+describe("viteHotReload", () => {
+  it("spells the hot handle Vite gives a module and the hook that fires for a deleted file", () => {
+    expect(viteHotReload("__nsdt.clear();")).toBe(
+      "if (import.meta.hot) import.meta.hot.prune(() => { __nsdt.clear(); });",
+    );
   });
 });
 

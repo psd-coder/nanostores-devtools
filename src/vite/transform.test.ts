@@ -20,6 +20,8 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     maxStoresPerSite: 50,
     adoptFactories: true,
     parser,
+    runtimeModule: "nanostores-devtools/runtime",
+    hotReload: (clear) => `if (import.meta.hot) import.meta.hot.prune(() => { ${clear} });`,
     ...overrides,
   });
 }
@@ -972,6 +974,21 @@ describe("the injected header", () => {
 
   it("leaves the module body on the next line, so nothing before it moves", () => {
     expect(output(transform(source)).split("\n")[1]).toContain(`import { atom } from "nanostores"`);
+  });
+
+  it("writes the import and the hot-reload line the adapter handed in", () => {
+    const result = transform(source, {
+      runtimeModule: "@acme/devtools/runtime",
+      hotReload: (clear) =>
+        `if (import.meta.webpackHot) import.meta.webpackHot.dispose(() => { ${clear} });`,
+    });
+
+    expect(output(result).split("\n")[0]).toBe(
+      `import { fileScope as __nsdtFileScope } from "@acme/devtools/runtime"; ` +
+        `const __nsdt = __nsdtFileScope("src/stores/cart.ts", "src/stores/cart.ts", 50, false); ` +
+        `__nsdt.clear(); ` +
+        `if (import.meta.webpackHot) import.meta.webpackHot.dispose(() => { __nsdt.clear(); });`,
+    );
   });
 });
 

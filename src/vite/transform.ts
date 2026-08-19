@@ -29,13 +29,25 @@ export type TransformInput = {
   maxStoresPerSite: number;
   adoptFactories: boolean;
   parser: Parser;
+  /** The module id the injected import reads the runtime from. */
+  runtimeModule: string;
+  /**
+   * The whole hot-reload line, written by the adapter and handed the statement that clears this
+   * module's stores. Each bundler spells its own hot handle, injects it per module, and offers a
+   * different hook, so no single line and no shared runtime can cover them all. The alternative was
+   * to hand the handle over as one expression and let the runtime branch on it; that buys one shape
+   * for every adapter, but it only works once a second bundler's handle is known to do the job, and
+   * it costs an argument in a public signature. It takes the clear statement and returns the line,
+   * rather than being a finished string, so the scope name stays the transform's own. Return one
+   * line: the header takes one line, so every original line keeps its place in the source map.
+   */
+  hotReload: (clear: string) => string;
 };
 
 export type StoreTransform =
   | { changed: true; code: string; map: SourceMap; warnings: readonly string[] }
   | { changed: false; warnings: readonly string[] };
 
-const RUNTIME_MODULE = "nanostores-devtools/runtime";
 const SCOPE = "__nsdt";
 const FACTORY = "__nsdtFileScope";
 
@@ -558,8 +570,8 @@ function binding(name: string, exported: boolean): string {
 
 /**
  * One line, so every original line keeps its place in the map. It sits at the top of the module
- * body rather than behind an HMR hook, because Vite runs `dispose` only for the module that
- * accepted the update, and a store file imported by an accepting module never sees it.
+ * body rather than behind a hot-reload hook, because a bundler runs its dispose hook only for the
+ * module that accepted the update, and a store file imported by an accepting module never sees it.
  */
 function header(input: TransformInput): string {
   const args = [
@@ -570,9 +582,9 @@ function header(input: TransformInput): string {
   ].join(", ");
 
   return (
-    `import { fileScope as ${FACTORY} } from ${JSON.stringify(RUNTIME_MODULE)}; ` +
+    `import { fileScope as ${FACTORY} } from ${JSON.stringify(input.runtimeModule)}; ` +
     `const ${SCOPE} = ${FACTORY}(${args}); ${SCOPE}.clear(); ` +
-    `if (import.meta.hot) import.meta.hot.prune(() => { ${SCOPE}.clear(); });\n`
+    `${input.hotReload(`${SCOPE}.clear();`)}\n`
   );
 }
 
