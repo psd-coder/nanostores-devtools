@@ -22,16 +22,16 @@ one, in `src/redux/*.ts`. It is free to import the model, it supplies a session
 (`src/session.ts`), and its value walk owes `noteDrawn` for every store it draws.
 
 **Registry** — the thing inside the bridge that knows which stores exist and what each
-one is called. Both ways in (the explicit map and the Vite plugin) write to the same
+one is called. Both ways in (the explicit map and automatic discovery) write to the same
 registry.
 
 **Entry** — one store's record in the registry. The registry maps the store object to its
 entry, so the object is what makes an entry unique, never its name.
 
 **Home** — the top level of the tree, holding everything one file or one group put there. A
-file path for a store the Vite plugin found, a group name for one registered by hand. A file
-inside the Vite root keeps its short path, `app/model.ts`. A file outside it is measured from
-the project root, `vendor/withUndo.ts`, instead of climbing out of the Vite root with `../`.
+file path for a store the plugin found, a group name for one registered by hand. A file
+inside the bundler's root keeps its short path, `app/model.ts`. A file outside it is measured from
+the project root, `vendor/withUndo.ts`, instead of climbing out of that root with `../`.
 
 **Group** — the name a developer must give when registering stores by hand. It takes a
 file's place in the tree for stores the plugin did not find, it holds a store the walk gave an
@@ -111,10 +111,12 @@ store register itself, carrying its variable name. The finding is one bundler-ne
 `src/discovery/`, and an adapter beside it reaches one bundler with it.
 
 **Adapter** — the one file that turns discovery into a plugin for one bundler, and the only file
-that is allowed to know that bundler's words. It answers four things: the roots a home is measured
-from, the shape of a module id, whether this build is a development one, and the hot-reload line the
-injected header carries. The walk, the rewrite, the skip rules and every name in the tree sit behind
-those four answers and are shared. Today there are three, `discovery/vite.ts`,
+that is allowed to know that bundler's words. It answers six things: whether this build is a
+development one, how the walk is made to run first, the roots a home is measured from, the shape of
+a module id, the hot-reload line the injected header carries, and the channel a warning is printed
+through. It also hands over the parser loader and the module id the injected import reads the
+runtime from, which every adapter today answers the same way. The walk, the rewrite, the skip rules
+and every name in the tree sit behind those answers and are shared. Today there are three, `discovery/vite.ts`,
 `discovery/webpack.ts` and `discovery/rspack.ts`, and the last two share a factory because unplugin
 builds both from one.
 

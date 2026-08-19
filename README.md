@@ -21,9 +21,14 @@ package does nothing, logs nothing, and attaches no hook.
 
 ## Setup
 
-Two steps.
+Two steps: add the plugin for your bundler, then call `connectDevtools()` once.
 
-Add the plugin for your bundler.
+### 1. Add the plugin
+
+There is one plugin, and one subpath per bundler. Pick the line for yours; everything after it is
+the same. This package is ESM only, so the config file holding it has to be ESM too.
+
+**Vite.** The plugin loads on the dev server alone, so one config covers both builds.
 
 ```ts
 // vite.config.ts
@@ -35,6 +40,8 @@ export default defineConfig({
 });
 ```
 
+**webpack.** Add it under your development config, and see the two notes below.
+
 ```js
 // webpack.config.dev.mjs
 import { nanostoresDevtools } from "nanostores-devtools/webpack";
@@ -44,6 +51,8 @@ export default {
   plugins: [nanostoresDevtools()],
 };
 ```
+
+**Rspack.** The same plugin, the same rules.
 
 ```js
 // rspack.config.dev.mjs
@@ -55,22 +64,24 @@ export default {
 };
 ```
 
-**webpack and Rspack have no dev-only flag, so add it under your development config.** Vite loads
-its plugin on the dev server alone. These two load whatever the config lists, so a shared config
-would carry the plugin into your release build. A build running in `mode: "production"` is refused:
-the plugin transforms nothing and prints one line saying why, so nothing it injects can reach a
-shipped bundle. This package is ESM only, so the config file holding it has to be ESM too.
+Two things are different for webpack and Rspack, because neither one has a dev-only flag, and
+neither ships a parser this plugin can borrow.
 
-**webpack and Rspack also need `oxc-parser` as a dev dependency**, which is what reads your source.
-Vite 8 ships a parser this plugin can use and these two do not, so `pnpm add -D oxc-parser` goes
-with the plugin.
+- **They load whatever the config lists**, so a shared config would carry the plugin into your
+  release build. Give them a development config of their own. A build whose `mode` is not
+  `"development"` is refused anyway: the plugin transforms nothing and prints one line saying why,
+  so nothing it injects can reach a shipped bundle.
+- **They need `oxc-parser` as a dev dependency**, which is what reads your source. Vite 8 ships a
+  parser this plugin can use and these two do not, so `pnpm add -D oxc-parser` goes with the plugin.
+  Vite 6 and 7 need it too.
 
 **Turbopack cannot run this**, and Next.js dev uses Turbopack by default. Turbopack runs a subset of
 webpack loaders, and every loader option it takes has to be a plain value, so `fileKey`, which is a
 function, cannot cross into it at all. A Next.js app reaches this plugin through its own
-`bundler: "webpack"` escape hatch and no other way.
+`bundler: "webpack"` escape hatch and no other way. Metro cannot run it either: its transform step
+is Babel, and reading a Babel tree would mean a second copy of everything the plugin does.
 
-Call `connectDevtools()` in your entry file:
+### 2. Call `connectDevtools()`
 
 ```ts
 // src/main.ts
@@ -91,10 +102,11 @@ Open the Redux panel in your browser devtools and pick your app from the dropdow
 
 ## Two ways a store gets in
 
-### The Vite plugin
+### The bundler plugin
 
-The plugin reads your source at dev-server time and makes every store register itself under its
-own variable name. It finds a store in two ways:
+The plugin reads your source while your dev build runs and makes every store register itself under
+its own variable name. It is the same plugin under Vite, webpack and Rspack, and it finds a store in
+two ways:
 
 - **By callee.** A call whose callee names something the file imported from `"nanostores"`,
   renamed imports included. This is the way that gives a store its type. It works at any depth:
@@ -161,8 +173,9 @@ The top level of the tree is the **home**. Under it, **a store sits beneath what
 any depth**.
 
 - **Home** is the file path for a store the plugin found, and the group name for a store you
-  listed by hand. A file inside the Vite root keeps its short path, `app/model.ts`. A file outside
-  it, such as a linked package or anything above that root, is measured from the
+  listed by hand. A file inside your bundler's root, Vite's `root` or webpack's `context`, keeps its
+  short path, `app/model.ts`. A file outside it, such as a linked package or anything above that
+  root, is measured from the
   [project root](#nanostoresdevtoolsoptions) instead of climbing out with `../`. Paths always use
   `/`, so macOS and Windows read the same. A file under `node_modules` is never instrumented, so it
   never has a home of its own.
@@ -524,8 +537,10 @@ The main entry, `nanostores-devtools`, ships a `production` export condition. Un
 resolves to a module that exports the same three names with the same types and does nothing.
 Everything else gets the real module.
 
-The plugin and the runtime need no such condition. The plugin runs in the dev server only, and the
-runtime is reached only through code the plugin injects, which a production build never sees.
+The plugin and the runtime need no such condition. The runtime is reached only through code the
+plugin injects, and no production build ever sees that code: under Vite the plugin is not loaded
+outside the dev server, and under webpack and Rspack it is loaded but refuses to transform
+anything.
 
 | bundler         | behaviour                                                                    |
 | --------------- | ---------------------------------------------------------------------------- |
@@ -753,8 +768,9 @@ wrote each one by hand.
 a warning naming the option and your value, and the plugin holds 50 per site instead: `0`, a
 number below zero, a fraction and `NaN` each say something no count of stores can be made of.
 
-**`fileKey` receives the home as the tree would show it**, so a file inside the Vite root arrives
-relative to that root and a file outside it arrives relative to `projectRoot`. It only changes what
+**`fileKey` receives the home as the tree would show it**, so a file inside your bundler's root
+arrives relative to that root and a file outside it arrives relative to the wider one, `projectRoot`
+under Vite and the climb above `context` under webpack and Rspack. It only changes what
 is displayed. A hot reload still clears a module by its real path, so two files sharing one display
 key cannot delete each other's stores.
 
@@ -772,7 +788,9 @@ as every key deleted and added again. Write a fixed rule instead, such as
 page load.
 
 **`projectRoot` is a Vite option.** Under webpack and Rspack the wider root is always the climb
-above `context`, which stops at the same workspace file Vite stops at.
+above `context`. It stops at the same three markers Vite stops at, `pnpm-workspace.yaml`,
+`lerna.json` and a `workspaces` field in a `package.json`; a Deno workspace stops Vite's own search
+and not the climb.
 
 **`projectRoot` defaults to Vite's own `searchForWorkspaceRoot`**, which climbs until it meets a
 workspace file. That is right for a real app: a linked package then reads as
@@ -781,13 +799,17 @@ long. It changes no path inside the Vite root. A file the project root cannot re
 full path, which still opens in an editor.
 
 **Every source file is parsed, and there is no option to stop it.** Parsing costs about 0.02 ms per
-file, paid once per file per dev server run, because Vite caches the transform. That buys the file
+file, paid once per file per dev build, because a bundler caches the transform of a file it has
+already read. That buys the file
 whose own text says nothing about stores, such as `export const panel = createPanel()` in a file
 that imports no nanostores: nothing else says the factory result holds those stores, and a store
 nothing places is drawn nowhere, so skipping that file would lose it rather than move it.
 
-On **Vite 8** the plugin costs you nothing extra: Vite re-exports the parser it needs. On **Vite 6
-and 7** it needs `oxc-parser` as a dev dependency, declared here as an optional peer.
+On **Vite 8** the plugin costs you nothing extra: Vite re-exports the parser it needs. **Vite 6 and
+7, webpack and Rspack** all need `oxc-parser` as a dev dependency instead, because none of them
+ships a parser this plugin can borrow. It is declared here as an optional peer, since a peer is
+declared for the package and never for one subpath, so a Vite 8 user is not handed a package they
+never load.
 
 ## Subpaths
 
@@ -795,8 +817,8 @@ and 7** it needs `oxc-parser` as a dev dependency, declared here as an optional 
 | ----------------------------- | -------------- | -------------------------------------------------------------------------------------- |
 | `nanostores-devtools`         | browser        | `nanostores` (peer) only                                                               |
 | `nanostores-devtools/vite`    | Node, dev only | `magic-string` and `unplugin` (dependencies), `vite` and `oxc-parser` (optional peers) |
-| `nanostores-devtools/webpack` | Node, dev only | `magic-string` and `unplugin` (dependencies), `oxc-parser` (optional peer)             |
-| `nanostores-devtools/rspack`  | Node, dev only | `magic-string` and `unplugin` (dependencies), `oxc-parser` (optional peer)             |
+| `nanostores-devtools/webpack` | Node, dev only | `magic-string` and `unplugin` (dependencies), `oxc-parser` (optional peer, and needed) |
+| `nanostores-devtools/rspack`  | Node, dev only | `magic-string` and `unplugin` (dependencies), `oxc-parser` (optional peer, and needed) |
 | `nanostores-devtools/runtime` | browser        | nothing                                                                                |
 
 **`nanostores-devtools/runtime` is internal.** The plugin injects an import of it into your
@@ -1286,7 +1308,7 @@ reload does not replace it, and it keeps both the name and the home the deleted 
 until you reload the page in full. A store the same file created is unaffected: the reload builds a
 new one, and no binding has claimed that one yet.
 
-### What the Vite plugin misses
+### What the plugin misses
 
 - **Reassignment.** `let $late = atom("a"); $late = atom("b")` registers the first store only.
 - **`import * as ns from "nanostores"`** gets no callee matching, and we warn once for that file.
@@ -1296,9 +1318,10 @@ new one, and no binding has claimed that one yet.
 - **A factory-made store bound to a name without `$` is not adopted.**
 - **A store created inside an already instrumented store is not registered.** A store made inside
   a computed's callback is a temporary that the callback rebuilds on every run.
-- **A store from a dependency shows `type: "unknown"`.** Vite pre-bundles dependencies before any
-  plugin runs, so they cannot be instrumented. Adoption still puts them in the tree under your own
-  name for them, but the type is lost and the marker stays conservative.
+- **A store from a dependency shows `type: "unknown"`.** The plugin never reads a file under
+  `node_modules`, and under Vite it could not anyway: Vite pre-bundles dependencies before any
+  plugin runs. Adoption still puts them in the tree under your own name for them, but the type is
+  lost and the marker stays conservative.
 - **A factory defined in module A but called from module B piles up entries under A when B hot
   reloads**, because A did not run again and so did not clear itself. Measured: one unrelated edit
   took `$items` from 2 rows to 4. The per-site cap keeps the count bounded, and it drops the
