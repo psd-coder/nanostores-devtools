@@ -144,8 +144,8 @@ describe("moduleKeys", () => {
   it("leaves this package's own files alone, so a linked checkout stays untouched", () => {
     const own = { root: PROJECT_ROOT, projectRoot: PROJECT_ROOT };
 
-    expect(moduleKeys(`${HERE}/runtime.ts`, own)).toBeUndefined();
-    expect(moduleKeys(`${PROJECT_ROOT}/src/registry.ts`, own)).toBeUndefined();
+    expect(moduleKeys(`${PROJECT_ROOT}/src/runtime.ts`, own)).toBeUndefined();
+    expect(moduleKeys(`${HERE}/transform.ts`, own)).toBeUndefined();
     expect(moduleKeys(`${PROJECT_ROOT}/app/src/app.ts`, own)?.moduleKey).toBe("app/src/app.ts");
   });
 
@@ -185,7 +185,7 @@ describe("a production build", () => {
 
     expect(code).toContain(`from "nanostores"`);
     expect(code).not.toContain("__nsdt");
-    expect(code).not.toContain("vite/runtime");
+    expect(code).not.toContain("nanostores-devtools/runtime");
   });
 });
 
@@ -289,7 +289,7 @@ describe("the source the plugin is handed", () => {
       logLevel: "silent",
       root: PROJECT_ROOT,
       plugins: [watched(seen), memoryFixture(SOURCE_FILES)],
-      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
     });
 
     await server.ssrLoadModule(SOURCE);
@@ -322,7 +322,7 @@ describe("a file that imports no nanostores creator", () => {
       logLevel: "silent",
       root: PROJECT_ROOT,
       plugins: [nanostoresDevtools(), memoryFixture(FILES)],
-      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
     });
 
     await server.ssrLoadModule(APP);
@@ -400,7 +400,7 @@ describe("a file that says nothing about stores in its own text", () => {
       logLevel: "silent",
       root: PROJECT_ROOT,
       plugins: [nanostoresDevtools(options), memoryFixture(GATE_FILES)],
-      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
     });
 
     await server.ssrLoadModule(WORKSPACE);
@@ -443,7 +443,7 @@ describe("a maxStoresPerSite the developer typed wrong", () => {
       },
       root: PROJECT_ROOT,
       plugins: [nanostoresDevtools({ maxStoresPerSite: -1 }), memoryFixture(FILES)],
-      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
     });
 
     await server.ssrLoadModule(APP);
@@ -494,7 +494,7 @@ describe("a store made outside the Vite root", () => {
       logLevel: "silent",
       root: PROJECT_ROOT,
       plugins: [nanostoresDevtools({ projectRoot: ABOVE_ROOT }), memoryFixture(OUTSIDE_FILES)],
-      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
       server: { fs: { allow: [ABOVE_ROOT] } },
     });
 

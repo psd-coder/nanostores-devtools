@@ -113,9 +113,7 @@ describe("the export map", () => {
 
       expect(await resolveSubpath("nanostores-devtools")).toMatch(/dist\/index\.mjs$/);
       expect(await resolveSubpath("nanostores-devtools/vite")).toMatch(/dist\/vite\/plugin\.mjs$/);
-      expect(await resolveSubpath("nanostores-devtools/vite/runtime")).toMatch(
-        /dist\/vite\/runtime\.mjs$/,
-      );
+      expect(await resolveSubpath("nanostores-devtools/runtime")).toMatch(/dist\/runtime\.mjs$/);
 
       for (const file of [
         "dist/index.mjs",
@@ -123,8 +121,8 @@ describe("the export map", () => {
         "dist/noop.mjs",
         "dist/vite/plugin.mjs",
         "dist/vite/plugin.d.mts",
-        "dist/vite/runtime.mjs",
-        "dist/vite/runtime.d.mts",
+        "dist/runtime.mjs",
+        "dist/runtime.d.mts",
       ]) {
         expect(shipped).toContain(file);
       }
@@ -165,7 +163,7 @@ describe("importing the package in plain Node", () => {
       "-e",
       `await import("nanostores-devtools");
        await import("nanostores-devtools/vite");
-       await import("nanostores-devtools/vite/runtime");
+       await import("nanostores-devtools/runtime");
        if (globalThis[Symbol.for("nanostores-devtools/v1")] !== undefined) {
          process.stdout.write("the registry was created at import time");
        }`,

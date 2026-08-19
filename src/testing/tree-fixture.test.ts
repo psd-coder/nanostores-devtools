@@ -35,7 +35,7 @@ import {
  * Every case here exists because something was once wrong, so a test failing here means a case
  * that used to draw right has stopped.
  */
-const RUNTIME = `${FIXTURE_ROOT}/src/vite/runtime.ts`;
+const RUNTIME = `${FIXTURE_ROOT}/src/runtime.ts`;
 
 /** The five stores the fixture mounts, so a computed nobody watches still reads as unmounted. */
 const MOUNTED = ["$draft", "$draft2", "$entries", "$step", "$busy"];
@@ -68,7 +68,7 @@ async function serve(options: VitePluginOptions = {}): Promise<ViteDevServer> {
     logLevel: "silent",
     root: FIXTURE_ROOT,
     plugins: [nanostoresDevtools({ projectRoot: FIXTURE_PROJECT_ROOT, ...options }), treeFixture()],
-    resolve: { alias: { "nanostores-devtools/vite/runtime": RUNTIME } },
+    resolve: { alias: { "nanostores-devtools/runtime": RUNTIME } },
     server: { fs: { allow: [FIXTURE_PROJECT_ROOT] } },
   });
 }

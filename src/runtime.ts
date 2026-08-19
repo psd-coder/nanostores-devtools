@@ -6,8 +6,8 @@ import {
   peekDevtoolsGlobal,
   type SiteState,
   type SiteStore,
-} from "../global.ts";
-import { claimSiteName, releaseSiteNames, siteParts } from "../names.ts";
+} from "./global.ts";
+import { claimSiteName, releaseSiteNames, siteParts } from "./names.ts";
 import {
   beginFrame,
   type Binding,
@@ -16,7 +16,7 @@ import {
   noteBirth,
   ownBindings,
   ownField,
-} from "../ownership.ts";
+} from "./ownership.ts";
 import {
   evictStore,
   getEntry,
@@ -24,8 +24,8 @@ import {
   registerStore,
   type StoreType,
   unregisterStore,
-} from "../registry.ts";
-import type { ThrottleComment } from "../throttle.ts";
+} from "./registry.ts";
+import type { ThrottleComment } from "./throttle.ts";
 
 export type { StoreType };
 

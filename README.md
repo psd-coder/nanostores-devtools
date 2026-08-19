@@ -489,7 +489,7 @@ The main entry, `nanostores-devtools`, ships a `production` export condition. Un
 resolves to a module that exports the same three names with the same types and does nothing.
 Everything else gets the real module.
 
-The two Vite subpaths need no such condition. The plugin runs in the dev server only, and the
+The plugin and the runtime need no such condition. The plugin runs in the dev server only, and the
 runtime is reached only through code the plugin injects, which a production build never sees.
 
 | bundler         | behaviour                                                                    |
@@ -753,13 +753,13 @@ and 7** it needs `oxc-parser` as a dev dependency, declared here as an optional 
 
 ## Subpaths
 
-| subpath                            | runs in        | may depend on                                                         |
-| ---------------------------------- | -------------- | --------------------------------------------------------------------- |
-| `nanostores-devtools`              | browser        | `nanostores` (peer) only                                              |
-| `nanostores-devtools/vite`         | Node, dev only | `magic-string` (dependency), `vite` and `oxc-parser` (optional peers) |
-| `nanostores-devtools/vite/runtime` | browser        | nothing                                                               |
+| subpath                       | runs in        | may depend on                                                         |
+| ----------------------------- | -------------- | --------------------------------------------------------------------- |
+| `nanostores-devtools`         | browser        | `nanostores` (peer) only                                              |
+| `nanostores-devtools/vite`    | Node, dev only | `magic-string` (dependency), `vite` and `oxc-parser` (optional peers) |
+| `nanostores-devtools/runtime` | browser        | nothing                                                               |
 
-**`nanostores-devtools/vite/runtime` is internal.** The plugin injects an import of it into your
+**`nanostores-devtools/runtime` is internal.** The plugin injects an import of it into your
 modules during development, so it appears in your module graph. Never import it yourself.
 
 ## What v1 does not do

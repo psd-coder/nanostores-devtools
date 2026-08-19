@@ -2,7 +2,7 @@ import { decode } from "@jridgewell/sourcemap-codec";
 import { describe, expect, it } from "vitest";
 
 import { loadParser } from "./parser.ts";
-import type { CreationSite } from "./runtime.ts";
+import type { CreationSite } from "../runtime.ts";
 import { type StoreTransform, type TransformInput, transformStores } from "./transform.ts";
 
 const MODULE_KEY = "src/stores/cart.ts";
@@ -939,7 +939,7 @@ describe("the injected header", () => {
   it("is the first thing in the module body and clears the module's own stores", () => {
     const code = output(transform(source));
 
-    expect(code.split("\n")[0]).toContain(`from "nanostores-devtools/vite/runtime"`);
+    expect(code.split("\n")[0]).toContain(`from "nanostores-devtools/runtime"`);
     expect(code.indexOf("__nsdt.clear()")).toBeLessThan(code.indexOf("__nsdt.store("));
   });
 

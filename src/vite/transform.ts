@@ -17,7 +17,7 @@ import type {
 
 import type { StoreType } from "../registry.ts";
 import type { Parser } from "./parser.ts";
-import type { CreationSite } from "./runtime.ts";
+import type { CreationSite } from "../runtime.ts";
 
 export type TransformInput = {
   code: string;
@@ -35,7 +35,7 @@ export type StoreTransform =
   | { changed: true; code: string; map: SourceMap; warnings: readonly string[] }
   | { changed: false; warnings: readonly string[] };
 
-const RUNTIME_MODULE = "nanostores-devtools/vite/runtime";
+const RUNTIME_MODULE = "nanostores-devtools/runtime";
 const SCOPE = "__nsdt";
 const FACTORY = "__nsdtFileScope";
 
