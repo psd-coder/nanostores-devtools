@@ -30,9 +30,10 @@ export type Parser = ParserExports & {
 export type ParserImports = Record<ParserSource, () => Promise<unknown>>;
 
 const MISSING_PARSER =
-  "nanostores-devtools: Vite 6 and 7 ship no TypeScript-aware parser, so the plugin needs " +
-  "oxc-parser. Install it as a dev dependency: npm install --save-dev oxc-parser (or the pnpm " +
-  "or yarn equivalent). Vite 8 and later need nothing.";
+  "nanostores-devtools: discovery needs a TypeScript-aware parser and found none. Install " +
+  "oxc-parser as a dev dependency: npm install --save-dev oxc-parser (or the pnpm or yarn " +
+  "equivalent). Only Vite 8 and later ship one to borrow, so webpack, Rspack and Vite 6 and 7 " +
+  "all need it installed.";
 
 const defaultImports: ParserImports = {
   vite: () => import("vite"),
