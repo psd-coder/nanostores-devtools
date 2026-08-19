@@ -7,8 +7,8 @@ const SRC = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * `src/*.ts` is the model and `src/redux/*.ts` is the view. A model file never imports a view file;
- * the other direction is free. `src/vite/*.ts` is a bundler adapter, and it follows the model rule
- * too, so a second adapter inherits that rule instead of rediscovering it.
+ * the other direction is free. `src/discovery/*.ts` is a bundler adapter, and it follows the model
+ * rule too, so a second adapter inherits that rule instead of rediscovering it.
  *
  * A crossing fails here and is fixed in the source. A crossing written down somewhere instead is a
  * rule the next reader has to argue with before they can trust it.
@@ -134,13 +134,13 @@ describe("the model and view boundary", () => {
     expect(describeCrossings(crossings)).toEqual(["printed.ts imports redux/marker.ts: "]);
   });
 
-  it("holds a vite file to the same rule as a model file", () => {
+  it("holds a discovery file to the same rule as a model file", () => {
     const crossings = findCrossings({
-      "vite/transform.ts": `import type { Bridge } from "../redux/connect.ts";\n`,
+      "discovery/transform.ts": `import type { Bridge } from "../redux/connect.ts";\n`,
     });
 
     expect(describeCrossings(crossings)).toEqual([
-      "vite/transform.ts imports redux/connect.ts: Bridge",
+      "discovery/transform.ts imports redux/connect.ts: Bridge",
     ]);
   });
 

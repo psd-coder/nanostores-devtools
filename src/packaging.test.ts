@@ -112,15 +112,17 @@ describe("the export map", () => {
       const shipped = new Set(stdout.split("\n"));
 
       expect(await resolveSubpath("nanostores-devtools")).toMatch(/dist\/index\.mjs$/);
-      expect(await resolveSubpath("nanostores-devtools/vite")).toMatch(/dist\/vite\/plugin\.mjs$/);
+      expect(await resolveSubpath("nanostores-devtools/vite")).toMatch(
+        /dist\/discovery\/vite\.mjs$/,
+      );
       expect(await resolveSubpath("nanostores-devtools/runtime")).toMatch(/dist\/runtime\.mjs$/);
 
       for (const file of [
         "dist/index.mjs",
         "dist/index.d.mts",
         "dist/noop.mjs",
-        "dist/vite/plugin.mjs",
-        "dist/vite/plugin.d.mts",
+        "dist/discovery/vite.mjs",
+        "dist/discovery/vite.d.mts",
         "dist/runtime.mjs",
         "dist/runtime.d.mts",
       ]) {
@@ -150,7 +152,7 @@ describe("the export map", () => {
   });
 
   it("keeps the plugin's types clear of the optional oxc-parser peer", async () => {
-    const types = await readFile(path.join(ROOT, "dist/vite/plugin.d.mts"), "utf8");
+    const types = await readFile(path.join(ROOT, "dist/discovery/vite.d.mts"), "utf8");
 
     expect(types).not.toContain("oxc-parser");
   });

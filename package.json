@@ -31,8 +31,8 @@
       "default": "./dist/runtime.mjs"
     },
     "./vite": {
-      "types": "./dist/vite/plugin.d.mts",
-      "default": "./dist/vite/plugin.mjs"
+      "types": "./dist/discovery/vite.d.mts",
+      "default": "./dist/discovery/vite.mjs"
     }
   },
   "scripts": {

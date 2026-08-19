@@ -106,8 +106,11 @@ and what happened to it; the **view** writes the name out, the `/` and the op wo
 stores: `trackStores("cart", { $counter })`. The object key is the store name. Group first
 and required, which is deliberately not the shape `@nanostores/logger` uses.
 
-**Automatic discovery** — the Vite plugin finds store creation in the source at build
-time and makes each store register itself, carrying its variable name.
+**Automatic discovery** — finding store creation in the source at build time and making each
+store register itself, carrying its variable name. The finding is one bundler-neutral core in
+`src/discovery/`, and a **bundler adapter** beside it reaches one bundler with it: it works out
+the roots, hands each file over and prints the warnings that come back. `discovery/vite.ts` is
+the one adapter today.
 
 **Creation site** — one place in the source where a store is made, identified by module,
 name, enclosing function and line. The line is the one the developer wrote, which is why the

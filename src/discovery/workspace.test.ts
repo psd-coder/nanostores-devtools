@@ -6,7 +6,7 @@ const ROOT = "/repo/apps/web";
 
 describe("findWorkspaceRoot", () => {
   it("asks vite, which climbs to the file that marks the workspace", async () => {
-    await expect(findWorkspaceRoot(`${process.cwd()}/src/vite`)).resolves.toBe(process.cwd());
+    await expect(findWorkspaceRoot(`${process.cwd()}/src/discovery`)).resolves.toBe(process.cwd());
   });
 
   it("falls back to the Vite root when vite cannot be loaded", async () => {
