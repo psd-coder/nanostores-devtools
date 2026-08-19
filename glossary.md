@@ -130,13 +130,15 @@ getter, a symbol key and a key the developer made non-enumerable are each refuse
 a key is left out because the panel draws state. They arrive in the value's own order, nothing sorts
 them, and a value that refuses to be read gives up all of them rather than half. Where a value has
 none, it is asked for **a published reading** instead. A DOM node and **the global object** are the
-two values whose own fields are skipped on purpose.
+two values whose own fields are skipped on purpose. It is a **model** thing, `ownFields` in
+`src/descriptor.ts`: every view asks the same question and gets the same answer.
 
 **Platform object** — one whose fields all sit behind getters on its prototype and which holds no
 own data: an event, a `URL`, a `DOMRect`, a `Blob`. The bridge reads no getter, whoever wrote it, so
 such an object draws its class name over an empty object, plus **a published reading** where its
 class wrote one. Anything else it holds needs a serializer of the developer's over the class they
-hold. A few classes take a **shipped serializer** instead.
+hold. A few classes take a **shipped serializer** instead. It is a **model** kind: what such an
+object holds is a fact about the value, and drawing it is the view's half.
 
 **A published reading** — the answer of a `valueOf` or a `toString` a class defines itself, called
 on a value that holds no own data and drawn under `(valueOf)` and `(toString)`, `(valueOf)` first.
@@ -145,13 +147,15 @@ One rule for every such value: a class instance, a DOM node and the global objec
 `window` draw their class name alone. `Object.prototype`'s own two are refused by identity, which is
 what separates the two groups. This is the one place the bridge runs a line of the app's code: the
 method is found through a descriptor, called by name, kept only where the answer is a primitive, and
-a throw costs that one key.
+a throw costs that one key. It is a **model** thing, `printedFields` in `src/printed.ts`, and it
+names no key: the two spellings above are the view's, in `src/redux/keys.ts`.
 
 **Shipped serializer** — a rule the bridge carries for a platform class with one obvious reading and
 no field to choose: `Headers`, `FormData`, `URLSearchParams`, `ArrayBuffer`, `SharedArrayBuffer`,
 `DataView`, and a boxed `String`, `Number` or `Boolean`. Checked after the developer's own
 serializers and ahead of every other rule of ours, and `platformSerializers: false` leaves the whole
-list out.
+list out. The rule is a **model** thing, `platformRules` in `src/platform.ts`, and it answers what
+the class holds; `src/redux/platform-rules.ts` is what turns each answer into a serializer.
 
 **The global object** — `globalThis`, wherever a row reaches it: `currentTarget` on a `window`
 listener, `self`, `frames`, `top` and `parent` in a page that is not framed. It is never walked, and
@@ -204,7 +208,8 @@ replacing it. It handles only what jsan handles badly: `Error` (jsan keeps the m
 class instances (jsan loses the name), typed arrays, `BigInt` (jsan throws), DOM nodes,
 the global object, and `Map` and `Set` (the panel calls both of them `Iterable`). Everything else
 it returns untouched for jsan to encode. It takes user-supplied serializers and encodes only: there
-is no reviver of ours.
+is no reviver of ours. It is a **view** thing, `src/redux/replacer.ts`: jsan's contract and the
+panel's spelling, over readings the model answers with.
 
 It changes two things about what it copies. **A method is not drawn**: an object's own property
 holding a function is left out, because the panel draws state and a method is behaviour the source
@@ -241,7 +246,8 @@ between two placements. A serializer runs before both counts, and the result it 
 by them one level down.
 
 **Wrapper** — the extension's own `{ data, __serializedType__ }` shape, not a shape of ours.
-It is a **view** thing, so the code that builds and recognises it lives in `src/redux/marker.ts`.
+It is a **view** thing, so the code that builds and recognises it lives in `src/redux/marker.ts`,
+and a reading the model answers with goes into one only where the view puts it there.
 `data` holds what survived and `__serializedType__` names it. The panel's reviver unwraps it and
 prints the type as a label in front of the bare value, so it adds no nesting. It only works
 while `serialize` is truthy, and only when `typeof data === "object"`, which is why every marked

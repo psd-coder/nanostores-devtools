@@ -1,5 +1,13 @@
+/**
+ * What is in this file is jsan's contract and the panel's spelling: the one object per source value
+ * jsan needs to spot a repeat, the levels a replacer handed `(key, value)` cannot see for itself,
+ * the wrapper the panel's reviver unwraps, and the key names it reads. A rule that answers what a
+ * value *is*, rather than how this one library and this one panel want it written, belongs on the
+ * other side, in `src/*.ts`.
+ */
 import type { Store } from "nanostores";
 
+import { mapEntries, setMembers } from "../collections.ts";
 import {
   chainDescriptor,
   chainValue,
@@ -10,13 +18,22 @@ import {
 } from "../descriptor.ts";
 import { noteDrawn } from "../drawn.ts";
 import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "../limits.ts";
-import { MORE_KEY } from "../keys.ts";
+import { MORE_KEY, TO_STRING_KEY, VALUE_OF_KEY } from "./keys.ts";
 import { dataForMark, noteFor, reachesStore } from "./boxing.ts";
 import { box, isBuilt, isMarked, keepBuilt, mark, type Marked } from "./marker.ts";
 import { printedFields } from "../printed.ts";
 import { getEntry, isStore, noted, storeWord } from "../registry.ts";
 import { staleNote } from "../slot.ts";
 import { isThrottled } from "../throttle.ts";
+import {
+  childValues,
+  constructorName,
+  isDomNode,
+  isTypedArray,
+  isWalkable,
+  refuseUnlistable,
+  stackDescriptor,
+} from "../value-kinds.ts";
 import { describeError, warnOnce } from "../warn.ts";
 
 /**
@@ -72,9 +89,6 @@ type ResultSlots = Map<unknown, number>;
 
 /** Which kind of collection jsan is about to write, which says what the list it walks next holds. */
 type Collection = "map" | "set";
-
-/** What a width cap let through, and how many members it left behind. */
-type Shortened<TDrawn> = { drawn: TDrawn; skipped: number };
 
 /**
  * How many times one object may go through a `convert` while one tree is written. A result that
@@ -328,32 +342,6 @@ function fillSlots(slots: ResultSlots, result: unknown): unknown {
 }
 
 /**
- * What jsan hands the replacer one level down. A `Map` and a `Set` go through a walk of their own,
- * over a list jsan builds out of them, so their keys and their values are held here while that list
- * and its pairs are not: those two levels are jsan's and are held by `opened` and `jsanPairs`, which
- * hold them for one call rather than counting them down like a slot.
- */
-function childValues(value: unknown): unknown[] {
-  if (!isWalkable(value)) {
-    return [];
-  }
-
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  if (value instanceof Map) {
-    return [...value.keys(), ...value.values()];
-  }
-
-  if (value instanceof Set) {
-    return [...value];
-  }
-
-  return Object.values(ownFields(value));
-}
-
-/**
  * Throws rather than returns, so a walk that cannot end costs the one slot a `ConversionError`
  * through the same `catch` every other failure goes through. Only an object is counted: a primitive
  * the app holds in a thousand slots is a tree a serializer may well meet, and it converts fine.
@@ -374,11 +362,6 @@ function countConvert(converted: Map<object, number>, value: unknown): void {
         `getter.`,
     );
   }
-}
-
-/** What jsan walks into. A function is not one: with `options` on it goes out as a `$jsan` string. */
-function isWalkable(value: unknown): value is object {
-  return typeof value === "object" && value !== null;
 }
 
 /**
@@ -472,9 +455,25 @@ function withMore(fields: Fields, skipped: number, drawn: number): Fields {
  * What a value with no fields of the app's own draws: the reading its class published, and an empty
  * object where it published none. One rule for every such value, so an `<a>` answers with its href
  * the way a `URL` does, and a `<div>`, a `document` and the global object read as their class name.
+ *
+ * Each answer takes the key naming the method that gave it, and `(valueOf)` is written first,
+ * because the panel never sorts keys and written order is read order. The key is asked for by
+ * `hasOwn`, since every object inherits a `valueOf` and a `toString` of `Object.prototype`'s and
+ * reading the name off the reading would find those.
  */
 function published(kept: Kept, value: object): Fields {
-  return slotted(kept, printedFields(value));
+  const reading = printedFields(value);
+  const fields: Fields = {};
+
+  if (Object.hasOwn(reading, "valueOf")) {
+    fields[VALUE_OF_KEY] = reading.valueOf;
+  }
+
+  if (Object.hasOwn(reading, "toString")) {
+    fields[TO_STRING_KEY] = reading.toString;
+  }
+
+  return slotted(kept, fields);
 }
 
 /** A value the count reached past its last level, drawn by its class and the reason and nothing else. */
@@ -486,19 +485,6 @@ function pastDepth(kept: Kept, value: object): Marked {
     box(`past the ${kept.limits.maxValueDepth} levels drawn under a class instance`),
     FREE,
   );
-}
-
-/**
- * Throws on a value that will not let its keys be listed, before any rule below hands it to jsan.
- * Two reads sit behind it. jsan lists the keys of whatever it walks, and it does that outside the
- * `try` around this call, so a `Proxy` trap that throws there would take the whole write down. And
- * the copy a plain object and an array go out as answers a refusal with nothing at all, so without
- * this call a value that refused would draw as one that held nothing. Asking here costs one listing
- * and leaves the refusal where every other bad value lands: this one slot, drawn as a
- * `ConversionError`.
- */
-function refuseUnlistable(value: object): void {
-  Object.keys(value);
 }
 
 /**
@@ -555,54 +541,12 @@ function positioned(members: readonly unknown[]): Fields {
 }
 
 /**
- * Both collections are read through the built-in `forEach` called against the value rather than
- * through a method of the value's own, so a subclass that overrode iteration cannot run its code
- * while a tree is written.
+ * A `Map` entry whose key has no name in the source to spell, kept in jsan's own shape,
+ * `{ "[key]": …, "[value]": … }`. It is noted as ours, so no rule of ours respells the two keys and
+ * a store in either half takes the wrapper.
  */
-function setMembers(value: Set<unknown>, upTo: number): Shortened<unknown[]> {
-  const drawn: unknown[] = [];
-  let skipped = 0;
-
-  Set.prototype.forEach.call(value, (member: unknown) => {
-    if (drawn.length < upTo) {
-      drawn.push(member);
-    } else {
-      skipped += 1;
-    }
-  });
-
-  return { drawn, skipped };
-}
-
-/**
- * One key per entry, spelled the way the tree spells a `Map` key, `["scratch"]`. A key that is
- * neither a string nor a number has no name in the source to spell, so its entry keeps jsan's own
- * shape, `[entry 0]: { "[key]": …, "[value]": … }`: the key is as much state as the value is, and
- * the tree may leave such a member out of a placement but a value may not lose it.
- */
-function mapEntries(value: Map<unknown, unknown>, upTo: number): Shortened<Fields> {
-  const drawn: Fields = {};
-  let index = 0;
-  let skipped = 0;
-
-  Map.prototype.forEach.call(value, (member: unknown, key: unknown) => {
-    if (index >= upTo) {
-      skipped += 1;
-      index += 1;
-
-      return;
-    }
-
-    if (typeof key === "string" || typeof key === "number") {
-      drawn[`[${JSON.stringify(key)}]`] = member;
-    } else {
-      drawn[`[entry ${index}]`] = keepBuilt({ "[key]": key, "[value]": member });
-    }
-
-    index += 1;
-  });
-
-  return { drawn, skipped };
+function entryPair(key: unknown, member: unknown): unknown {
+  return keepBuilt({ "[key]": key, "[value]": member });
 }
 
 /** The same rule for an array of no stores, whose members jsan reads by index. A hole stays put. */
@@ -750,7 +694,7 @@ function convertValue(value: unknown, kept: Kept, depth: number, encoders = fals
 
   if (value instanceof Map) {
     const allow = allowance(kept, value, counting);
-    const entries = mapEntries(value, allow);
+    const entries = mapEntries(value, allow, entryPair);
     const drawn = slotted(kept, entries.drawn);
 
     return markAt(kept, value, "Map", withMore(drawn, entries.skipped, allow), depth);
@@ -925,67 +869,4 @@ function errorFields(kept: Kept, error: Error): Fields {
   }
 
   return slotted(kept, Object.assign(fields, ownFields(error)));
-}
-
-/**
- * V8 installs `stack` as an own accessor on the instance, so refusing every accessor would drop the
- * stack from every error we draw. The position tells the two apart: an own accessor is the engine's
- * and is read, while a `get stack()` the app wrote lands on a prototype and is refused.
- *
- * That getter builds the first stack line as `name: message` and reads both off the error, so a
- * getter on either one would run through it. `headerIsSafe` says both were read as data, and
- * without it the stack goes out with them. Even then the read can run app code through
- * `Error.prepareStackTrace`, a V8 hook that formats the stack, and that is the one hole we take: it
- * is rare in a browser, and a devtools with no stack traces is worth less than the risk.
- */
-function stackDescriptor(error: Error, headerIsSafe: boolean): PropertyDescriptor | undefined {
-  const own = Object.getOwnPropertyDescriptor(error, "stack");
-
-  if (!own) {
-    return chainDescriptor(error, "stack");
-  }
-
-  if ("value" in own) {
-    return own;
-  }
-
-  return own.get && headerIsSafe ? { value: own.get.call(error) } : undefined;
-}
-
-/**
- * What built the value, read through the descriptor so a getter the app put on `constructor` or on
- * the function's own `name` never runs. The value's own `constructor` comes first, which keeps
- * `this.constructor = Foo` written by hand working, and the prototype's is where a class puts it, so
- * reading own properties alone would lose every label.
- */
-function constructorName(value: object, fallback: string): string {
-  const prototype: object | null = Object.getPrototypeOf(value);
-  const built: unknown =
-    ownValue(value, "constructor") ??
-    (prototype === null ? undefined : ownValue(prototype, "constructor"));
-  const name: unknown = typeof built === "function" ? ownValue(built, "name") : undefined;
-
-  return typeof name === "string" && name.length > 0 ? name : fallback;
-}
-
-/** What an own data property holds. A getter is passed over rather than called. */
-function ownValue(value: object, key: string): unknown {
-  return Object.getOwnPropertyDescriptor(value, key)?.value;
-}
-
-/** Every view except a `DataView` is a typed array, and every typed array is array-like. */
-function isTypedArray(value: object): value is ArrayLike<number | bigint> {
-  return ArrayBuffer.isView(value) && !(value instanceof DataView);
-}
-
-/**
- * `instanceof` reads no property off the value, so no getter of the app's can run here.
- *
- * The branch draws what every value with no own data draws, and it exists to skip the own-data half
- * above it. A framework parks its own state on a node as an own enumerable property, React's fiber
- * above all, so without this the class-instance rule would walk a whole render tree out of one
- * element.
- */
-function isDomNode(value: object): boolean {
-  return typeof Node !== "undefined" && value instanceof Node;
 }

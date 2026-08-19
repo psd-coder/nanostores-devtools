@@ -14,7 +14,7 @@ import {
   noteInitSent,
   noteRegistryChange,
 } from "../lifecycle.ts";
-import { shippedSerializers } from "../platform.ts";
+import { shippedSerializers } from "./platform-rules.ts";
 import { listEntries, onRegistryChange } from "../registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
 import { buildSnapshot } from "./render.ts";

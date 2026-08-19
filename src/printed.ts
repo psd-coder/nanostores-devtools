@@ -1,34 +1,36 @@
-import { chainDescriptor, type Fields } from "./descriptor.ts";
-import { TO_STRING_KEY, VALUE_OF_KEY } from "./keys.ts";
+import { chainDescriptor } from "./descriptor.ts";
 
 /**
- * What a class wrote down about how its instances read: a `valueOf` and a `toString` of its own,
- * each answer under a key naming the method that gave it. A `URL` and a `Location` answer with
- * their address this way, and an event, a `Blob` and an `AbortSignal` fall to `Object.prototype`
- * and answer nothing, so the class decides for itself.
+ * What a class published about itself, one answer per method. A key is present only where that
+ * method answered with a primitive, so an absent key and a key holding `undefined` never mean two
+ * different things.
+ */
+export type PublishedReading = { valueOf?: unknown; toString?: unknown };
+
+/**
+ * What a class wrote down about how its instances read: a `valueOf` and a `toString` of its own.
+ * A `URL` and a `Location` answer with their address this way, and an event, a `Blob` and an
+ * `AbortSignal` fall to `Object.prototype` and answer nothing, so the class decides for itself.
  *
  * Calling a method here runs the app's own code, which is why every step of it is a bound. The
  * method is found through a descriptor, so an accessor is refused the way every other read refuses
  * one. `Object.prototype.valueOf` hands the object straight back and `Object.prototype.toString`
  * gives `[object X]`, so both are refused by identity. Each call sits in its own `try`, and only a
  * primitive answer is kept.
- *
- * `(valueOf)` is written first, because the panel never sorts keys and written order is read order.
  */
-export function printedFields(value: object): Fields {
-  const fields: Fields = {};
+export function printedFields(value: object): PublishedReading {
+  const reading: PublishedReading = {};
 
-  keepReading(fields, value, "valueOf", VALUE_OF_KEY, Object.prototype.valueOf);
-  keepReading(fields, value, "toString", TO_STRING_KEY, Object.prototype.toString);
+  keepReading(reading, value, "valueOf", Object.prototype.valueOf);
+  keepReading(reading, value, "toString", Object.prototype.toString);
 
-  return fields;
+  return reading;
 }
 
 function keepReading(
-  fields: Fields,
+  reading: PublishedReading,
   value: object,
-  name: string,
-  key: string,
+  name: "valueOf" | "toString",
   inherited: unknown,
 ): void {
   const descriptor = chainDescriptor(value, name);
@@ -47,10 +49,10 @@ function keepReading(
     const read: unknown = method.call(value);
 
     if (isReading(read)) {
-      fields[key] = read;
+      reading[name] = read;
     }
   } catch {
-    /** One key gives up, and the other one and the class name still reach the panel. */
+    /** One answer gives up, and the other one and the class name still reach the panel. */
   }
 }
 

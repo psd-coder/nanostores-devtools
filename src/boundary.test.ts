@@ -33,19 +33,11 @@ type Exception = {
 };
 
 /**
- * One line per crossing that survives ticket 01. The test compares this list to what the source
- * really does, so a new crossing and a stale line fail the same way.
+ * One line per crossing the source still makes, each naming the ticket that clears it. The test
+ * compares this list to what the source really does, so a new crossing and a stale line fail the
+ * same way. It is empty: every model file today answers without naming the view.
  */
-const EXCEPTIONS: Exception[] = [
-  {
-    model: "platform.ts",
-    views: {
-      "redux/marker.ts": ["Marked", "box", "keepBuilt", "mark"],
-      "redux/replacer.ts": ["Serializer"],
-    },
-    clearedBy: "04",
-  },
-];
+const EXCEPTIONS: Exception[] = [];
 
 function allowedCrossings(): Crossing[] {
   return EXCEPTIONS.flatMap(({ model, views }) =>

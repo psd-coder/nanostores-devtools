@@ -1,4 +1,4 @@
-import { MORE_KEY, VALUE_KEY } from "../keys.ts";
+import { MORE_KEY, VALUE_KEY } from "./keys.ts";
 import { noteFor } from "./boxing.ts";
 import { keepBuilt, mark } from "./marker.ts";
 import { MAX_MEMBERS } from "../ownership.ts";

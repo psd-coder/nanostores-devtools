@@ -5,11 +5,11 @@ import { printedFields } from "./printed.ts";
 describe("printedFields", () => {
   it("reads the toString a URL writes, and nothing else", () => {
     expect(printedFields(new URL("https://a.dev/x?q=1"))).toEqual({
-      "(toString)": "https://a.dev/x?q=1",
+      toString: "https://a.dev/x?q=1",
     });
   });
 
-  it("writes (valueOf) first and (toString) second where a class has both", () => {
+  it("writes valueOf first and toString second where a class has both", () => {
     class Money {
       valueOf(): number {
         return 500;
@@ -22,9 +22,9 @@ describe("printedFields", () => {
 
     const drawn = printedFields(new Money());
 
-    expect(Object.keys(drawn)).toEqual(["(valueOf)", "(toString)"]);
-    expect(drawn["(valueOf)"]).toBe(500);
-    expect(drawn["(toString)"]).toBe("$5.00");
+    expect(Object.keys(drawn)).toEqual(["valueOf", "toString"]);
+    expect(drawn.valueOf).toBe(500);
+    expect(drawn.toString).toBe("$5.00");
   });
 
   it("refuses the two Object.prototype writes, so a plain instance reads nothing", () => {
@@ -61,8 +61,8 @@ describe("printedFields", () => {
       }
     }
 
-    expect(printedFields(new Held())).toEqual({ "(toString)": "held" });
-    expect(printedFields(new Counted())).toEqual({ "(valueOf)": 7 });
+    expect(printedFields(new Held())).toEqual({ toString: "held" });
+    expect(printedFields(new Counted())).toEqual({ valueOf: 7 });
   });
 
   it("drops an answer of null or undefined, which says nothing", () => {
@@ -90,7 +90,7 @@ describe("printedFields", () => {
       }
     }
 
-    expect(printedFields(new Half())).toEqual({ "(toString)": "still here" });
+    expect(printedFields(new Half())).toEqual({ toString: "still here" });
   });
 
   it("finds a toString written straight onto the instance", () => {
@@ -98,7 +98,7 @@ describe("printedFields", () => {
 
     const value = Object.assign(new Tagged(), { toString: () => "on the instance" });
 
-    expect(printedFields(value)).toEqual({ "(toString)": "on the instance" });
+    expect(printedFields(value)).toEqual({ toString: "on the instance" });
   });
 
   /** The methods are called by name, so a class that publishes only the symbol says nothing. */
@@ -122,7 +122,7 @@ describe("printedFields", () => {
       }
     }
 
-    expect(printedFields(new Tagged())).toEqual({ "(valueOf)": tag });
+    expect(printedFields(new Tagged())).toEqual({ valueOf: tag });
   });
 
   it("keeps a bigint answer, which the converter draws as a node of its own", () => {
@@ -132,6 +132,6 @@ describe("printedFields", () => {
       }
     }
 
-    expect(printedFields(new Big())).toEqual({ "(valueOf)": 900719925474099n });
+    expect(printedFields(new Big())).toEqual({ valueOf: 900719925474099n });
   });
 });

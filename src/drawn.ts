@@ -5,8 +5,10 @@ import type { Store } from "nanostores";
  * A store with no placement of its own has no key in the tree, and it is still drawn wherever a
  * value the panel shows holds it, so the tree alone cannot say whether a developer can see it.
  *
- * Filled by the converter, which is the very pass that draws the panel: the two can only disagree
- * if that pass never ran, and then nothing reached the panel either.
+ * **Any view's value walk must call `noteDrawn` for every store it draws.** That walk is the very
+ * pass that draws the panel, so the two can only disagree if it never ran, and then nothing reached
+ * the panel either. A walk that skips the call drops the timeline rows of a store the developer can
+ * plainly see, which is the one failure this set exists to prevent.
  *
  * It never forgets within one connection. A store drawn once and later taken out of the value keeps
  * drawing rows, which is the noise this is meant to cut; the other way round would drop a row for

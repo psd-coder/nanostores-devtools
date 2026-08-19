@@ -1,12 +1,25 @@
 import type { Fields } from "./descriptor.ts";
-import { box, keepBuilt, mark, type Marked } from "./redux/marker.ts";
-import type { Serializer } from "./redux/replacer.ts";
 
 /** A primitive inside an object wrapper, which keeps it behind the `valueOf` of its prototype. */
 type Boxed = { valueOf: () => unknown };
 
 /** One entry of a collection keyed by name, in the order that collection hands its entries out. */
 type Visit = (held: unknown, name: string) => void;
+
+/**
+ * What a platform class really holds, with no wire format in it: either a set of fields the class
+ * spells itself, or the one value it stands for. What each of those becomes on the wire is the
+ * view's to decide.
+ */
+export type PlatformReading =
+  | { type: string; kind: "fields"; fields: Fields }
+  | { type: string; kind: "value"; value: unknown };
+
+/** One rule, as the guard that recognises a class and the reading it takes off it. */
+export type PlatformRule = {
+  match: (value: unknown) => boolean;
+  read: (value: unknown) => PlatformReading;
+};
 
 /**
  * The rules the bridge ships, checked after the developer's own and ahead of every rule of ours.
@@ -19,45 +32,62 @@ type Visit = (held: unknown, name: string) => void;
  * `URLSearchParams` would read as its whole query string under `(toString)` without one, and its
  * entries say more.
  *
- * Every result is flat and small, which is what makes that order safe: it holds strings and
+ * Every reading is flat and small, which is what makes that order safe: it holds strings and
  * numbers, and the one object among them, a file inside a `FormData`, is bounded on its own.
  */
-export const shippedSerializers: Serializer[] = [
-  ruleFor(isHeaders, (value) => mark("Headers", headerFields(value))),
+export const platformRules: PlatformRule[] = [
+  ruleFor(isHeaders, (value) => fieldsRead("Headers", headerFields(value))),
   ruleFor(isFormData, (value) =>
-    mark(
+    fieldsRead(
       "FormData",
       entryFields((visit) => FormData.prototype.forEach.call(value, visit)),
     ),
   ),
   ruleFor(isSearchParams, (value) =>
-    mark(
+    fieldsRead(
       "URLSearchParams",
       entryFields((visit) => URLSearchParams.prototype.forEach.call(value, visit)),
     ),
   ),
-  ruleFor(isArrayBuffer, (value) => mark("ArrayBuffer", bufferSize(ArrayBuffer.prototype, value))),
-  ruleFor(isSharedBuffer, (value) =>
-    mark("SharedArrayBuffer", bufferSize(SharedArrayBuffer.prototype, value)),
+  ruleFor(isArrayBuffer, (value) =>
+    fieldsRead("ArrayBuffer", bufferSize(ArrayBuffer.prototype, value)),
   ),
-  ruleFor(isDataView, (value) => mark("DataView", viewBounds(value))),
-  ruleFor(isBoxedString, (value) => mark("String", box(unboxed(String.prototype, value)))),
-  ruleFor(isBoxedNumber, (value) => mark("Number", box(unboxed(Number.prototype, value)))),
-  ruleFor(isBoxedBoolean, (value) => mark("Boolean", box(unboxed(Boolean.prototype, value)))),
+  ruleFor(isSharedBuffer, (value) =>
+    fieldsRead("SharedArrayBuffer", bufferSize(SharedArrayBuffer.prototype, value)),
+  ),
+  ruleFor(isDataView, (value) => fieldsRead("DataView", viewBounds(value))),
+  ruleFor(isBoxedString, (value) => valueRead("String", unboxed(String.prototype, value))),
+  ruleFor(isBoxedNumber, (value) => valueRead("Number", unboxed(Number.prototype, value))),
+  ruleFor(isBoxedBoolean, (value) => valueRead("Boolean", unboxed(Boolean.prototype, value))),
 ];
 
+function fieldsRead(type: string, fields: Fields): PlatformReading {
+  return { type, kind: "fields", fields };
+}
+
+function valueRead(type: string, value: unknown): PlatformReading {
+  return { type, kind: "value", value };
+}
+
 /**
- * One rule, written as a guard and a drawing over the type that guard names, so no cast stands
- * between the two halves of a `Serializer`. `convert` runs only once `match` has said yes, and
- * asking a second time is what carries that answer into the type.
+ * One rule, written as a guard and a reading over the type that guard names, so no cast stands
+ * between the two halves of a `PlatformRule`. `read` is asked only once `match` has said yes, and
+ * asking a second time is what carries that answer into the type. A caller that skipped `match`
+ * gets a refusal rather than a reading built over the wrong class.
  */
 function ruleFor<TValue>(
   guard: (value: unknown) => value is TValue,
-  draw: (value: TValue) => Marked,
-): Serializer {
+  take: (value: TValue) => PlatformReading,
+): PlatformRule {
   return {
     match: guard,
-    convert: (value) => (guard(value) ? draw(value) : value),
+    read: (value) => {
+      if (!guard(value)) {
+        throw new Error("A platform rule was read without its guard having matched.");
+      }
+
+      return take(value);
+    },
   };
 }
 
@@ -115,7 +145,7 @@ function headerFields(value: Headers): Fields {
     fields[name] = held;
   });
 
-  return keepBuilt(fields);
+  return fields;
 }
 
 /**
@@ -137,18 +167,18 @@ function entryFields(read: (visit: Visit) => void): Fields {
     fields[before === 0 ? name : `${name} #${before + 1}`] = held;
   });
 
-  return keepBuilt(fields);
+  return fields;
 }
 
 function bufferSize(prototype: object, value: object): Fields {
-  return keepBuilt({ byteLength: builtinValue(prototype, "byteLength", value) });
+  return { byteLength: builtinValue(prototype, "byteLength", value) };
 }
 
 function viewBounds(value: DataView): Fields {
-  return keepBuilt({
+  return {
     byteLength: builtinValue(DataView.prototype, "byteLength", value),
     byteOffset: builtinValue(DataView.prototype, "byteOffset", value),
-  });
+  };
 }
 
 /**

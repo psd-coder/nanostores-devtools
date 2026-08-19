@@ -1,4 +1,4 @@
-import { VALUE_KEY } from "../keys.ts";
+import { VALUE_KEY } from "./keys.ts";
 
 /**
  * The extension's own wrapper. Its reviver drops the wrapper, keeps `data` and prints the type
