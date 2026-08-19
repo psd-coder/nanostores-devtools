@@ -28,12 +28,11 @@ function idOf(...segments: string[]): string {
 }
 
 describe("nanostoresDevtools", () => {
-  it("runs on the dev server only, and before every other plugin", () => {
+  it("names itself, and runs on the dev server only", () => {
     const plugin = nanostoresDevtools();
 
     expect(plugin.name).toBe("nanostores-devtools");
     expect(plugin.apply).toBe("serve");
-    expect(plugin.enforce).toBe("pre");
   });
 });
 
@@ -240,6 +239,78 @@ function memoryFixture(files: Record<string, string>): Plugin {
 function entryNamed(name: string): StoreEntry | undefined {
   return listEntries().find((entry) => entry.name === name);
 }
+
+/**
+ * Every line and every column the walk records is read off the string the plugin is handed, so that
+ * string has to be the file the developer wrote.
+ */
+const SOURCE = `${FIXTURE_DIR}/source.ts`;
+
+const SOURCE_FILES: Record<string, string> = {
+  [SOURCE]: `import { atom } from "nanostores";\n\nexport const $count = atom<number>(0);\n`,
+};
+
+const REWRITTEN =
+  "the plugin was handed source somebody else had already rewritten. It has to be handed the " +
+  "developer's own file first, before the bundler's own TypeScript transform collapses the blank " +
+  "lines and drops the type arguments, or every line it records sends a developer to the wrong " +
+  "place in their own file";
+
+/** The plugin as it ships, keeping the code it is handed on the way through. */
+function watched(seen: string[]): Plugin {
+  const plugin = nanostoresDevtools();
+  const { transform } = plugin;
+
+  if (typeof transform !== "function") {
+    throw new Error("the plugin no longer carries a plain transform hook");
+  }
+
+  return {
+    ...plugin,
+    transform(code, id, options) {
+      if (id === SOURCE) {
+        seen.push(code);
+      }
+
+      return transform.call(this, code, id, options);
+    },
+  };
+}
+
+describe("the source the plugin is handed", () => {
+  const seen: string[] = [];
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    seen.length = 0;
+    server = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root: PROJECT_ROOT,
+      plugins: [watched(seen), memoryFixture(SOURCE_FILES)],
+      resolve: { alias: { "nanostores-devtools/vite/runtime": `${HERE}/runtime.ts` } },
+    });
+
+    await server.ssrLoadModule(SOURCE);
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("is the file the developer wrote, with its types and its blank lines still in it", () => {
+    const [code] = seen;
+
+    if (code === undefined) {
+      throw new Error("the plugin's transform never ran on the fixture file");
+    }
+
+    expect(code, REWRITTEN).toContain("atom<number>(0)");
+    expect(code.split("\n")[1], REWRITTEN).toBe("");
+  });
+});
 
 describe("a file that imports no nanostores creator", () => {
   let server: ViteDevServer;

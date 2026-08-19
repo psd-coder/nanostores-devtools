@@ -21,6 +21,8 @@ import {
   REMOTE,
   REMOTE_HOME,
   SHARED_HOME,
+  SITES,
+  SITES_HOME,
   TRACKER_HOME,
   treeFixture,
   UNDO_HOME,
@@ -566,5 +568,58 @@ describe("a file carrying an ambient declaration", () => {
   it("loads, and registers nothing for a declaration that binds nothing", async () => {
     await expect(server.ssrLoadModule(PANEL)).resolves.toBeDefined();
     expect(listEntries()).toEqual([]);
+  });
+});
+
+/**
+ * The line a creation site records is the line in the file the developer opened. Two sites in
+ * `sites.ts` claim `$dup`, and a name two sites claim is what makes each of them show its place,
+ * so the line is a string the model hands out rather than a number nothing spells.
+ */
+const WRONG_LINE =
+  "the plugin read a line off source somebody else had already rewritten. It has to walk the " +
+  "developer's own file first, before the bundler's own TypeScript transform collapses the blank " +
+  "lines and drops the type arguments, or every line it records sends a developer to the wrong " +
+  "place in their own file";
+
+describe("the line a creation site records", () => {
+  let server: ViteDevServer;
+
+  beforeAll(async () => {
+    server = await serve();
+    await server.ssrLoadModule(SITES);
+  });
+
+  afterAll(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("names the line in the developer's own file, not the line after the types are stripped", () => {
+    const places = listEntries()
+      .filter((entry) => entry.name === "$dup")
+      .map((entry) => entry.place);
+
+    expect(places, WRONG_LINE).toEqual(["makeOne, line 16", "makeTwo, line 20"]);
+  });
+
+  it("spells that line into the name the panel and the warnings read", () => {
+    const labels = listEntries()
+      .filter((entry) => entry.name === "$dup")
+      .map((entry) => entry.label);
+
+    expect(labels, WRONG_LINE).toEqual([
+      `${SITES_HOME}/$dup (makeOne, line 16)`,
+      `${SITES_HOME}/$dup (makeTwo, line 20)`,
+    ]);
+  });
+
+  /** The whole file, so nothing can be added to it that moves those two lines unnoticed. */
+  it("draws every store the file makes, and nothing else", () => {
+    expect(homeOf(SITES_HOME)).toEqual({
+      "$frame [store, throttled]": 0,
+      one: { "$dup [store]": 1 },
+      two: { "$dup [store]": 2 },
+    });
   });
 });

@@ -29,6 +29,7 @@ export const WORKSPACE: string = `${APP_DIR}/workspace.ts`;
 export const REMOTE: string = `${APP_DIR}/remote.ts`;
 export const HELPERS: string = `${APP_DIR}/helpers.ts`;
 export const PANEL: string = `${APP_DIR}/panel.ts`;
+export const SITES: string = `${APP_DIR}/sites.ts`;
 
 export const MODEL_HOME = "app/model.ts";
 export const EDITOR_HOME = "app/editor.ts";
@@ -36,6 +37,7 @@ export const WORKSPACE_HOME = "app/workspace.ts";
 export const PANEL_HOME = "app/panel.ts";
 export const REMOTE_HOME = "app/remote.ts";
 export const HELPERS_HOME = "app/helpers.ts";
+export const SITES_HOME = "app/sites.ts";
 export const SHARED_HOME = "vendor/sharedResource.ts";
 export const TRACKER_HOME = "vendor/tracker.ts";
 export const UNDO_HOME = "vendor/withUndo.ts";
@@ -436,6 +438,32 @@ export function secondRound(): () => number {
 
 export const readOne = firstRound();
 export const readTwo = secondRound();
+`,
+
+  [SITES]: `
+/**
+ * The guard on the line the developer wrote. The blank lines here collapse and the type arguments
+ * are dropped once the bundler's own TypeScript transform has been through, so a walk that ran
+ * after it would record a line several above the real one.
+ *
+ * Two functions make a store of one name, and a name two sites claim is what makes each of them
+ * show its place, so the recorded line can be read straight off what the model hands out.
+ */
+import { atom } from "nanostores";
+
+// @devtools-throttle 250
+export const $frame = atom<number>(0);
+
+export function makeOne() {
+  return { $dup: atom<number>(1) };
+}
+
+export function makeTwo() {
+  return { $dup: atom<number>(2) };
+}
+
+export const one = makeOne();
+export const two = makeTwo();
 `,
 };
 
