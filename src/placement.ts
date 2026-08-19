@@ -23,8 +23,8 @@ export function isDrawn(entry: StoreEntry): boolean {
  * drawn under its owner alone, and the owner's own key is the only name it has.
  *
  * This reads the placement rather than the entry, so the row and the tree cannot drift: the same
- * link decides both. The entry's `label` is untouched, because a change carries it as an identity
- * and not as a name, and it still says which file the store really came from.
+ * link decides both. The entry's `label` is untouched: a change prints it beside the row, and it
+ * still says which file the store really came from.
  */
 export function rowName(entry: StoreEntry): string {
   if (placedByDeveloper(entry)) {

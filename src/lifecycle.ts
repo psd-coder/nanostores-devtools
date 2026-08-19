@@ -1,7 +1,13 @@
-import type { Bridge } from "./redux/connect.ts";
-import { isPlaced, rowName } from "./placement.ts";
-import type { RegistryChange, StoreEntry } from "./registry.ts";
-import { type Change, listeningBridge, openLifecycleRow, sendLifecycleRow } from "./timeline.ts";
+import { isPlaced } from "./placement.ts";
+import { nameKey, type RegistryChange, type StoreEntry } from "./registry.ts";
+import { activeSession, type Session } from "./session.ts";
+import {
+  type Change,
+  openLifecycleRow,
+  type RowOp,
+  type RowSubject,
+  sendLifecycleRow,
+} from "./timeline.ts";
 
 type Membership = { kind: "register" | "unregister"; entry: StoreEntry };
 
@@ -9,17 +15,18 @@ type Membership = { kind: "register" | "unregister"; entry: StoreEntry };
 type MoveOp = Membership["kind"] | "hotReload";
 
 /** One module's worth of stores joining, leaving, or both, which is one row. */
-type Group = { type: string; changes: Change[] };
+type Group = { subject: RowSubject; op: RowOp; changes: Change[] };
 
 /** What one module's stores did in a turn, collected while the turn's changes arrive. */
 type HomeMoves = {
   home: string;
-  /** The first store's name, which names the row for as long as it is the only store in it. */
-  name: string;
   joining: boolean;
   leaving: boolean;
-  /** Keyed by label, so a store that leaves and comes back reads as one line, not two. */
-  ops: Map<string, MoveOp>;
+  /**
+   * Keyed by the name, so a store that leaves and comes back reads as one line and not two, and
+   * holding the entry seen last, which for that pair is the store the hot reload built.
+   */
+  ops: Map<string, { entry: StoreEntry; op: MoveOp }>;
 };
 
 export type LifecycleState = {
@@ -37,13 +44,13 @@ export function createLifecycle(enabled: boolean): LifecycleState {
   return { enabled, initSent: false, pending: [] };
 }
 
-export function noteInitSent(bridge: Bridge): void {
-  bridge.lifecycle.initSent = true;
+export function noteInitSent(session: Session): void {
+  session.lifecycle.initSent = true;
 }
 
-/** Rows in flight belong to the session that collected them, so a stopped panel drops them. */
-export function dropPendingRows(bridge: Bridge): void {
-  bridge.lifecycle.pending.length = 0;
+/** Rows in flight belong to the session that collected them, so a stopped view drops them. */
+export function dropPendingRows(session: Session): void {
+  session.lifecycle.pending.length = 0;
 }
 
 /**
@@ -51,18 +58,18 @@ export function dropPendingRows(bridge: Bridge): void {
  * otherwise draw a burst of paired rows on every edit, so these wait for the end of the turn. That
  * is also where the two halves meet and become one hot-reload row.
  */
-export function noteRegistryChange(bridge: Bridge, change: RegistryChange): void {
-  if (change.kind === "update" || drawingBridge() !== bridge) {
+export function noteRegistryChange(session: Session, change: RegistryChange): void {
+  if (change.kind === "update" || drawingSession() !== session) {
     return;
   }
 
-  if (bridge.lifecycle.pending.length === 0) {
+  if (session.lifecycle.pending.length === 0) {
     queueMicrotask(() => {
-      flushPending(bridge);
+      flushPending(session);
     });
   }
 
-  bridge.lifecycle.pending.push({ kind: change.kind, entry: change.entry });
+  session.lifecycle.pending.push({ kind: change.kind, entry: change.entry });
 }
 
 /** `everMounted` outlives the mount, and the tree reads it, so it is set whatever rows say. */
@@ -85,17 +92,17 @@ export function noteUnmount(entry: StoreEntry): void {
  * store made at runtime and one beat early for a store that mounts inside its own module body.
  */
 function drawRow(entry: StoreEntry, op: "mount" | "unmount"): void {
-  const bridge = drawingBridge();
+  const session = drawingSession();
 
-  if (bridge && isPlaced(entry)) {
-    openLifecycleRow(bridge, `${rowName(entry)}/${op}`, [{ label: entry.label, op }]);
+  if (session && isPlaced(entry)) {
+    openLifecycleRow(session, { kind: "store", entry }, op, [{ entry, op }]);
   }
 }
 
-function drawingBridge(): Bridge | undefined {
-  const bridge = listeningBridge();
+function drawingSession(): Session | undefined {
+  const session = activeSession();
 
-  return bridge?.lifecycle.enabled && bridge.lifecycle.initSent ? bridge : undefined;
+  return session?.lifecycle.enabled && session.lifecycle.initSent ? session : undefined;
 }
 
 /**
@@ -103,15 +110,15 @@ function drawingBridge(): Bridge | undefined {
  * module body, so a store noted while that body was still running has not been placed yet. This
  * flush is a microtask later, by which time every mechanism has had its turn.
  */
-function flushPending(bridge: Bridge): void {
-  const pending = bridge.lifecycle.pending.splice(0);
+function flushPending(session: Session): void {
+  const pending = session.lifecycle.pending.splice(0);
 
-  if (drawingBridge() !== bridge) {
+  if (drawingSession() !== session) {
     return;
   }
 
   for (const group of groupPending(pending.filter(({ entry }) => isPlaced(entry)))) {
-    sendLifecycleRow(bridge, group.type, group.changes);
+    sendLifecycleRow(session, group.subject, group.op, group.changes);
   }
 }
 
@@ -121,11 +128,12 @@ function groupPending(pending: Membership[]): Group[] {
 
   for (const { kind, entry } of pending) {
     const moves = homeMoves(homes, entry);
-    const seen = moves.ops.get(entry.label);
+    const key = nameKey(entry);
+    const seen = moves.ops.get(key)?.op;
 
     moves.joining ||= kind === "register";
     moves.leaving ||= kind === "unregister";
-    moves.ops.set(entry.label, seen === undefined || seen === kind ? kind : "hotReload");
+    moves.ops.set(key, { entry, op: seen === undefined || seen === kind ? kind : "hotReload" });
   }
 
   return [...homes.values()].map(toGroup);
@@ -138,13 +146,7 @@ function homeMoves(homes: Map<string, HomeMoves>, entry: StoreEntry): HomeMoves 
     return known;
   }
 
-  const created: HomeMoves = {
-    home: entry.home,
-    name: rowName(entry),
-    joining: false,
-    leaving: false,
-    ops: new Map(),
-  };
+  const created: HomeMoves = { home: entry.home, joining: false, leaving: false, ops: new Map() };
 
   homes.set(entry.home, created);
 
@@ -159,11 +161,14 @@ function homeMoves(homes: Map<string, HomeMoves>, entry: StoreEntry): HomeMoves 
  * A store on its own keeps its own name, and the second one from a module renames the row after it.
  */
 function toGroup(moves: HomeMoves): Group {
-  const rowOp = moves.leaving ? (moves.joining ? "hotReload" : "unregister") : "register";
-  const subject = moves.ops.size === 1 ? moves.name : moves.home;
+  const op: RowOp = moves.leaving ? (moves.joining ? "hotReload" : "unregister") : "register";
+  const changes = [...moves.ops.values()].map(({ entry, op: moved }) => ({ entry, op: moved }));
+  const alone = changes.length === 1 ? changes[0]?.entry : undefined;
 
   return {
-    type: `${subject}/${rowOp}`,
-    changes: [...moves.ops].map(([label, op]) => ({ label, op })),
+    subject:
+      alone === undefined ? { kind: "home", home: moves.home } : { kind: "store", entry: alone },
+    op,
+    changes,
   };
 }

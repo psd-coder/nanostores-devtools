@@ -45,13 +45,6 @@ const EXCEPTIONS: Exception[] = [
     },
     clearedBy: "04",
   },
-  {
-    model: "timeline.ts",
-    views: { "redux/connect.ts": ["Bridge"], "redux/render.ts": ["buildSnapshot"] },
-    clearedBy: "03",
-  },
-  { model: "lifecycle.ts", views: { "redux/connect.ts": ["Bridge"] }, clearedBy: "03" },
-  { model: "global.ts", views: { "redux/connect.ts": ["Bridge"] }, clearedBy: "03" },
 ];
 
 function allowedCrossings(): Crossing[] {

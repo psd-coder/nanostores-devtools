@@ -50,12 +50,12 @@ function attachLifecycle(entry: StoreEntry): void {
   keepHooks(
     entry,
     onStart(entry.store, () => {
-      catchAndWarn(entry.label, () => {
+      catchAndWarn(entry, () => {
         noteMount(entry);
       });
     }),
     onStop(entry.store, () => {
-      catchAndWarn(entry.label, () => {
+      catchAndWarn(entry, () => {
         noteUnmount(entry);
       });
     }),
@@ -71,7 +71,7 @@ function attachLifecycle(entry: StoreEntry): void {
 function attachDirectWrite(entry: StoreEntry): void {
   /** Named and passed on: it is our outermost frame, so it is where the stack capture cuts. */
   function onWrite({ changed }: { changed: unknown }): void {
-    catchAndWarn(entry.label, () => {
+    catchAndWarn(entry, () => {
       openDirectRow(entry, changed === undefined ? undefined : String(changed), onWrite);
     });
   }
@@ -84,7 +84,7 @@ function attachFollower(entry: StoreEntry): void {
   keepHooks(
     entry,
     onNotify(entry.store, () => {
-      catchAndWarn(entry.label, () => {
+      catchAndWarn(entry, () => {
         appendFollower(entry);
       });
     }),

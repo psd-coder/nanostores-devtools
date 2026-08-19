@@ -35,11 +35,15 @@ file's place in the tree for stores the plugin did not find, it holds a store th
 owner as well, and it is also the unit that `untrack` removes.
 
 **Label** — home, a slash, then the store name with its qualifier:
-`src/stores/cart.ts/$counter (line 20)` or `cart/$counter`. Internal. It decides which home holds
-a store, not how deep inside that home the store is drawn and not whether two stores are the same.
-Registering a label that is already taken replaces the store behind it, which is why the qualifier
-is part of it: without it two clashing stores would share one label and the registry would keep
-one.
+`src/stores/cart.ts/$counter (line 20)` or `cart/$counter`. Internal, and a string for a reader: a
+message prints it and nothing keys on it. Two other things do the keying. The **entry id** is which
+registration this is, a number handed out once and never reused, and every warning about one store
+is held to one by it, so renaming a store cannot ask for a second warning. The **name key** is which
+name a record holds: home, name, file, place and number joined with a separator no part can contain,
+and no spelling in it at all. It decides which home holds a store, not how deep inside that home the
+store is drawn and not whether two stores are the same object. Taking a name key that is already
+held replaces the store behind it, which is why the qualifier is part of the name: without it two
+clashing stores would hold one key and the registry would keep one.
 
 **Tree** — what the app's stores look like once the bridge has arranged them: homes on top, and
 below each home a store under whatever built it, at any depth. The **model** owns it, as the
@@ -63,7 +67,11 @@ change. One entry holds exactly one direct write and the followers it caused.
 
 A row calls a store whatever the tree calls it: the name the developer chose where they chose one,
 and otherwise the key its owner holds it under. The change inside the row keeps the store's label,
-which says which file it came from, and that is an identity rather than a name.
+which says which file it came from.
+
+The **model** owns the row and holds no word of it: what the row is about, what happened, and one
+record per store that moved. The **view** spells it, in `src/redux/row.ts`, which is where the name,
+the changed key and the payload the panel prints are written.
 
 **Direct write** — a change to an `atom`, `map` or `deepMap`. The app caused it, so it opens
 a new timeline entry and gives the entry its name.
@@ -88,7 +96,8 @@ the steps between entries are lost. The tree key says the word while it holds:
 
 **Synthesized name** — the name of a timeline entry, built by the bridge from the store
 name and the kind of change, for example `$counter/set`. Every entry gets one: v1 has no
-way for a developer to name a change by hand.
+way for a developer to name a change by hand. The **model** picks which store the entry points at
+and what happened to it; the **view** writes the name out, the `/` and the op word included.
 
 **Explicit registration** — the developer hands the bridge a group name and an object of
 stores: `trackStores("cart", { $counter })`. The object key is the store name. Group first
@@ -332,7 +341,8 @@ the place steps aside, so a key carries one group and never two.
 joining or leaving the registry, or mounting and unmounting. All four are on by default,
 because a tree that changes without a row would drift into the next write's diff. A store with no
 placement gets none of the four: the row is there to explain a tree that changed shape, and a store
-the tree does not draw changes no shape.
+the tree does not draw changes no shape. The **model** decides which of the four a turn produced and
+which stores it covers, and the **view** spells the result, `src/stores/cart.ts/hotReload` and all.
 
 **The hard rule** — the bridge must not change how the app behaves. Above all, watching
 a store must not mount it.

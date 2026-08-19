@@ -11,7 +11,6 @@ import { resolveValueLimits } from "../limits.ts";
 import {
   createLifecycle,
   dropPendingRows,
-  type LifecycleState,
   noteInitSent,
   noteRegistryChange,
 } from "../lifecycle.ts";
@@ -19,19 +18,10 @@ import { shippedSerializers } from "../platform.ts";
 import { listEntries, onRegistryChange } from "../registry.ts";
 import { createReplacer, type Serializer } from "./replacer.ts";
 import { buildSnapshot } from "./render.ts";
-import {
-  createTimeline,
-  currentStack,
-  dropOpenRow,
-  dropParkedRows,
-  type TimelineState,
-} from "../timeline.ts";
-import {
-  createThrottleSettings,
-  resolveMark,
-  type ThrottleOption,
-  type ThrottleSettings,
-} from "../throttle.ts";
+import { renderRow } from "./row.ts";
+import type { DevtoolsHandle, Session } from "../session.ts";
+import { createTimeline, currentStack, dropOpenRow, dropParkedRows } from "../timeline.ts";
+import { createThrottleSettings, resolveMark, type ThrottleOption } from "../throttle.ts";
 import { describeError, warnOnce } from "../warn.ts";
 
 export type DevtoolsOptions = {
@@ -53,21 +43,18 @@ export type DevtoolsOptions = {
   maxValueMembers?: number | undefined;
 };
 
-export type DevtoolsHandle = {
-  readonly connected: boolean;
-  disconnect: () => void;
-};
+export type { DevtoolsHandle } from "../session.ts";
 
-/** One connection per page, kept beside the registry so two copies of the package share it. */
+/** One panel, and everything the extension's protocol needs to talk to it. */
 export type Bridge = {
   connection: ExtensionConnection;
+  /** The same object the session holds, which is what a second `connectDevtools` hands back. */
   handle: DevtoolsHandle;
   listening: boolean;
   /** The panel's own pause button, which stops the tree build here and not only the send there. */
   paused: boolean;
-  throttle: ThrottleSettings;
-  timeline: TimelineState;
-  lifecycle: LifecycleState;
+  /** What the model keeps for this panel, and what it hands its finished rows to. */
+  session: Session;
   detach: () => void;
   unwatch: () => void;
 };
@@ -85,14 +72,14 @@ const DEFAULT_LIFECYCLE_EVENTS = true;
 export function connectDevtools(options?: DevtoolsOptions): DevtoolsHandle {
   const devtools = getDevtoolsGlobal();
 
-  if (devtools.bridge) {
+  if (devtools.session) {
     warnOnce(
       "second-connect",
       "",
       "connectDevtools() was called twice. The first connection is kept.",
     );
 
-    return devtools.bridge.handle;
+    return devtools.session.handle;
   }
 
   const bridge = openBridge(options);
@@ -101,7 +88,7 @@ export function connectDevtools(options?: DevtoolsOptions): DevtoolsHandle {
     return { connected: false, disconnect: () => {} };
   }
 
-  devtools.bridge = bridge;
+  devtools.session = bridge.session;
 
   /** Registration happens at import time, so every store already here is matched now instead. */
   for (const entry of listEntries()) {
@@ -114,7 +101,7 @@ export function connectDevtools(options?: DevtoolsOptions): DevtoolsHandle {
       attachHooks();
     }
 
-    noteRegistryChange(bridge, change);
+    noteRegistryChange(bridge.session, change);
   });
   attachHooks();
 
@@ -123,8 +110,8 @@ export function connectDevtools(options?: DevtoolsOptions): DevtoolsHandle {
    * would otherwise send a nearly empty tree followed by a burst of joins.
    */
   queueMicrotask(() => {
-    if (peekDevtoolsGlobal()?.bridge === bridge) {
-      noteInitSent(bridge);
+    if (peekDevtoolsGlobal()?.session === bridge.session) {
+      noteInitSent(bridge.session);
       sendInit(bridge);
     }
   });
@@ -150,23 +137,34 @@ function openBridge(options?: DevtoolsOptions): Bridge | undefined {
 
   try {
     const connection = extension.connect(buildConfig(options, timeline.trace));
+    const handle: DevtoolsHandle = {
+      connected: true,
+      disconnect: () => {
+        disconnect(bridge);
+      },
+    };
     const bridge: Bridge = {
       connection,
+      handle,
       listening: false,
       paused: false,
-      throttle: createThrottleSettings(options?.throttle, options?.autoThrottle),
-      timeline,
-      lifecycle: createLifecycle(options?.lifecycleEvents ?? DEFAULT_LIFECYCLE_EVENTS),
+      session: {
+        timeline,
+        lifecycle: createLifecycle(options?.lifecycleEvents ?? DEFAULT_LIFECYCLE_EVENTS),
+        throttle: createThrottleSettings(options?.throttle, options?.autoThrottle),
+        handle,
+        active: () => bridge.listening && !bridge.paused,
+        emit: (row) => {
+          connection.send(renderRow(row), buildSnapshot());
+        },
+        emitAll: () => {
+          connection.init(buildSnapshot());
+        },
+      },
       detach: () => {
         connection.unsubscribe();
       },
       unwatch: () => {},
-      handle: {
-        connected: true,
-        disconnect: () => {
-          disconnect(bridge);
-        },
-      },
     };
     const remove = connection.subscribe((message) => {
       receive(bridge, message);
@@ -275,8 +273,8 @@ function receive(bridge: Bridge, message: ExtensionMessage): void {
 
 /** Every row in flight belongs to the session that opened it, and a paused panel is not it. */
 function dropRows(bridge: Bridge): void {
-  dropOpenRow(bridge);
-  dropPendingRows(bridge);
+  dropOpenRow(bridge.session);
+  dropPendingRows(bridge.session);
   dropParkedRows();
 }
 
@@ -286,7 +284,7 @@ function dropRows(bridge: Bridge): void {
  */
 function sendInit(bridge: Bridge): void {
   try {
-    bridge.connection.init(buildSnapshot());
+    bridge.session.emitAll();
   } catch (error) {
     warnOnce("init-failed", "", `The tree could not be sent to the panel. ${describeError(error)}`);
   }
@@ -295,7 +293,7 @@ function sendInit(bridge: Bridge): void {
 function disconnect(bridge: Bridge): void {
   const devtools = peekDevtoolsGlobal();
 
-  if (!devtools || devtools.bridge !== bridge) {
+  if (!devtools || devtools.session !== bridge.session) {
     return;
   }
 
@@ -304,5 +302,5 @@ function disconnect(bridge: Bridge): void {
   bridge.unwatch();
   bridge.detach();
   detachHooks();
-  delete devtools.bridge;
+  delete devtools.session;
 }

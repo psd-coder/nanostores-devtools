@@ -1,21 +1,38 @@
 import { catchAndWarn } from "./catch-and-warn.ts";
-import type { Bridge } from "./redux/connect.ts";
 import { peekDevtoolsGlobal } from "./global.ts";
-import { isDrawn, rowName } from "./placement.ts";
+import { isDrawn } from "./placement.ts";
 import { getEntry, listEntries, type StoreEntry } from "./registry.ts";
-import { buildSnapshot } from "./redux/render.ts";
+import { activeSession, type Session } from "./session.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
 import { clearThrottle, suppressWrite, throttlePeriod } from "./throttle.ts";
 
+/** What a row is about: one store, or one home when several of its stores moved together. */
+export type RowSubject = { kind: "store"; entry: StoreEntry } | { kind: "home"; home: string };
+
+export type RowOp =
+  | "set"
+  | "setKey"
+  | "computed"
+  | "mount"
+  | "unmount"
+  | "register"
+  | "unregister"
+  | "hotReload";
+
 /** A change names what moved, never what it moved to: the extension diffs the trees itself. */
-export type Change =
-  | { label: string; op: "set" }
-  | { label: string; op: "setKey"; path: string }
-  | { label: string; op: "computed"; from?: string | undefined }
-  | { label: string; op: "mount" | "unmount" | "register" | "unregister" | "hotReload" };
+export type Change = {
+  entry: StoreEntry;
+  op: RowOp;
+  /** The key inside a `map` or `deepMap` that took the write. `setKey` only. */
+  path?: string | undefined;
+  /** The change before this one down a chain of recomputes. `computed` only. */
+  from?: StoreEntry | undefined;
+};
 
 export type Row = {
-  type: string;
+  subject: RowSubject;
+  op: RowOp;
+  path?: string | undefined;
   changes: Change[];
   timestamp: number;
   stack?: string | undefined;
@@ -23,7 +40,10 @@ export type Row = {
   parkedOn?: StoreEntry | undefined;
 };
 
-/** The open row and what it costs to build, owned here and parked on the bridge. */
+/** A row before it is opened, which is where it takes the time of the write that made it. */
+type NewRow = Omit<Row, "timestamp">;
+
+/** The open row and what it costs to build, owned here and parked on the session. */
 export type TimelineState = {
   trace: boolean;
   traceLimit: number;
@@ -38,12 +58,12 @@ export function createTimeline(trace: boolean, traceLimit: number): TimelineStat
 
 /** Read by the `trace` function we hand the extension, which it calls inside its own `send`. */
 export function currentStack(): string | undefined {
-  return peekDevtoolsGlobal()?.bridge?.timeline.stack;
+  return peekDevtoolsGlobal()?.session?.timeline.stack;
 }
 
-/** A row in flight belongs to the session that opened it, so a stopped panel drops it. */
-export function dropOpenRow(bridge: Bridge): void {
-  bridge.timeline.row = undefined;
+/** A row in flight belongs to the session that opened it, so a stopped view drops it. */
+export function dropOpenRow(session: Session): void {
+  session.timeline.row = undefined;
 }
 
 /** The same for every row parked on a store, which the timers holding them are dropped with. */
@@ -62,25 +82,32 @@ export function openDirectRow(
   changed: string | undefined,
   boundary: StackBoundary,
 ): void {
-  const bridge = listeningBridge();
+  const session = activeSession();
 
-  if (!bridge || !isDrawn(entry)) {
+  if (!session || !isDrawn(entry)) {
     return;
   }
 
-  const { timeline } = bridge;
-  const { type, change } = describeWrite(entry, changed);
+  const { timeline } = session;
+  const op: RowOp = changed === undefined ? "set" : "setKey";
+  const row: NewRow = {
+    subject: { kind: "store", entry },
+    op,
+    path: changed,
+    changes: [{ entry, op, path: changed }],
+  };
 
   /** A row about to be parked pays for no stack, which with `trace` on is the expensive half. */
   if (suppressWrite(entry, Date.now())) {
-    openRow(bridge, type, [change], undefined, entry);
+    openRow(session, { ...row, parkedOn: entry });
 
     return;
   }
 
-  const stack = timeline.trace ? captureStack(timeline.traceLimit, boundary) : undefined;
-
-  openRow(bridge, type, [change], stack);
+  openRow(session, {
+    ...row,
+    stack: timeline.trace ? captureStack(timeline.traceLimit, boundary) : undefined,
+  });
 }
 
 /**
@@ -90,15 +117,25 @@ export function openDirectRow(
  * It opens rather than sends: at `onStart` the store is not mounted yet, so a tree built there
  * would show the state before the mount the row announces.
  */
-export function openLifecycleRow(bridge: Bridge, type: string, changes: Change[]): void {
-  guardedFlush(bridge);
-  openRow(bridge, type, changes);
+export function openLifecycleRow(
+  session: Session,
+  subject: RowSubject,
+  op: RowOp,
+  changes: Change[],
+): void {
+  guardedFlush(session);
+  openRow(session, { subject, op, changes });
 }
 
 /** The same row, closed at once: a row drawn at the end of a turn has nothing left to wait for. */
-export function sendLifecycleRow(bridge: Bridge, type: string, changes: Change[]): void {
-  openLifecycleRow(bridge, type, changes);
-  guardedFlush(bridge);
+export function sendLifecycleRow(
+  session: Session,
+  subject: RowSubject,
+  op: RowOp,
+  changes: Change[],
+): void {
+  openLifecycleRow(session, subject, op, changes);
+  guardedFlush(session);
 }
 
 /**
@@ -110,23 +147,19 @@ export function sendLifecycleRow(bridge: Bridge, type: string, changes: Change[]
  * sibling of it whenever changes arrive in an order the dependencies do not match.
  */
 export function appendFollower(entry: StoreEntry): void {
-  const bridge = listeningBridge();
+  const session = activeSession();
 
-  if (!bridge || !isDrawn(entry)) {
+  if (!session || !isDrawn(entry)) {
     return;
   }
 
-  const open = bridge.timeline.row;
+  const open = session.timeline.row;
 
   if (open) {
     /** A mount row is a store's own, so the recompute it causes has nothing to name but itself. */
-    const previous = open.changes.at(-1)?.label;
+    const previous = open.changes.at(-1)?.entry;
 
-    open.changes.push({
-      label: entry.label,
-      op: "computed",
-      from: previous === entry.label ? undefined : previous,
-    });
+    open.changes.push({ entry, op: "computed", from: previous === entry ? undefined : previous });
 
     return;
   }
@@ -137,20 +170,19 @@ export function appendFollower(entry: StoreEntry): void {
    */
   const suppressed = suppressWrite(entry, Date.now());
 
-  openRow(
-    bridge,
-    `${rowName(entry)}/computed`,
-    [{ label: entry.label, op: "computed" }],
-    undefined,
-    suppressed ? entry : undefined,
-  );
+  openRow(session, {
+    subject: { kind: "store", entry },
+    op: "computed",
+    changes: [{ entry, op: "computed" }],
+    parkedOn: suppressed ? entry : undefined,
+  });
 }
 
 export function flushOpenRow(): void {
-  const bridge = peekDevtoolsGlobal()?.bridge;
+  const session = peekDevtoolsGlobal()?.session;
 
-  if (bridge) {
-    guardedFlush(bridge);
+  if (session) {
+    guardedFlush(session);
   }
 }
 
@@ -159,22 +191,17 @@ export function flushOpenRow(): void {
  * One store holding a value the extension cannot serialize has to warn once, not once per other
  * store that writes after it.
  */
-function guardedFlush(bridge: Bridge): void {
-  catchAndWarn(subject(bridge.timeline.row), () => {
-    flush(bridge);
+function guardedFlush(session: Session): void {
+  catchAndWarn(subject(session.timeline.row), () => {
+    flush(session);
   });
 }
 
-/**
- * `type` sits at both levels on purpose. The extension replaces a whole action that carries no
- * top-level `type` with `{ type: "update" }`, and only the nested shape keeps our `timestamp`,
- * which is what lets a row flushed later keep the time of the write that caused it.
- */
-function flush(bridge: Bridge): void {
-  const { timeline } = bridge;
+function flush(session: Session): void {
+  const { timeline } = session;
   const row = timeline.row;
 
-  if (!row || !bridge.listening || bridge.paused) {
+  if (!row || !session.active()) {
     return;
   }
 
@@ -189,30 +216,17 @@ function flush(bridge: Bridge): void {
   timeline.stack = row.stack;
 
   try {
-    bridge.connection.send(
-      {
-        type: row.type,
-        action: { type: row.type, changes: row.changes },
-        timestamp: row.timestamp,
-      },
-      buildSnapshot(),
-    );
+    session.emit(row);
   } finally {
     timeline.stack = undefined;
   }
 }
 
 /** One shape for every row, and the flush that closes it is booked in the same breath. */
-function openRow(
-  bridge: Bridge,
-  type: string,
-  changes: Change[],
-  stack?: string | undefined,
-  parkedOn?: StoreEntry | undefined,
-): void {
-  bridge.timeline.row = { type, changes, timestamp: Date.now(), stack, parkedOn };
+function openRow(session: Session, row: NewRow): void {
+  session.timeline.row = { ...row, timestamp: Date.now() };
 
-  scheduleFlush(bridge);
+  scheduleFlush(session);
 }
 
 /**
@@ -256,9 +270,9 @@ function release(entry: StoreEntry): void {
   throttle.pending = undefined;
   throttle.trailing = undefined;
 
-  const bridge = listeningBridge();
+  const session = activeSession();
 
-  if (!bridge || !row) {
+  if (!session || !row) {
     return;
   }
 
@@ -269,27 +283,17 @@ function release(entry: StoreEntry): void {
   throttle.lastEmit = Date.now();
 
   /** Whatever is open closes first, with the tree as it was before this row's write. */
-  guardedFlush(bridge);
+  guardedFlush(session);
 
   row.parkedOn = undefined;
-  bridge.timeline.row = row;
+  session.timeline.row = row;
 
-  guardedFlush(bridge);
-}
-
-/**
- * Nothing is built while no panel is listening: the tree is the expensive part of a row. A paused
- * panel reads the same way, so pause stops the build on our side and not only the send on theirs.
- */
-export function listeningBridge(): Bridge | undefined {
-  const bridge = peekDevtoolsGlobal()?.bridge;
-
-  return bridge?.listening && !bridge.paused ? bridge : undefined;
+  guardedFlush(session);
 }
 
 /** The open row closes lazily: the next direct write closes it, or this microtask does. */
-function scheduleFlush(bridge: Bridge): void {
-  const { timeline } = bridge;
+function scheduleFlush(session: Session): void {
+  const { timeline } = session;
 
   if (timeline.flushScheduled) {
     return;
@@ -299,25 +303,11 @@ function scheduleFlush(bridge: Bridge): void {
 
   queueMicrotask(() => {
     timeline.flushScheduled = false;
-    guardedFlush(bridge);
+    guardedFlush(session);
   });
 }
 
 /** The store a row is about is whatever opened it, which is always its first change. */
-function subject(row: Row | undefined): string {
-  return row?.changes[0]?.label ?? "";
-}
-
-function describeWrite(
-  entry: StoreEntry,
-  changed: string | undefined,
-): { type: string; change: Change } {
-  const name = rowName(entry);
-
-  return changed === undefined
-    ? { type: `${name}/set`, change: { label: entry.label, op: "set" } }
-    : {
-        type: `${name}/setKey:${changed}`,
-        change: { label: entry.label, op: "setKey", path: changed },
-      };
+function subject(row: Row | undefined): StoreEntry | undefined {
+  return row?.changes[0]?.entry;
 }

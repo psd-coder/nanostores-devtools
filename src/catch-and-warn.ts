@@ -1,3 +1,4 @@
+import type { StoreEntry } from "./registry.ts";
 import { describeError, warnOnce } from "./warn.ts";
 
 /**
@@ -5,16 +6,17 @@ import { describeError, warnOnce } from "./warn.ts";
  * runs inside its own `send`, so a value it cannot serialize throws at our call site, and a
  * listener that throws can stop the drain and with it every store listener on the page.
  */
-export function catchAndWarn(subject: string, work: () => void): void {
+export function catchAndWarn(subject: StoreEntry | undefined, work: () => void): void {
   try {
     work();
   } catch (error) {
     const reason = describeError(error);
+    const name = subject?.label ?? "";
 
     warnOnce(
       "listener-failed",
-      subject,
-      `Watching "${subject}" failed, so this change is missing from the panel. ${reason}`,
+      String(subject?.id ?? ""),
+      `Watching "${name}" failed, so this change is missing from the panel. ${reason}`,
     );
   }
 }

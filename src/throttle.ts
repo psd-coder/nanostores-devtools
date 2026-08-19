@@ -44,7 +44,6 @@ export type ThrottleState = {
   /** The suppressed row waiting for the second to end, and the timer that sends it. */
   pending?: Row | undefined;
   trailing?: ReturnType<typeof setTimeout> | undefined;
-  warned: boolean;
 };
 
 /** The second the write counter reads, which is the window the auto rate is measured over. */
@@ -73,7 +72,6 @@ export function createThrottleState(comment: ThrottleComment): ThrottleState {
     windowStart: 0,
     tripped: false,
     lastEmit: 0,
-    warned: false,
   };
 }
 
@@ -122,7 +120,7 @@ export function suppressWrite(entry: StoreEntry, now: number): boolean {
 
   const holds = throttled(throttle);
 
-  if (holds && !throttle.marked && !throttle.warned) {
+  if (holds && !throttle.marked) {
     warnAutoThrottle(entry);
   }
 
@@ -189,18 +187,13 @@ function throttled(state: ThrottleState): boolean {
   return state.marked || (state.tripped && !state.exempt);
 }
 
-/**
- * Once per store, and the flag is on the entry rather than left to `warnOnce`: that one is keyed on
- * the label, and a rename gives the same store a second key and a second warning.
- */
+/** Once per store: the key is the registration, so a rename cannot ask for a second warning. */
 function warnAutoThrottle(entry: StoreEntry): void {
   const target = `${entry.home}/${entry.name}`;
 
-  entry.throttle.warned = true;
-
   warnOnce(
     "auto-throttle",
-    entry.label,
+    String(entry.id),
     `${target} wrote ${entry.throttle.writes} times in a second, so the bridge throttles it to ` +
       `one row a second and keeps it there for the rest of the session. To keep every row of this ` +
       `store, ${keepRows(entry)}. To say this on purpose and stop this warning, pass ` +
@@ -227,7 +220,7 @@ function matched(entry: StoreEntry): boolean {
   } catch (error) {
     warnOnce(
       "throttle-option-failed",
-      entry.label,
+      String(entry.id),
       `The throttle option threw for "${entry.home}/${entry.name}", so that store is not ` +
         `throttled. ${describeError(error)}`,
     );
@@ -237,7 +230,7 @@ function matched(entry: StoreEntry): boolean {
 }
 
 function settings(): ThrottleSettings | undefined {
-  return peekDevtoolsGlobal()?.bridge?.throttle;
+  return peekDevtoolsGlobal()?.session?.throttle;
 }
 
 function marker(throttle: ThrottleOption | undefined): (target: ThrottleTarget) => boolean {

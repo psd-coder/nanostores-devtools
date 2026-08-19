@@ -42,6 +42,8 @@ export type StoreOrigin = "plugin" | "explicit";
 
 export type StoreEntry = {
   store: Store;
+  /** This registration, whatever it ends up called. Handed out once and never reused. */
+  id: number;
   name: string;
   home: string;
   /**
@@ -53,6 +55,7 @@ export type StoreEntry = {
    * hand and the plugin never saw.
    */
   ownerName: string | null;
+  /** Text for a reader, never an identity: `id` says which store this is, `nameKey` which name. */
   label: string;
   type: StoreType;
   origin: StoreOrigin;
@@ -93,8 +96,11 @@ export type Registration = {
   throttle?: ThrottleComment;
 } & Partial<NameParts>;
 
+/** A name in full: the home, the name, and everything that tells it from another one the same. */
+type NamePlace = Pick<StoreEntry, "name" | "home"> & NameParts;
+
 /** Where an entry is drawn: its name and what qualifies it, its home, and whose home that is. */
-type EntryPlace = Pick<StoreEntry, "name" | "home" | "external"> & NameParts;
+type EntryPlace = NamePlace & Pick<StoreEntry, "external">;
 
 /**
  * What moved, for a listener that draws a row for it. `update` covers a store that was already
@@ -109,6 +115,21 @@ const TOTAL_WARNING_AT = 2000;
 
 export function makeLabel(home: string, name: string): string {
   return `${home}/${name}`;
+}
+
+/**
+ * A separator no part can hold, so two names cannot make one key: a home, a name and a place are
+ * all written by a developer, and every character they can type has to stay theirs.
+ */
+const NAME_SEPARATOR = "\u0000";
+
+/**
+ * The name as a key: everything that decides whether two records name the same thing, and no
+ * spelling. It answers that one question, which is what the name index and the hot-reload merge
+ * both ask. Never show it to a reader: `label` is the string for that.
+ */
+export function nameKey(place: NamePlace): string {
+  return [place.home, place.name, place.file, place.place, place.number].join(NAME_SEPARATOR);
 }
 
 /**
@@ -191,20 +212,20 @@ export function isStore(value: unknown): value is Store {
 export function registerStore(registration: Registration): StoreEntry {
   const devtools = getDevtoolsGlobal();
   const to = entryPlace(registration);
-  const label = labelOf(to);
   const known = devtools.entries.get(registration.store);
 
   if (known) {
-    return relabelEntry(devtools, known, registration, to, label);
+    return relabelEntry(devtools, known, registration, to);
   }
 
-  takeLabel(devtools, label, registration.store);
+  takeName(devtools, nameKey(to), registration.store);
 
   const entry: StoreEntry = {
     ...to,
+    id: devtools.nextId++,
     store: registration.store,
     ownerName: ownerNameOf(registration),
-    label,
+    label: labelOf(to),
     type: registration.type,
     origin: registration.origin,
     fn: registration.fn,
@@ -267,7 +288,7 @@ export function renameEntry(store: Store, name: string, home: string, file: stri
   /** Only a file of the developer's own renames a store, so the home it moves to is theirs. */
   const to: EntryPlace = { name, home, external: false, file, place: null, number: 1 };
 
-  if (!devtools || !entry || entry.origin === "explicit" || labelOf(to) === entry.label) {
+  if (!devtools || !entry || entry.origin === "explicit" || nameKey(to) === nameKey(entry)) {
     return;
   }
 
@@ -314,16 +335,25 @@ export function getEntry(store: Store): StoreEntry | undefined {
   return peekDevtoolsGlobal()?.entries.get(store);
 }
 
-export function getEntryByLabel(label: string): StoreEntry | undefined {
+/** Who holds a name, without a scan. The parts left out are the ones a plain name never takes. */
+export function findEntry(
+  home: string,
+  name: string,
+  parts?: Partial<NameParts>,
+): StoreEntry | undefined {
   const devtools = peekDevtoolsGlobal();
 
   if (!devtools) {
     return undefined;
   }
 
-  const store = devtools.byLabel.get(label);
+  const store = devtools.byName.get(nameKey({ home, name, ...defaultParts(parts) }));
 
   return store === undefined ? undefined : devtools.entries.get(store);
+}
+
+function defaultParts(parts?: Partial<NameParts>): NameParts {
+  return { file: parts?.file ?? null, place: parts?.place ?? null, number: parts?.number ?? 1 };
 }
 
 export function onRegistryChange(listener: ChangeListener): () => void {
@@ -346,7 +376,6 @@ function relabelEntry(
   entry: StoreEntry,
   registration: Registration,
   to: EntryPlace,
-  label: string,
 ): StoreEntry {
   /**
    * An explicit registration says nothing about the comment and so leaves it as it was, while the
@@ -384,7 +413,7 @@ function relabelEntry(
     entry.ownerName = ownerName;
   }
 
-  if (label === entry.label) {
+  if (nameKey(to) === nameKey(entry)) {
     entry.origin = registration.origin;
     entry.external = registration.external;
     resolveMark(entry);
@@ -399,7 +428,7 @@ function relabelEntry(
   ) {
     warnOnce(
       "store-in-two-groups",
-      entry.label,
+      String(entry.id),
       `"${entry.name}" moved from group "${entry.home}" to "${registration.home}". A store lives in one group.`,
     );
   }
@@ -415,14 +444,12 @@ function relabelEntry(
  * entry, and the label index moves with it. Where that home sits moves with it too.
  */
 function moveEntry(devtools: DevtoolsGlobal, entry: StoreEntry, to: EntryPlace): void {
-  const label = labelOf(to);
-
-  devtools.byLabel.delete(entry.label);
-  takeLabel(devtools, label, entry.store);
+  devtools.byName.delete(nameKey(entry));
+  takeName(devtools, nameKey(to), entry.store);
 
   entry.name = to.name;
   entry.home = to.home;
-  entry.label = label;
+  entry.label = labelOf(to);
   entry.external = to.external;
   entry.file = to.file;
   entry.place = to.place;
@@ -434,17 +461,17 @@ function moveEntry(devtools: DevtoolsGlobal, entry: StoreEntry, to: EntryPlace):
 }
 
 /**
- * A label already held by another store is replaced without a word: from here that is
+ * A name already held by another store is replaced without a word: from here that is
  * indistinguishable from a hot reload, and warning on every edit teaches people to ignore us.
  */
-function takeLabel(devtools: DevtoolsGlobal, label: string, store: Store): void {
-  const holder = devtools.byLabel.get(label);
+function takeName(devtools: DevtoolsGlobal, key: string, store: Store): void {
+  const holder = devtools.byName.get(key);
 
   if (holder && holder !== store) {
     dropEntry(devtools, holder, true);
   }
 
-  devtools.byLabel.set(label, store);
+  devtools.byName.set(key, store);
 }
 
 function drop(store: Store, notify: boolean): void {
@@ -467,8 +494,8 @@ function dropEntry(devtools: DevtoolsGlobal, store: Store, notify: boolean): boo
   clearThrottle(entry);
   devtools.entries.delete(store);
 
-  if (devtools.byLabel.get(entry.label) === store) {
-    devtools.byLabel.delete(entry.label);
+  if (devtools.byName.get(nameKey(entry)) === store) {
+    devtools.byName.delete(nameKey(entry));
   }
 
   if (notify) {

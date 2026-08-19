@@ -480,7 +480,7 @@ describe("a store the tree draws nowhere", () => {
     $panel.set([$hits]);
     await endOfTurn();
 
-    peekDevtoolsGlobal()?.bridge?.handle.disconnect();
+    peekDevtoolsGlobal()?.session?.handle.disconnect();
 
     /** Out of the drawn value while nothing is listening, so no tree of this run ever held it. */
     $panel.set(null);

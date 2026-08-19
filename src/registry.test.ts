@@ -3,11 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GLOBAL_KEY, resetDevtoolsGlobal } from "./global.ts";
 import {
+  findEntry,
   getEntry,
-  getEntryByLabel,
   isStore,
   listEntries,
-  makeLabel,
   onRegistryChange,
   qualify,
   type Registration,
@@ -164,7 +163,7 @@ describe("registry", () => {
 
       expect(labels()).toEqual(["checkout/$count"]);
       expect(listEntries()).toHaveLength(1);
-      expect(getEntryByLabel("cart/$count")).toBeUndefined();
+      expect(findEntry("cart", "$count")).toBeUndefined();
       expect(console.warn).toHaveBeenCalledTimes(1);
       expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain(
         'moved from group "cart" to "checkout"',
@@ -181,7 +180,7 @@ describe("registry", () => {
       trackStores("cart", { $count: $second });
 
       expect(listEntries()).toHaveLength(1);
-      expect(getEntryByLabel("cart/$count")?.store).toBe($second);
+      expect(findEntry("cart", "$count")?.store).toBe($second);
       expect(getEntry($first)).toBeUndefined();
       expect(unhook).toHaveBeenCalledTimes(1);
       expect(console.warn).not.toHaveBeenCalled();
@@ -214,7 +213,7 @@ describe("registry", () => {
       untrack("cart");
 
       expect(labels()).toEqual(["checkout/$other"]);
-      expect(getEntryByLabel("cart/$items")).toBeUndefined();
+      expect(findEntry("cart", "$items")).toBeUndefined();
       expect(unhookItems).toHaveBeenCalledTimes(1);
       expect(unhookCount).toHaveBeenCalledTimes(1);
     });
@@ -310,7 +309,7 @@ describe("registry", () => {
         type: "computed",
         origin: "explicit",
       });
-      expect(getEntryByLabel("src/stores/cart.ts/$counter")).toBeUndefined();
+      expect(findEntry("src/stores/cart.ts", "$counter")).toBeUndefined();
     });
 
     it("lets a later plugin registration set the type without moving an explicit entry", () => {
@@ -403,8 +402,8 @@ describe("registry", () => {
 
       registerStore(plugin({ store: $count, name: "$count" }));
 
-      expect(getEntryByLabel(makeLabel("src/stores/cart.ts", "$count"))?.store).toBe($count);
-      expect(getEntryByLabel("cart/$count")).toBeUndefined();
+      expect(findEntry("src/stores/cart.ts", "$count")?.store).toBe($count);
+      expect(findEntry("cart", "$count")).toBeUndefined();
     });
 
     it("warns once when 2000 stores are registered and evicts nothing", () => {
@@ -444,7 +443,7 @@ describe("registry", () => {
         external: false,
         number: 1,
       });
-      expect(getEntryByLabel("vendor/withUndo.ts/$canUndo #2")).toBeUndefined();
+      expect(findEntry("vendor/withUndo.ts", "$canUndo", { number: 2 })).toBeUndefined();
     });
 
     it("takes the file a written name needs and drops the parts of the site it left", () => {
@@ -492,7 +491,7 @@ describe("registry", () => {
       renameEntry($taking, "$counter", "src/model.ts", null);
 
       expect(labels()).toEqual(["src/model.ts/$counter"]);
-      expect(getEntryByLabel("src/model.ts/$counter")?.store).toBe($taking);
+      expect(findEntry("src/model.ts", "$counter")?.store).toBe($taking);
     });
 
     it("does nothing for a store the registry never took", () => {

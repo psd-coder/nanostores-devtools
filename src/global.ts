@@ -1,8 +1,8 @@
 import type { Store } from "nanostores";
 
-import type { Bridge } from "./redux/connect.ts";
 import { forgetDrawn } from "./drawn.ts";
 import type { RegistryChange, StoreEntry, StoreType } from "./registry.ts";
+import type { Session } from "./session.ts";
 
 export type ChangeListener = (change: RegistryChange) => void;
 
@@ -121,7 +121,10 @@ export type Nodes = WeakMap<object, NodeInfo>;
 
 export type DevtoolsGlobal = {
   entries: Map<Store, StoreEntry>;
-  byLabel: Map<string, Store>;
+  /** Which store holds each name, keyed by the name key the registry builds. */
+  byName: Map<string, Store>;
+  /** The next registration number. Handed out here, so two copies of the package share the count. */
+  nextId: number;
   changeListeners: Set<ChangeListener>;
   warned: Set<string>;
   /** Keyed by the module key, never the display home, so two files cannot wipe each other. */
@@ -145,7 +148,7 @@ export type DevtoolsGlobal = {
   nodes: Nodes;
   /** The creation frames open right now, the innermost last. Empty between two ticks. */
   frames: OpenFrame[];
-  bridge?: Bridge | undefined;
+  session?: Session | undefined;
 };
 
 /**
@@ -174,7 +177,8 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
 
   const created: DevtoolsGlobal = {
     entries: new Map(),
-    byLabel: new Map(),
+    byName: new Map(),
+    nextId: 1,
     changeListeners: new Set(),
     warned: new Set(),
     scopes: new Map(),
