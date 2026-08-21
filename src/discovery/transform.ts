@@ -430,7 +430,7 @@ export function transformStores(input: TransformInput): StoreTransform {
     if (written !== undefined) {
       warnings.add(
         `"${input.moduleKey}" line ${lineOf(lines, comment.start)} holds "${written}", which is ` +
-          `no marker the plugin knows. The ones it reads are ${MARKERS.join(", ")}.`,
+          `no devtools comment the plugin knows. The ones it reads are ${MARKERS.join(", ")}.`,
       );
     }
   }
