@@ -4,6 +4,7 @@ import {
   getDevtoolsGlobal,
   type ModuleScope,
   peekDevtoolsGlobal,
+  scopeOf,
   type SiteState,
   type SiteStore,
 } from "./global.ts";
@@ -11,11 +12,12 @@ import { claimSiteName, releaseSiteNames, siteParts } from "./stores/names.ts";
 import {
   beginFrame,
   type Binding,
-  type BindingHome,
+  type ModuleHome,
   endFrame,
   noteBirth,
   ownBindings,
   ownField,
+  releaseLinks,
 } from "./stores/ownership.ts";
 import {
   evictStore,
@@ -61,7 +63,7 @@ export function fileScope(
    * Where a node this module names is drawn, which every placement it asks for is handed, and the
    * key that tells it from another module the display home holds as well.
    */
-  const module: BindingHome = { home, external, moduleKey };
+  const module: ModuleHome = { home, external, moduleKey };
 
   function take(site: CreationSite, store: Store, name: string, type: StoreType): void {
     const scope = scopeOf(moduleKey);
@@ -172,6 +174,7 @@ export function fileScope(
       }
 
       releaseSiteNames(scope, module);
+      releaseLinks(scope, moduleKey);
       devtools.scopes.delete(moduleKey);
 
       for (const store of scope.owned) {
@@ -228,21 +231,6 @@ function doomedIndex(stores: SiteStore[]): number {
   const unmounted = stores.slice(0, -1).findIndex((held) => held.store.lc === 0);
 
   return unmounted === -1 ? 0 : unmounted;
-}
-
-function scopeOf(moduleKey: string): ModuleScope {
-  const { scopes } = getDevtoolsGlobal();
-  const known = scopes.get(moduleKey);
-
-  if (known) {
-    return known;
-  }
-
-  const created: ModuleScope = { owned: new Set(), sites: new Map(), claims: new Map() };
-
-  scopes.set(moduleKey, created);
-
-  return created;
 }
 
 function siteState(scope: ModuleScope, site: CreationSite, name: string): SiteState {

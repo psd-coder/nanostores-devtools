@@ -1,13 +1,14 @@
-import { atom } from "nanostores";
+import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./redux/connect.ts";
 import { resetDevtoolsGlobal } from "./global.ts";
 import { qualify } from "./stores/labels.ts";
-import { nodeInfoOf, ownerLinkOf } from "./tree/placement.ts";
+import { drawnParents, nodeInfoOf, ownerLinksOf } from "./tree/placement.ts";
 import { getEntry, listEntries, trackStores, unregisterStore, untrack } from "./stores/registry.ts";
 import { type FakeExtension, installFakeExtension } from "./testing/fake-extension.ts";
 import { keepHooks } from "./stores/unhook.ts";
+import { buildSnapshot } from "./redux/render.ts";
 import { type CreationSite, type FileScope, fileScope } from "./runtime.ts";
 
 const MODULE_ID = "/repo/src/stores/cart.ts";
@@ -18,6 +19,18 @@ let fake: FakeExtension;
 
 function site(overrides: Partial<CreationSite> = {}): CreationSite {
   return { name: "$items", fn: null, line: 3, type: "atom", ...overrides };
+}
+
+/** The owner the tree expands the store under, which is the first link recorded. */
+function ownerOf(store: Store): object | undefined {
+  return ownerLinksOf(store)[0]?.owner;
+}
+
+/** Everything the tree draws the node under, in the order the walk recorded them. */
+function parentsOf(value: object): object[] {
+  const info = nodeInfoOf(value);
+
+  return info === undefined ? [] : drawnParents(info);
 }
 
 /** The qualified name, which is what the label is built from and what tells two entries apart. */
@@ -174,7 +187,7 @@ describe("store", () => {
 
     const editorOne = new Editor();
 
-    expect(ownerLinkOf(editorOne.$value)?.owner).toBe(editorOne);
+    expect(ownerOf(editorOne.$value)).toBe(editorOne);
     expect(nodeInfoOf(editorOne)).toMatchObject({ name: "ref", type: "Editor", home: HOME });
     expect(names()).toEqual(["$value"]);
   });
@@ -186,7 +199,7 @@ describe("store", () => {
       static $opened = scope.store(atom(false), site({ name: "$opened" }), this);
     }
 
-    expect(ownerLinkOf(Editor.$opened)?.owner).toBe(Editor);
+    expect(ownerOf(Editor.$opened)).toBe(Editor);
     expect(nodeInfoOf(Editor)).toMatchObject({ name: "Editor", home: HOME });
     expect(nodeInfoOf(Editor)?.type).toBeUndefined();
   });
@@ -197,7 +210,7 @@ describe("store", () => {
 
     scope.store($items, site());
 
-    expect(ownerLinkOf($items)?.owner).toBeUndefined();
+    expect(ownerOf($items)).toBeUndefined();
   });
 
   it("counts each site on its own", () => {
@@ -809,7 +822,7 @@ describe("own", () => {
     scope.store($draft, site({ name: "$draft" }));
     scope.own([["$draft", $draft]]);
 
-    expect(ownerLinkOf($canUndo)?.owner).toBe($draft);
+    expect(ownerOf($canUndo)).toBe($draft);
     expect(names()).toEqual(["$draft"]);
   });
 
@@ -870,7 +883,7 @@ describe("begin and end", () => {
     caller.store($draft, site({ name: "$draft" }));
     caller.end($draft, site({ name: "$draft", type: "unknown" }));
 
-    expect(ownerLinkOf($timeline)).toBeUndefined();
+    expect(ownerLinksOf($timeline)).toEqual([]);
     expect(names()).toEqual(["$timeline", "$draft"]);
   });
 
@@ -886,7 +899,7 @@ describe("begin and end", () => {
     caller.store($draft, site({ name: "$draft" }));
     caller.end($draft, site({ name: "$draft", type: "unknown" }));
 
-    expect(ownerLinkOf($timeline)?.owner).toBe($draft);
+    expect(ownerOf($timeline)).toBe($draft);
   });
 
   it("names the node after the binding, in the module the binding was written in", () => {
@@ -898,7 +911,7 @@ describe("begin and end", () => {
     scope.store(model.$open, site({ name: "$open", fn: "makeOpen" }));
     scope.end(model, site({ name: "model", type: "unknown" }));
 
-    expect(ownerLinkOf(model.$open)?.owner).toBe(model);
+    expect(ownerOf(model.$open)).toBe(model);
     expect(nodeInfoOf(model)).toMatchObject({ name: "model", home: HOME, external: false });
   });
 
@@ -912,7 +925,7 @@ describe("begin and end", () => {
     scope.adopt($shared, site({ name: "$shared", type: "unknown" }));
     scope.end(panel, site({ name: "panel", type: "unknown" }));
 
-    expect(ownerLinkOf($shared)?.owner).toBeUndefined();
+    expect(ownerOf($shared)).toBeUndefined();
   });
 });
 
@@ -992,6 +1005,108 @@ describe("clear", () => {
     scope.store($reloaded, site());
 
     expect(getEntry($reloaded)).toMatchObject({ name: "$items" });
+  });
+
+  it("drops the owner links its own body wrote, so two saves leave what one save left", () => {
+    const shared = fileScope("/repo/src/shared.ts", "src/shared.ts", CAP, false);
+    const $width = atom(0);
+
+    shared.store($width, site({ name: "$width", fn: "makeLayout" }));
+
+    function save(): void {
+      const page = fileScope(MODULE_ID, HOME, CAP, false);
+
+      page.clear();
+      page.own([["bounds", [$width], true]]);
+    }
+
+    save();
+
+    const once = JSON.stringify(buildSnapshot());
+
+    save();
+
+    expect(ownerLinksOf($width)).toHaveLength(1);
+    expect(JSON.stringify(buildSnapshot())).toBe(once);
+  });
+
+  it("drops the parents its own body wrote for a node that outlives the reload", () => {
+    const shared = fileScope("/repo/src/shared.ts", "src/shared.ts", CAP, false);
+    const $w = atom(0);
+    const held = { $w };
+
+    shared.store($w, site({ name: "$w", fn: "makeShared" }));
+
+    /** `held` is the same object on every save, and the container around it is a new one. */
+    function save(): void {
+      const page = fileScope(MODULE_ID, HOME, CAP, false);
+
+      page.clear();
+      page.own([["a", { held }, true]]);
+    }
+
+    save();
+
+    const once = JSON.stringify(buildSnapshot());
+
+    save();
+
+    expect(parentsOf(held)).toHaveLength(1);
+    expect(JSON.stringify(buildSnapshot())).toBe(once);
+  });
+
+  it("leaves the owner links another module wrote where they are", () => {
+    const shared = fileScope("/repo/src/shared.ts", "src/shared.ts", CAP, false);
+    const page = fileScope(MODULE_ID, HOME, CAP, false);
+    const $width = atom(0);
+    const bounds = [$width];
+
+    shared.store($width, site({ name: "$width", fn: "makeLayout" }));
+    shared.own([["bounds", bounds, true]]);
+    page.own([["layout", { width: $width }, true]]);
+    fileScope(MODULE_ID, HOME, CAP, false).clear();
+
+    expect(ownerLinksOf($width).map((link) => link.owner)).toEqual([bounds]);
+  });
+
+  it("drops the binding names its own body wrote and keeps another module's", () => {
+    const shared = fileScope("/repo/src/shared.ts", "src/shared.ts", CAP, false);
+    const page = fileScope(MODULE_ID, HOME, CAP, false);
+    const $draft = atom("");
+
+    shared.store($draft, site({ name: "$draft" }));
+    shared.own([["$draft", $draft, true]]);
+    page.own([["$alias", $draft, false]]);
+
+    expect(buildSnapshot()).toEqual({
+      "src/shared.ts": { "$draft [store]": "" },
+      [HOME]: { "$alias [store]": "" },
+    });
+
+    fileScope(MODULE_ID, HOME, CAP, false).clear();
+
+    expect(buildSnapshot()).toEqual({ "src/shared.ts": { "$draft [store]": "" } });
+  });
+
+  it("takes away the placement a deleted binding made, and keeps the name it wrote", () => {
+    const shared = fileScope("/repo/src/shared.ts", "src/shared.ts", CAP, false);
+    const page = fileScope(MODULE_ID, HOME, CAP, false);
+    const $canUndo = atom(false);
+    const $draft = Object.assign(atom(""), { $canUndo });
+
+    shared.store($draft, site({ name: "$draft" }));
+    shared.store($canUndo, site({ name: "$canUndo", fn: "withUndo" }));
+    shared.own([["$draft", $draft, true]]);
+    page.own([["$undoable", $canUndo, true]]);
+
+    expect(buildSnapshot()[HOME]).toEqual({ "$undoable [store]": false });
+
+    fileScope(MODULE_ID, HOME, CAP, false).clear();
+
+    /** The flat slot the binding made is gone, and the store is drawn under its owner alone. */
+    expect(buildSnapshot()[HOME]).toBeUndefined();
+    /** The name it wrote stays on the entry: nothing kept the one the creation site gave. */
+    expect(getEntry($canUndo)).toMatchObject({ name: "$undoable", home: HOME });
   });
 
   it("leaves another module's stores alone", () => {

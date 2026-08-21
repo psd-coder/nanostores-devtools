@@ -49,6 +49,15 @@ export type ModuleScope = {
   sites: Map<string, SiteState>;
   /** Which sites took a plain name, so the one arriving next can rename every one of them. */
   claims: Map<string, SiteState[]>;
+  /**
+   * Every value this run of the module linked into the graph: a store it gave an owner link or a
+   * binding name, and a node it gave a parent. A `WeakMap` cannot be listed, so a reload has no
+   * other way to find the links it has to drop. Held weakly, so the list keeps nothing alive.
+   *
+   * A `Set` rather than an array, because the app owns `Array.prototype` and an accessor it defines
+   * on an index there makes a `push` past that index throw.
+   */
+  linked: Set<WeakRef<object>>;
 };
 
 /**
@@ -57,10 +66,28 @@ export type ModuleScope = {
  */
 export type OwnerSource = "frame" | "scan" | "field";
 
+/**
+ * One top-level binding that holds a store: where it is written, and what it calls the store. The
+ * home rides along because two bindings in two modules put one store at two different homes, and a
+ * name with no home cannot be drawn.
+ */
+export type BoundName = {
+  name: string;
+  home: string;
+  /** The file the name shows, once a second module the home holds writes that name too. */
+  file: string | null;
+  /** The module that wrote it, so a hot reload drops exactly its own. */
+  moduleKey: string;
+  /** Whether the developer exported it, which is what settles which binding the entry takes. */
+  exported: boolean;
+};
+
 /** What one store is drawn under, what put it there, and the key that owner knows it by. */
 export type OwnerLink = {
   owner: WeakRef<object>;
   source: OwnerSource;
+  /** The module whose run drew the edge, so a hot reload of that module drops exactly its own. */
+  moduleKey: string;
   /**
    * The key a collection knows the store by, `[0]` or `["scratch"]`. A position or a map key is the
    * only name that says which member the store is, and the name it was born with cannot say it.
@@ -70,11 +97,18 @@ export type OwnerLink = {
 };
 
 /**
- * What each store is drawn under: another store, or a node holding it. Weak on both sides: the map
- * holds no store held, and the reference to an owner holds none either, so devtools keeps nothing
- * alive that the app has let go.
+ * What each store is drawn under: another store, or a node holding it, once per reference the
+ * developer wrote. Weak on both sides: the map holds no store held, and the reference to an owner
+ * holds none either, so devtools keeps nothing alive that the app has let go.
+ *
+ * A `scan` link and a `field` link both know a property name, so both are references and every one
+ * of them draws. A `frame` knows only that a store was born while an expression ran, which is a
+ * claim about when: there is at most one, and it draws only where no other link exists.
  */
-export type Owners = WeakMap<Store, OwnerLink>;
+export type Owners = WeakMap<Store, OwnerLink[]>;
+
+/** What holds a node, on the same terms an `OwnerLink` holds a store. */
+export type ParentLink = { parent: WeakRef<object>; source: OwnerSource; moduleKey: string };
 
 /**
  * One creation frame, open while a top-level initializer runs, holding the stores born while it
@@ -110,8 +144,11 @@ export type NodeInfo = {
    * says nothing a plain object node does not already say, so it is left out.
    */
   type: string | undefined;
-  /** What holds the node, a store or another node, so a collection's member nests under it. */
-  parent: WeakRef<object> | undefined;
+  /**
+   * What holds the node, a store or another node, so a collection's member nests under it. One per
+   * reference the developer wrote: two containers holding one node both draw it.
+   */
+  parents: ParentLink[];
   /** How many members of a collection the walk left out past its cap. */
   skipped: number;
 };
@@ -139,11 +176,11 @@ export type DevtoolsGlobal = {
   /** What each store is drawn under, which the registry knows nothing about. */
   owners: Owners;
   /**
-   * Which stores a top-level binding of the developer's own names, and whether the developer
-   * exported that binding. The flag settles which of two bindings for one store wins; the name
-   * itself is written onto the entry, because the whole point is that the registry draws it.
+   * Every top-level binding of the developer's own that holds each store. All of them draw, and
+   * the one the primary rule picks is written onto the entry, because the whole point is that the
+   * registry draws it.
    */
-  bound: WeakMap<Store, boolean>;
+  bound: WeakMap<Store, BoundName[]>;
   /** The nodes drawing has made, which hold stores the registry keeps no place for. */
   nodes: Nodes;
   /** The creation frames open right now, the innermost last. Empty between two ticks. */
@@ -191,6 +228,31 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
   };
 
   holder()[GLOBAL_KEY] = created;
+
+  return created;
+}
+
+/**
+ * One module's own bookkeeping, made on first use. Here rather than beside the module body that
+ * needs it, because ownership writes the sweep list and the runtime reads it, and the map itself is
+ * part of the shape two copies of the package share.
+ */
+export function scopeOf(moduleKey: string): ModuleScope {
+  const { scopes } = getDevtoolsGlobal();
+  const known = scopes.get(moduleKey);
+
+  if (known) {
+    return known;
+  }
+
+  const created: ModuleScope = {
+    owned: new Set(),
+    sites: new Map(),
+    claims: new Map(),
+    linked: new Set(),
+  };
+
+  scopes.set(moduleKey, created);
 
   return created;
 }

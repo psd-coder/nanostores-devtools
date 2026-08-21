@@ -1,4 +1,4 @@
-import { MORE_KEY, noted, VALUE_KEY } from "./keys.ts";
+import { DRAWN_UNDER_KEY, MORE_KEY, noted, VALUE_KEY } from "./keys.ts";
 import { noteFor } from "./boxing.ts";
 import { keepBuilt, mark } from "./marker.ts";
 import { MAX_MEMBERS } from "../stores/ownership.ts";
@@ -7,7 +7,7 @@ import { isThrottled } from "../timeline/throttle.ts";
 import {
   buildTree,
   type HolderNode,
-  type SecondNode,
+  type RepeatNode,
   type StoreNode,
   type TreeModel,
   type TreeNode,
@@ -55,7 +55,7 @@ function renderNodes(nodes: readonly TreeNode[]): Record<string, unknown> {
  * level for nothing.
  */
 function renderNode(node: TreeNode): unknown {
-  if (node.kind === "second") {
+  if (node.kind === "repeat") {
     return renderSlot(node);
   }
 
@@ -69,6 +69,25 @@ function renderNode(node: TreeNode): unknown {
 }
 
 function renderHolder(node: HolderNode): unknown {
+  const drawn = renderHeld(node);
+
+  /**
+   * The extension's own wrapper, which the panel's reviver drops before printing the type in front
+   * of the value, so what built a node costs no key and no nesting level of its own.
+   */
+  return node.type === undefined ? drawn : mark(node.type, drawn);
+}
+
+/**
+ * What the node holds: its children, or the one line a repeat draws instead of them. The developer
+ * wrote both references, so both are here, and this line is what keeps the second one from reading
+ * as a container the app left empty.
+ */
+function renderHeld(node: HolderNode): Record<string, unknown> {
+  if (node.expandedAt !== null) {
+    return keepBuilt({ [DRAWN_UNDER_KEY]: node.expandedAt });
+  }
+
   const drawn = renderNodes(node.children);
 
   if (node.skipped > 0) {
@@ -79,14 +98,10 @@ function renderHolder(node: HolderNode): unknown {
     );
   }
 
-  /**
-   * The extension's own wrapper, which the panel's reviver drops before printing the type in front
-   * of the value, so what built a node costs no key and no nesting level of its own.
-   */
-  return node.type === undefined ? drawn : mark(node.type, drawn);
+  return drawn;
 }
 
-function renderSlot(node: StoreNode | SecondNode): unknown {
+function renderSlot(node: StoreNode | RepeatNode): unknown {
   const { slot } = node;
 
   if (slot.state === "live") {
@@ -108,7 +123,7 @@ function keyOf(node: TreeNode): string {
  * `name` and `label` stay as they are, because they name timeline rows and decide which two stores
  * are one, and a key that changes when adoption learns a type costs one row redrawn.
  */
-function storeKey(node: StoreNode | SecondNode): string {
+function storeKey(node: StoreNode | RepeatNode): string {
   const { entry, ordinal, qualifier } = node;
   const head = noted(node.name, entry.type, isThrottled(entry));
   const named = qualifier === null ? head : qualify(head, qualifier);

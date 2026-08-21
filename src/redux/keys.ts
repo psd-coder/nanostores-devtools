@@ -25,6 +25,14 @@ export const VALUE_OF_KEY = "(valueOf)";
 export const TO_STRING_KEY = "(toString)";
 
 /**
+ * Where a node the developer placed more than once is drawn in full. Beside the other invented keys
+ * because it is one too, and it carries the one fact a placement drawing no children still has to
+ * say: a node holds no value, so nothing else there would tell it from a container the app really
+ * left empty.
+ */
+export const DRAWN_UNDER_KEY = "(drawn under)";
+
+/**
  * A name with the store's type behind it, `$total [computed]`. Every key pointing at a store carries
  * one, in the tree and inside a value alike, so a store reads the same wherever it is drawn.
  *

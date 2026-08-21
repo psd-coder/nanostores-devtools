@@ -1737,7 +1737,7 @@ describe("buildSnapshot", () => {
     });
 
     describe("the developer's own binding", () => {
-      it("names the store, drawn flat, and its owner keeps a second placement of it", () => {
+      it("names the store, drawn flat, and its owner keeps a repeat of it", () => {
         const $canUndo = atom(false);
         const $draft = holder("", { $canUndo });
 
@@ -1798,7 +1798,7 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("lets an exported binding name the store over a plain one scanned before it", () => {
+      it("draws every binding, and lets the exported one name the entry", () => {
         const $typed = atom("");
 
         track($typed, "$typed");
@@ -1808,7 +1808,10 @@ describe("buildSnapshot", () => {
           ["$alias", $typed, false],
         ]);
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { "$value [store]": "" } });
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { "$alias [store]": "", "$typed [store]": "", "$value [store]": "" },
+        });
+        expect(listEntries()[0]?.name).toBe("$value");
       });
 
       it("keeps an exported binding's name against a plain one scanned after it", () => {
@@ -1820,7 +1823,8 @@ describe("buildSnapshot", () => {
           ["$alias", $typed, false],
         ]);
 
-        expect(buildSnapshot()).toEqual({ [HOME]: { "$value [store]": "" } });
+        expect(buildSnapshot()).toEqual({ [HOME]: { "$alias [store]": "", "$value [store]": "" } });
+        expect(listEntries()[0]?.name).toBe("$value");
       });
 
       it("lets a binding in somebody else's file neither name nor nest the store it holds", () => {
@@ -1842,7 +1846,7 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("leaves the name a group was given by hand alone, and still draws it twice", () => {
+      it("leaves the name a group was given by hand alone, and draws the binding beside it", () => {
         const $canUndo = atom(false);
         const $draft = holder("", { $canUndo });
 
@@ -1855,7 +1859,10 @@ describe("buildSnapshot", () => {
 
         expect(buildSnapshot()).toEqual({
           cart: { "$canUndo [store]": stale(false) },
-          [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": stale(false) } },
+          [HOME]: {
+            "$draft [store]": { "(value)": "", "$canUndo [store]": stale(false) },
+            "$undoable [store]": stale(false),
+          },
         });
       });
 
@@ -1874,7 +1881,7 @@ describe("buildSnapshot", () => {
         expect(buildSnapshot()).toEqual({ [HOME]: { "$draft [store]": "" } });
       });
 
-      it("draws one slot per entry, plus one for every second placement", () => {
+      it("draws one slot per entry, plus one for every repeat", () => {
         const $canUndo = atom(1);
         const $history = atom(2);
         const $draft = holder(3, { $canUndo, $history });
@@ -1896,6 +1903,133 @@ describe("buildSnapshot", () => {
       });
     });
 
+    describe("many references to one value", () => {
+      it("draws two bindings for one store as two nodes, and names the entry once", () => {
+        const $draft = atom("");
+
+        track($draft, "$draft");
+        ownBindings(FROM, [
+          ["$draft1", $draft, true],
+          ["$draft2", $draft, true],
+        ]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: { "$draft1 [store]": "", "$draft2 [store]": "" },
+        });
+        /** One store, one entry, one name: what the timeline and the by-name index both read. */
+        expect(listEntries()).toHaveLength(1);
+        expect(listEntries()[0]?.name).toBe("$draft2");
+      });
+
+      it("draws a binding written in another module at that module's own home", () => {
+        const $draft = atom("");
+        const other = { home: "src/aliases.ts", external: false, moduleKey: "src/aliases.ts" };
+
+        track($draft, "$draft");
+        ownBindings(FROM, [["$draft1", $draft, true]]);
+        ownBindings(other, [["$draft2", $draft, true]]);
+
+        expect(buildSnapshot()).toEqual({
+          "src/aliases.ts": { "$draft2 [store]": "" },
+          [HOME]: { "$draft1 [store]": "" },
+        });
+      });
+
+      it("draws both containers that hold one store, with the store under each", () => {
+        const $width = atom(0);
+        const bounds = [$width];
+        const layout = { width: $width };
+
+        track($width, "$width", HOME, "atom", null, "makeLayout");
+        ownBindings(FROM, [
+          ["bounds", bounds, true],
+          ["layout", layout, true],
+        ]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: {
+            bounds: labelled("Array", { "[0] [store]": 0 }),
+            layout: { "width [store]": 0 },
+          },
+        });
+      });
+
+      it("expands a node under its first container and says where the second one draws it", () => {
+        const $w = atom(0);
+        const shared = { $w };
+        const a = { shared };
+        const b = { shared };
+
+        track($w, "$w", HOME, "atom", null, "makeShared");
+        ownBindings(FROM, [
+          ["a", a, true],
+          ["b", b, true],
+        ]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: {
+            a: { shared: { "$w [store]": 0 } },
+            b: { shared: { "(drawn under)": `${HOME}/a` } },
+          },
+        });
+      });
+
+      it("draws a node two collections hold under both, under the key each one knows it by", () => {
+        class Editor {
+          $value = atom("");
+        }
+
+        const editor = new Editor();
+        const pool = new Set([editor]);
+        const drafts = [editor];
+
+        track(editor.$value, "$value", HOME, "atom", null, "makeEditor");
+        ownField(FROM, editor.$value, editor);
+        ownBindings(FROM, [
+          ["drafts", drafts, true],
+          ["pool", pool, true],
+        ]);
+
+        expect(buildSnapshot()).toEqual({
+          [HOME]: {
+            drafts: labelled("Array", {
+              "[0]": labelled("Editor", { "$value [store]": "" }),
+            }),
+            pool: labelled("Set", {
+              "[0]": labelled("Editor", { "(drawn under)": `${HOME}/drafts` }),
+            }),
+          },
+        });
+      });
+
+      it("lets no frame stand beside the container that really holds the store", () => {
+        const $loose = atom(0);
+        const inner = { $loose };
+        const outer = { inner };
+
+        track($loose, "$loose", HOME, "atom", null, "makeOuter");
+        beginFrame();
+        noteBirth($loose);
+        endFrame(FROM, outer, "outer");
+        ownBindings(FROM, [["outer", outer, true]]);
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { outer: { inner: { "$loose [store]": 0 } } } });
+      });
+
+      it("keeps drawing a store the frame alone places", () => {
+        const $loose = atom(0);
+        const model = { title: "" };
+
+        track($loose, "$loose", HOME, "atom", null, "makeModel");
+        beginFrame();
+        noteBirth($loose);
+        endFrame(FROM, model, "model");
+        ownBindings(FROM, [["model", model, true]]);
+
+        expect(buildSnapshot()).toEqual({ [HOME]: { model: { "$loose [store]": 0 } } });
+      });
+    });
+
     describe("a group written by hand", () => {
       it("draws the store at its group, whatever owner the walk recorded", () => {
         const $route = atom("/");
@@ -1912,7 +2046,7 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("leaves the owner's second placement under the name the owner knows the store by", () => {
+      it("leaves the owner's repeat under the name the owner knows the store by", () => {
         const $route = atom("/");
         const router = holder("", { $route });
 
@@ -1927,7 +2061,7 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("keys the second placement by the property the owner holds it under, not the group", () => {
+      it("keys the repeat by the property the owner holds it under, not the group", () => {
         const $route = atom("/");
         const router = holder("", { $route });
 
@@ -1958,7 +2092,7 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("draws one slot per entry, plus one for the second placement its owner keeps", () => {
+      it("draws one slot per entry, plus one for the repeat its owner keeps", () => {
         const $canUndo = atom(1);
         const $draft = holder(2, { $canUndo });
 

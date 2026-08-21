@@ -50,7 +50,7 @@ export type StoreEntry = {
   /**
    * The name whatever owns the store knows it by, which is the one its creation site gave it. It
    * stays as it was when a binding of the developer's renames the entry, because the owner drawing
-   * a second placement of the store still knows it under its own key.
+   * a repeat of the store still knows it under its own key.
    *
    * `null` where no creation site ever named the store, which is a store a group registered by
    * hand and the plugin never saw.
@@ -214,7 +214,9 @@ export function trackStores(group: string, stores: Readonly<Record<string, Store
       warnOnce(
         "one-store-two-names",
         makeLabel(group, taken),
-        `"${name}" and "${taken}" in group "${group}" are the same store. Keeping "${taken}".`,
+        `"${name}" and "${taken}" in group "${group}" are the same store. Keeping "${taken}": ` +
+          `a group makes one entry per store. Two top-level bindings for one store draw twice, ` +
+          `because each of them is a name the tree can hold.`,
       );
       continue;
     }
@@ -234,7 +236,8 @@ export function trackStores(group: string, stores: Readonly<Record<string, Store
 
 /**
  * The name a top-level binding of the developer's own gives a store, which beats the one its
- * creation site gave it. The store keeps its identity and its entry, so this is one entry under a
+ * creation site gave it. One of several such bindings reaches here: the tree draws every one of
+ * them, and the entry takes the one the primary rule picked. The store keeps its identity and its entry, so this is one entry under a
  * new name: the tree draws it, and the rows the timeline writes read it too.
  *
  * A name a group was given by hand is left alone, as it is everywhere else: the developer wrote

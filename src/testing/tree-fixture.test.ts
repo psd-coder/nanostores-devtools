@@ -2,7 +2,7 @@ import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
-import { ownerLinkOf } from "../tree/placement.ts";
+import { ownerLinksOf } from "../tree/placement.ts";
 import { listEntries, type StoreEntry } from "../stores/registry.ts";
 import { buildSnapshot } from "../redux/render.ts";
 import { nanostoresDevtools, type VitePluginOptions } from "../discovery/vite.ts";
@@ -186,7 +186,7 @@ describe("the fixture drawn by the shipped code", () => {
      * through `$draft`. `$timeline` is the closure it kept, and only the frame ever reached it.
      */
     expect(entryNamed("$timeline").home).toBe(UNDO_HOME);
-    expect(ownerLinkOf(entryNamed("$timeline").store)).toBeUndefined();
+    expect(ownerLinksOf(entryNamed("$timeline").store)).toEqual([]);
   });
 
   it("draws none of the second instance's closure either", () => {
@@ -201,7 +201,7 @@ describe("the fixture drawn by the shipped code", () => {
     expect(entryNamed("$timeline", 2)).toMatchObject({ home: UNDO_HOME });
   });
 
-  it("keeps the developer's name for an alias, and a second placement on its owner", () => {
+  it("keeps the developer's name for an alias, and a repeat on its owner", () => {
     const model = homeOf(MODEL_HOME);
 
     expect(entryNamed("$canUndo")).toMatchObject({ home: MODEL_HOME, ownerName: "$canUndo" });
@@ -237,12 +237,29 @@ describe("the fixture drawn by the shipped code", () => {
     expect(entryNamed("$busy").home).toBe(MODEL_HOME);
   });
 
-  it("names the exported binding's store, whatever order the two bindings are scanned in", () => {
+  it("draws all three bindings for one store, and lets the exported one name the entry", () => {
     const model = homeOf(MODEL_HOME);
 
     expect(model["$value [store]"]).toBe(TEXT);
-    expect(Object.keys(model)).not.toContain("$typed");
-    expect(Object.keys(model)).not.toContain("$alias");
+    expect(model["$typed [store]"]).toBe(TEXT);
+    expect(model["$alias [store]"]).toBe(TEXT);
+    expect(entryNamed("$value").name).toBe("$value");
+  });
+
+  it("draws a store two containers hold under each of them, and both containers", () => {
+    const editor = homeOf(EDITOR_HOME);
+
+    expect(editor["wide"]).toEqual(labelled("Array", { "[0] [store]": 1.5 }));
+    expect(editor["tall"]).toEqual({ "ratio [store]": 1.5 });
+  });
+
+  it("expands a node under its first container and says where the second one draws it", () => {
+    const editor = homeOf(EDITOR_HOME);
+
+    expect(editor["left"]).toEqual({ pinned: labelled("Viewer", { "$zoom [store]": 1 }) });
+    expect(editor["right"]).toEqual({
+      pinned: labelled("Viewer", { "(drawn under)": `${EDITOR_HOME}/left` }),
+    });
   });
 
   it("names a class instance by its binding and not by its class", () => {
@@ -288,7 +305,7 @@ describe("the fixture drawn by the shipped code", () => {
       labelled("Set", { "[0] [store]": false, "[1] [store]": true }),
     );
     expect(Object.keys(inside(editor, "watched"))).toEqual(["[0] [store]", "[1] [store]"]);
-    /** The name the developer wrote still holds the flat slot, and the collection the second one. */
+    /** The name the developer wrote still holds the flat slot, and the collection a repeat. */
     expect(editor["$width [store]"]).toBe(320);
     expect(entryNamed("$width").ownerName).toBe("$width");
   });
@@ -401,18 +418,16 @@ describe("the draw-once invariant", () => {
     return new Map(tokens.map(([label, token]) => [label, drawn.split(token).length - 1]));
   }
 
-  it("draws every store it draws at all once, plus one for each second placement", () => {
+  it("draws every store it draws at all once per reference the developer wrote", () => {
     /** One note, whatever else happens: silence would read as "this is all of it". */
     expect(JSON.stringify(buildSnapshot()).split('"…"').length - 1).toBe(1);
-    expect(listEntries()).toHaveLength(107);
+    expect(listEntries()).toHaveLength(109);
 
     const counts = countPlacements();
     const placements = [...counts.values()];
 
-    /** One label per entry, so a label two entries shared would drop the count below 107. */
-    expect(counts.size).toBe(107);
-    /** Draw-once, the first form: no store is drawn twice over. */
-    expect(placements.filter((times) => times > 2)).toEqual([]);
+    /** One label per entry, so a label two entries shared would drop the count below 109. */
+    expect(counts.size).toBe(109);
     /**
      * The stores the tree draws nowhere. `track()` keeps its own in a closure and hands back a
      * function, so nothing places it and what the function returned holds no state to see it by.
@@ -426,26 +441,31 @@ describe("the draw-once invariant", () => {
       `${TRACKER_HOME}/$hits`,
     ]);
     /**
-     * Draw-once, the second form. A store the developer bound to a top-level name of their own is
-     * drawn once at that name and once more under its owner, so 104 is the count of the stores
-     * drawn at all and 113 with those second placements.
+     * Draw-once: a store is drawn once for each reference the developer wrote and never twice for
+     * one. A name they bound and a container they put it in are both references, so a store with a
+     * flat name and one owner draws twice, and one with three references draws three times. 106 of
+     * the 109 draw at all, and 119 counts every repeat beside them.
      */
-    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(113);
+    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(119);
     expect(
       [...counts]
-        .filter(([, times]) => times === 2)
-        .map(([label]) => label)
+        .filter(([, times]) => times > 1)
+        .map(([label, times]) => `${label} x${times}`)
         .sort(),
     ).toEqual([
-      `${EDITOR_HOME}/$dirty`,
-      `${EDITOR_HOME}/$height`,
-      `${EDITOR_HOME}/$open`,
-      `${EDITOR_HOME}/$scratch`,
-      `${EDITOR_HOME}/$width`,
-      `${MODEL_HOME}/$canRedo`,
-      `${MODEL_HOME}/$canUndo`,
-      `${MODEL_HOME}/$entries`,
-      `${MODEL_HOME}/$undoable`,
+      `${EDITOR_HOME}/$dirty x2`,
+      `${EDITOR_HOME}/$height x2`,
+      `${EDITOR_HOME}/$open x2`,
+      /** Bound flat, and held by two containers, so three references and three placements. */
+      `${EDITOR_HOME}/$ratio x3`,
+      `${EDITOR_HOME}/$scratch x2`,
+      `${EDITOR_HOME}/$width x2`,
+      `${MODEL_HOME}/$canRedo x2`,
+      `${MODEL_HOME}/$canUndo x2`,
+      `${MODEL_HOME}/$entries x2`,
+      `${MODEL_HOME}/$undoable x2`,
+      /** Three top-level bindings for one store: `$value`, `$typed` and `$alias`. */
+      `${MODEL_HOME}/$value x3`,
     ]);
   });
 });

@@ -214,6 +214,9 @@ drawn flat at the file it was written in, so nesting it under whatever the expre
 returned would claim a holding that does not exist. What is left is a store made inside a function,
 which is the case the frame exists for.
 
+And it stands aside wherever a **reference** the developer wrote holds the store as well. There is
+at most one frame link, and the tree draws it only where the store has no other link at all.
+
 **`this` in a class field** — a field initializer runs with `this` bound to the new instance, so
 the transform hands it over. A static field's `this` is the constructor instead, which is why a
 static store belongs to the class. It is also the only way to reach a private field.
@@ -305,15 +308,28 @@ a factory result, a collection, a class's statics, or a function we held stores 
 with **slot**, a store's own place holding its value. It is not a **group**: that word keeps its
 v1 meaning, the name a developer passes to `trackStores()` and the unit `untrack` removes.
 
-**Owner** — what a store is drawn under. Either another store or a node.
+**Owner** — what a store is drawn under. Either another store or a node. A store may have several,
+one per container that really holds it, and a node may have several parents the same way.
 
-**Placement** — one node in the tree standing for a store, which the view draws as one key. The
-**model** decides how many there are. A store has one entry and may have two placements: the home
-the developer chose for it, drawn flat, and the name its owner knows it by, drawn under the owner.
-That second key is the property the owner really holds it at, and only where nothing holds it under
-a property, as under a creation frame, does it fall back to the name the store's creation site
-gave. They choose a home two ways, a top-level binding of their own and an
-explicit registration, and either one beats the owner the ownership walk recorded.
+**Reference** — a name the developer wrote for a value: a top-level binding, or a key on a
+container they built. **Every reference draws.** Two bindings for one store are two references, and
+so are two containers holding one store, so dropping any of them says the app holds less than the
+source does. A **creation frame** is not a reference: it knows only that a store was born while an
+expression ran, which is a claim about when, so it places a store only where no reference does.
+
+**Placement** — one node in the tree standing for a value, which the view draws as one key. The
+**model** decides how many there are, one per **reference**. A store has one entry and as many
+placements as the source wrote: the home the developer chose for it, drawn flat, and the name each
+owner knows it by, drawn under that owner. An owner's key is the property it really holds the store
+at, and only where nothing holds it under a property, as under a creation frame, does it fall back
+to the name the store's creation site gave. They choose a home two ways, a top-level binding of
+their own and an explicit registration, and either one beats the owner the ownership walk recorded.
+
+**Repeat** — every placement past the one that expands. The value is expanded under its first
+placement and every other placement shows it and stops, because drawing its children twice would say
+the app holds twice as many stores as it does. A store repeat carries its value, which is the point
+of a store; a node has no value, so a node repeat carries `(drawn under)`, the label of the
+placement that expands it, or it would read as a container the app really left empty.
 
 A store may also have none. One made inside a function and placed by nothing is that function's own
 working state: what the function returned is what the app holds, and the tree draws that already, so

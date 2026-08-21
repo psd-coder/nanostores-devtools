@@ -1,6 +1,20 @@
-import type { NodeInfo } from "../global.ts";
-import { drawable, drawnOwner, isPlaced, nodeInfoOf, placedByDeveloper } from "./placement.ts";
-import { isStore, listEntries, type NameParts, type StoreEntry } from "../stores/registry.ts";
+import type { BoundName, NodeInfo } from "../global.ts";
+import {
+  boundNames,
+  drawnOwners,
+  drawnParents,
+  isPlaced,
+  nodeInfoOf,
+  placedByDeveloper,
+} from "./placement.ts";
+import {
+  getEntry,
+  isStore,
+  listEntries,
+  type NameParts,
+  type StoreEntry,
+} from "../stores/registry.ts";
+import { makeLabel } from "../stores/labels.ts";
 import { type Slot, staleNote } from "./slot.ts";
 
 export type { Slot } from "./slot.ts";
@@ -13,7 +27,7 @@ export type HomeGroup = { home: string; kind: HomeKind; children: TreeNode[] };
 /** Groups the developer wrote by hand, then their own files, then somebody else's. */
 export type HomeKind = "group" | "own" | "external";
 
-export type TreeNode = StoreNode | SecondNode | HolderNode;
+export type TreeNode = StoreNode | RepeatNode | HolderNode;
 
 /** A store at a place of its own, with whatever it owns under it. */
 export type StoreNode = {
@@ -29,8 +43,11 @@ export type StoreNode = {
   children: TreeNode[];
 };
 
-/** The owner's copy of a store the developer placed somewhere else. Value only, no children. */
-export type SecondNode = Omit<StoreNode, "kind" | "children"> & { kind: "second" };
+/**
+ * A reference to a store that is expanded somewhere else: the same entry, its own name, and no
+ * children. The value comes along, because a store's value is the point of drawing it at all.
+ */
+export type RepeatNode = Omit<StoreNode, "kind" | "children"> & { kind: "repeat" };
 
 /** A thing that holds others and has no value of its own. */
 export type HolderNode = {
@@ -48,26 +65,51 @@ export type HolderNode = {
   ordinal: number | null;
   /** Members the ownership walk left out, `0` when it walked them all. */
   skipped: number;
+  /**
+   * Where the node is expanded, and `null` for the one placement that expands it. A node two
+   * containers hold draws under both, and drawing its children twice would say the app holds twice
+   * as many stores as it does, so every placement past the first shows the node and stops.
+   */
+  expandedAt: string | null;
   children: TreeNode[];
 };
 
 /**
- * One thing the tree draws: a store's own slot, the second placement its owner keeps of a store the
- * developer placed themselves, or a node holding others and no value at all.
+ * One thing the tree draws: a store's own slot, a repeat of a store expanded somewhere else, or a
+ * node holding others and no value at all.
+ *
+ * `bound` is the top-level binding this placement draws, where a name of the developer's put the
+ * store here rather than an owner. It carries its own name and its own home, because two bindings
+ * in two modules put one store at two different homes.
  */
 type Held =
-  | { kind: "store"; entry: StoreEntry; key?: string | undefined }
-  | { kind: "second"; entry: StoreEntry; key?: string | undefined }
-  | { kind: "node"; value: object; info: NodeInfo };
+  | { kind: "store"; entry: StoreEntry; key?: string | undefined; bound?: BoundName | undefined }
+  | { kind: "repeat"; entry: StoreEntry; key?: string | undefined; bound?: BoundName | undefined }
+  | { kind: "node"; value: object; info: NodeInfo; expandedAt: string | null };
 
-/** What each owner holds, what each home holds at its own top level, and which nodes are in. */
-type Tree = { homes: Map<string, Held[]>; children: Map<object, Held[]>; placed: Set<object> };
+/**
+ * What each owner holds, what each home holds at its own top level, and which nodes are in: the
+ * parents each node is already drawn under, and the nodes drawn at a home's own top level. Attaching
+ * once per parent rather than once per node is what lets two containers each draw the node they
+ * hold, while one edge still draws one node.
+ */
+type Tree = {
+  homes: Map<string, Held[]>;
+  children: Map<object, Held[]>;
+  placed: Map<object, Set<object>>;
+  atHome: Set<object>;
+};
 
 /**
  * One home being built: the tree it comes out of, and how many nodes carrying a name of ours it has
  * numbered so far. The count runs across the whole file rather than per parent or per class, because
  * two `ref` nodes numbered one in one file, one an `Editor` and one a `Viewer`, would read as the
  * same node.
+ *
+ * **A repeat counts like any other placement.** A node the developer named carries no number at all
+ * unless a sibling wants the same name, and a node named by us is never drawn twice: the only thing
+ * that gives such a node a parent is a frame, and a frame moves the top of the chain rather than
+ * adding a second parent to what it already hangs from.
  */
 type Pass = { tree: Tree; named: number };
 
@@ -88,7 +130,12 @@ const ORDER_DIGITS = 8;
  * developer put behind it, and either one would make watching a store change how the app behaves.
  */
 export function buildTree(): TreeModel {
-  const tree: Tree = { homes: new Map(), children: new Map(), placed: new Set() };
+  const tree: Tree = {
+    homes: new Map(),
+    children: new Map(),
+    placed: new Map(),
+    atHome: new Set(),
+  };
 
   for (const entry of listEntries()) {
     place(tree, entry);
@@ -104,14 +151,18 @@ export function buildTree(): TreeModel {
 }
 
 /**
- * Where one entry is drawn. A home the developer chose takes its value, at the top level of that
- * home, and its owner keeps a second placement of the same store under the name the owner knows it
- * by: without that the owner reads as incomplete, and it is also what a name of theirs is measured
- * against. One entry, one identity, two keys.
+ * Where one entry is drawn. **Every reference the developer wrote draws.** Two top-level bindings
+ * for one store draw two nodes, and two containers holding one store both draw it, because the
+ * source says the app holds it in both places and drawing one of them says it holds less.
  *
- * They choose it two ways: a group they registered the store into by hand, and a top-level name
- * they bound it to in a file of their own. Either one beats the owner the ownership walk recorded,
- * because both say where this store belongs and an owner only says where the walk reached it from.
+ * **One of those placements expands and the rest show the store and stop.** A repeat carries the
+ * value, so the owner never reads as incomplete, and its children sit where the store itself is
+ * drawn: drawing them again would say the app holds twice as many stores as it does.
+ *
+ * The developer chooses a home two ways: a group they registered the store into by hand, and a
+ * top-level name they bound it to in a file of their own. Either one beats the owner the ownership
+ * walk recorded, because both say where this store belongs and an owner only says where the walk
+ * reached it from. Where neither did, the first owner recorded is the one that expands.
  */
 function place(tree: Tree, entry: StoreEntry): void {
   if (!isPlaced(entry)) {
@@ -119,49 +170,103 @@ function place(tree: Tree, entry: StoreEntry): void {
   }
 
   const chosen = placedByDeveloper(entry);
-  const drawn = drawnOwner(entry.store);
+  const owners = drawnOwners(entry.store);
+  const names = boundNames(entry.store);
 
-  if (chosen || drawn === undefined) {
+  if (chosen || owners.length === 0) {
     collect(tree.homes, entry.home, { kind: "store", entry });
   }
 
-  if (drawn === undefined) {
-    return;
+  /**
+   * The binding the entry took is the flat slot above. A group took the entry instead, so then
+   * every binding is a repeat: the developer wrote that group name for this store by hand.
+   */
+  for (const bound of entry.origin === "explicit" ? names : names.slice(1)) {
+    collect(tree.homes, bound.home, { kind: "repeat", entry, bound });
   }
 
-  /** The key belongs to the owner the link named, so a store no link placed takes none. */
-  const held: Held = chosen
-    ? { kind: "second", entry, key: drawn.key }
-    : { kind: "store", entry, key: drawn.key };
+  owners.forEach((link, index) => {
+    /** The key belongs to the owner the link named, so a store no link placed takes none. */
+    const expands = !chosen && index === 0;
+    const held: Held = expands
+      ? { kind: "store", entry, key: link.key }
+      : { kind: "repeat", entry, key: link.key };
 
-  collect(tree.children, drawn.owner, held);
-  attach(tree, drawn.owner);
+    collect(tree.children, link.owner, held);
+    attach(tree, link.owner);
+  });
 }
 
 /**
- * A node holds no value of its own, so it reaches the tree only where a store puts it: inside the
- * node or the store that holds it, or at the top level of the file its name was written in.
+ * A node holds no value of its own, so it reaches the tree only where a store puts it: inside every
+ * node or store that holds it, or at the top level of the file its name was written in when nothing
+ * the tree can draw holds it at all.
+ *
+ * One edge draws one node, so a node reached again through a parent it already hangs from adds
+ * nothing, and the walk up ends: the ownership graph refuses an edge that would close a loop.
  */
 function attach(tree: Tree, owner: object): void {
   const info = isStore(owner) ? undefined : nodeInfoOf(owner);
 
-  if (info === undefined || tree.placed.has(owner)) {
+  if (info === undefined) {
     return;
   }
 
-  tree.placed.add(owner);
+  const parents = drawnParents(info);
 
-  const parent = info.parent?.deref();
-  const held: Held = { kind: "node", value: owner, info };
-
-  if (parent === undefined || !drawable(parent)) {
-    collect(tree.homes, info.home, held);
+  if (parents.length === 0) {
+    if (!tree.atHome.has(owner)) {
+      tree.atHome.add(owner);
+      collect(tree.homes, info.home, { kind: "node", value: owner, info, expandedAt: null });
+    }
 
     return;
   }
 
-  collect(tree.children, parent, held);
-  attach(tree, parent);
+  const drawn = alreadyUnder(tree, owner);
+  const expander = parents[0];
+
+  parents.forEach((parent, index) => {
+    if (drawn.has(parent)) {
+      return;
+    }
+
+    drawn.add(parent);
+    collect(tree.children, parent, {
+      kind: "node",
+      value: owner,
+      info,
+      expandedAt: index === 0 || expander === undefined ? null : whereDrawn(expander),
+    });
+    attach(tree, parent);
+  });
+}
+
+function alreadyUnder(tree: Tree, owner: object): Set<object> {
+  const known = tree.placed.get(owner);
+
+  if (known) {
+    return known;
+  }
+
+  const created = new Set<object>();
+
+  tree.placed.set(owner, created);
+
+  return created;
+}
+
+/** Where a repeat says its value is expanded: the home and the name of the holder that expands it. */
+function whereDrawn(holder: object): string {
+  const info = isStore(holder) ? undefined : nodeInfoOf(holder);
+
+  if (info !== undefined) {
+    return makeLabel(info.home, info.name);
+  }
+
+  const entry = isStore(holder) ? getEntry(holder) : undefined;
+
+  return entry === undefined ? "" : makeLabel(entry.home, entry.name);
 }
 
 function collect<TKey>(index: Map<TKey, Held[]>, key: TKey, held: Held): void {
@@ -215,12 +320,13 @@ function fillAll(pass: Pass, placements: readonly Placement[]): TreeNode[] {
 }
 
 /**
- * A second placement is the store's value and nothing else. Its children sit at the home the
- * developer put it in, which is where the store itself is drawn, and drawing them twice would say
- * the app holds twice as many stores as it does.
+ * A repeat draws nothing under it. Its children sit under the placement that expands it, and drawing
+ * them again would say the app holds twice as many stores as it does. A store repeat still carries
+ * its value, because that is the useful fact about a store; a node has no value, so a node repeat
+ * says only that it is here, and the view words where to open it.
  */
 function fill(pass: Pass, node: TreeNode): void {
-  if (node.kind === "second") {
+  if (node.kind === "repeat") {
     return;
   }
 
@@ -230,7 +336,9 @@ function fill(pass: Pass, node: TreeNode): void {
     return;
   }
 
-  node.children = childNodes(pass, pass.tree.children.get(node.value) ?? [], node);
+  if (node.expandedAt === null) {
+    node.children = childNodes(pass, pass.tree.children.get(node.value) ?? [], node);
+  }
 }
 
 function rootPlacement(pass: Pass, held: Held): Placement {
@@ -238,10 +346,22 @@ function rootPlacement(pass: Pass, held: Held): Placement {
     return holderPlacement(pass, held);
   }
 
-  return {
-    node: storeNode(held, held.entry.name, ownParts(held.entry)),
-    sortName: sortName(held),
-  };
+  const { bound } = held;
+  const named: Naming =
+    bound === undefined
+      ? { name: held.entry.name, qualifier: ownParts(held.entry) }
+      : { name: bound.name, qualifier: boundParts(bound) };
+
+  return { node: storeNode(held, named.name, named.qualifier), sortName: sortName(held) };
+}
+
+/**
+ * What a binding's own name has to show beside it, which is nothing unless a second module the home
+ * holds writes that name too. A name the developer wrote came from no creation site, so the place
+ * and the number that tell two stores of one site apart say nothing about it.
+ */
+function boundParts(bound: BoundName): NameParts | null {
+  return bound.file === null ? null : { file: bound.file, place: null, number: 1 };
 }
 
 /**
@@ -304,6 +424,7 @@ function holderPlacement(pass: Pass, held: Extract<Held, { kind: "node" }>): Pla
       ours: info.numbered,
       ordinal: info.numbered ? pass.named : null,
       skipped: info.skipped,
+      expandedAt: held.expandedAt,
       children: [],
     },
     sortName: info.name,
@@ -311,10 +432,10 @@ function holderPlacement(pass: Pass, held: Extract<Held, { kind: "node" }>): Pla
 }
 
 function storeNode(
-  held: Extract<Held, { kind: "store" | "second" }>,
+  held: Extract<Held, { kind: "store" | "repeat" }>,
   name: string,
   qualifier: NameParts | null,
-): StoreNode | SecondNode {
+): StoreNode | RepeatNode {
   const drawn = {
     entry: held.entry,
     name,
@@ -323,8 +444,8 @@ function storeNode(
     slot: staleNote(held.entry.store, held.entry),
   };
 
-  return held.kind === "second"
-    ? { kind: "second", ...drawn }
+  return held.kind === "repeat"
+    ? { kind: "repeat", ...drawn }
     : { kind: "store", ...drawn, children: [] };
 }
 
@@ -335,10 +456,14 @@ function sortName(held: Held): string {
   }
 
   /**
-   * A member of a collection sorts by its position, and a second placement sorts where its own name
-   * puts it rather than where the developer's would.
+   * A member of a collection sorts by its position, a binding by the name it wrote, and a repeat an
+   * owner keeps sorts where its own name puts it rather than where the developer's would.
    */
-  return held.key ?? (held.kind === "second" ? nameForOwner(held.entry) : held.entry.name);
+  if (held.bound !== undefined) {
+    return held.bound.name;
+  }
+
+  return held.key ?? (held.kind === "repeat" ? nameForOwner(held.entry) : held.entry.name);
 }
 
 /**
@@ -500,6 +625,10 @@ function rank(held: readonly Held[]): number {
     return 0;
   }
 
+  /**
+   * A binding never makes a home somebody else's: a file outside the developer's root places no
+   * name at all, and a binding of theirs moves the entry into a file of their own, external and all.
+   */
   return held.every((one) => (one.kind === "node" ? one.info.external : one.entry.external))
     ? 2
     : 1;

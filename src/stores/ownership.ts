@@ -1,12 +1,14 @@
 import type { Store } from "nanostores";
 
 import {
+  type BoundName,
   type DevtoolsGlobal,
   getDevtoolsGlobal,
+  type ModuleScope,
   type NodeInfo,
-  type OwnerLink,
   type OwnerSource,
   peekDevtoolsGlobal,
+  scopeOf,
 } from "../global.ts";
 import { makeLabel } from "./labels.ts";
 import { claimBindingFile, type NameSource } from "./names.ts";
@@ -49,11 +51,11 @@ const UNNAMED = "ref";
  */
 export type Binding = readonly [string, unknown, boolean?];
 
-/** The module these bindings come from, which is where a node one of them makes is drawn. */
-export type ModuleHome = Pick<NodeInfo, "home" | "external">;
-
-/** A module running its own body, which is the one thing that knows the file its bindings sit in. */
-export type BindingHome = ModuleHome & NameSource;
+/**
+ * The module these bindings come from: where a node one of them makes is drawn, and which module
+ * drew it. Every link carries that key, because a hot reload has to drop its own and nobody else's.
+ */
+export type ModuleHome = Pick<NodeInfo, "home" | "external"> & NameSource;
 
 /**
  * What one value holds: the members the tree draws, and the ones its cap left out. A value read
@@ -77,7 +79,7 @@ type Scan = { module: ModuleHome; binding: string; seen: Set<object> };
  * names for one store resolve to one store, so this decides where the tree draws it and what the
  * entry it already has is called.
  */
-export function ownBindings(module: BindingHome, bindings: readonly Binding[]): void {
+export function ownBindings(module: ModuleHome, bindings: readonly Binding[]): void {
   if (placesNothing(module)) {
     return;
   }
@@ -177,7 +179,7 @@ export function endFrame(module: ModuleHome, value: unknown, name: string | null
   }
 
   for (const store of frame.stores.filter(handedOver)) {
-    hangUnder(devtools, holder, store);
+    hangUnder(module, devtools, holder, store);
   }
 }
 
@@ -215,18 +217,18 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
   const statics = typeof owner === "function";
   const written = statics ? classKey(owner) : undefined;
 
-  makeNode(owner, {
+  makeNode(module, owner, undefined, "field", {
     home: module.home,
     external: module.external,
     name: written ?? UNNAMED,
     ours: written === undefined,
     numbered: written === undefined,
     type: statics ? undefined : typeNameOf(owner),
-    parent: undefined,
+    parents: [],
     skipped: 0,
   });
 
-  recordOwner(store, owner, "field");
+  recordOwner(module, store, owner, "field");
 }
 
 /**
@@ -234,22 +236,54 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
  * it beats the one the creation site gave: `export const $undoable = $draft2.$canUndo` is drawn
  * nowhere at all under a rule that only follows the path to an owner.
  *
- * An exported binding is the name the rest of the app knows the store by, so it wins whatever order
- * the two bindings are scanned in. Two bindings of the same kind pick one arbitrarily, and the last
- * one scanned is the one that wins.
+ * **Every binding is kept, and every one of them draws.** Two names for one store are two things
+ * the developer wrote, and dropping one says the app holds less than the source does.
+ *
+ * **The entry still takes exactly one of them.** `entry.name`, `entry.label`, the by-name index,
+ * the throttle mark and every timeline row read one name, and a row can point at one node. An
+ * exported binding is the name the rest of the app knows the store by, so it wins whatever order
+ * the bindings are scanned in; two of the same kind pick one arbitrarily, and the last scanned wins.
  *
  * The entry says which file it came from where a second module the home holds writes that name too,
  * which is what keeps two files `fileKey` maps onto one home from taking each other's entry.
  */
-function claimName(module: BindingHome, store: Store, name: string, exported: boolean): void {
-  const { bound } = getDevtoolsGlobal();
+function claimName(module: ModuleHome, store: Store, name: string, exported: boolean): void {
+  const devtools = getDevtoolsGlobal();
 
-  if (getEntry(store) === undefined || (bound.get(store) === true && !exported)) {
+  if (getEntry(store) === undefined) {
     return;
   }
 
-  bound.set(store, exported);
-  renameEntry(store, name, module.home, claimBindingFile(module, store, name));
+  const written: BoundName = {
+    name,
+    home: module.home,
+    file: claimBindingFile(module, store, name),
+    moduleKey: module.moduleKey,
+    exported,
+  };
+  /** The same module writing the same name again is one binding, not a second one. */
+  const names = (devtools.bound.get(store) ?? []).filter((known) => !sameBinding(known, written));
+
+  names.push(written);
+  devtools.bound.set(store, names);
+  noteLink(module.moduleKey, store);
+
+  const primary = primaryName(names) ?? written;
+
+  renameEntry(store, primary.name, primary.home, primary.file);
+}
+
+function sameBinding(one: BoundName, other: BoundName): boolean {
+  return one.moduleKey === other.moduleKey && one.name === other.name && one.home === other.home;
+}
+
+/**
+ * The binding the entry takes: the last exported one, or the last one at all. The list is in scan
+ * order, which is source order inside a module body and import order across modules, so a build
+ * that changed nothing draws the same name.
+ */
+export function primaryName(names: readonly BoundName[]): BoundName | undefined {
+  return names.filter((one) => one.exported).at(-1) ?? names.at(-1);
 }
 
 /**
@@ -279,21 +313,21 @@ function walk(
 
   /** A store already holds a place of its own, so only another kind of value becomes a node. */
   if (!isStore(value)) {
-    makeNode(value, {
+    makeNode(scan.module, value, owner, "scan", {
       home: scan.module.home,
       external: scan.module.external,
       name,
       ours: false,
       numbered: false,
       type: typeNameOf(value),
-      parent: owner === undefined ? undefined : new WeakRef(owner),
+      parents: [],
       skipped: members.past.length,
     });
   }
 
   for (const [key, member] of members.drawn) {
     if (isStore(member)) {
-      recordOwner(member, value, "scan", key);
+      recordOwner(scan.module, member, value, "scan", key);
     }
 
     if (canHold(member)) {
@@ -302,7 +336,7 @@ function walk(
   }
 
   for (const [, member] of members.past) {
-    placeStores(member, value, depth + 1);
+    placeStores(scan.module, member, value, depth + 1);
   }
 }
 
@@ -327,9 +361,9 @@ function warnRefused(scan: Scan, name: string, reason: string): void {
  * itself, keeping the names the registry gave them. Dropping them would read as "this is all of
  * it", which is worse than a long list, because the developer stops looking.
  */
-function placeStores(value: unknown, owner: object, depth: number): void {
+function placeStores(module: ModuleHome, value: unknown, owner: object, depth: number): void {
   if (isStore(value)) {
-    recordOwner(value, owner, "scan");
+    recordOwner(module, value, owner, "scan");
 
     return;
   }
@@ -346,7 +380,7 @@ function placeStores(value: unknown, owner: object, depth: number): void {
 
   for (const [, member] of members.drawn) {
     if (isStore(member)) {
-      recordOwner(member, owner, "scan");
+      recordOwner(module, member, owner, "scan");
     }
   }
 }
@@ -361,14 +395,14 @@ function frameHolder(module: ModuleHome, value: unknown, name: string | null): o
   }
 
   if (!isStore(value)) {
-    makeNode(value, {
+    makeNode(module, value, undefined, "frame", {
       home: module.home,
       external: module.external,
       name: name ?? UNNAMED,
       ours: name === null,
       numbered: name === null,
       type: typeNameOf(value),
-      parent: undefined,
+      parents: [],
       skipped: skippedCount(value),
     });
   }
@@ -388,7 +422,12 @@ function skippedCount(value: object): number {
  * made keeps its own fields and hangs under the binding whole, which is what gets an unenumerable
  * holder its binding back.
  */
-function hangUnder(devtools: DevtoolsGlobal, holder: object, store: Store): void {
+function hangUnder(
+  module: ModuleHome,
+  devtools: DevtoolsGlobal,
+  holder: object,
+  store: Store,
+): void {
   const top = topHolder(devtools, store);
 
   if (top === holder) {
@@ -400,15 +439,15 @@ function hangUnder(devtools: DevtoolsGlobal, holder: object, store: Store): void
       return;
     }
 
-    recordOwner(top, holder, "frame");
+    recordOwner(module, top, holder, "frame");
 
     return;
   }
 
   const info = devtools.nodes.get(top);
 
-  if (info !== undefined && !chainHolds(devtools, holder, top)) {
-    info.parent = new WeakRef(holder);
+  if (info !== undefined) {
+    addParent(module, devtools, top, info, holder, "frame");
   }
 }
 
@@ -428,31 +467,117 @@ function standsAlone(store: Store): boolean {
   return getEntry(store)?.fn === null;
 }
 
-/** What holds a store at the very top of its chain, which is the store itself when nothing does. */
+/**
+ * What holds a store at the very top of its chain, which is the store itself when nothing does.
+ *
+ * **A chain, not the graph.** This is frame machinery: it runs while the module body is still going,
+ * before the binding scan has recorded anything, so what it walks is a class field's `this` and an
+ * earlier frame's holder, and each of those gives one answer. Widening it to every edge would find
+ * a top the frame has no business moving.
+ */
 function topHolder(devtools: DevtoolsGlobal, store: Store): object {
   let current: object = store;
-  let above = holderOf(devtools, current);
+  let above = firstHolder(devtools, current);
 
   while (above !== undefined) {
     current = above;
-    above = holderOf(devtools, current);
+    above = firstHolder(devtools, current);
   }
 
   return current;
+}
+
+/** One step up the chain a frame walks: the first live owner of a store, or a node's first parent. */
+function firstHolder(devtools: DevtoolsGlobal, value: object): object | undefined {
+  const held = isStore(value)
+    ? devtools.owners.get(value)?.map((link) => link.owner)
+    : devtools.nodes.get(value)?.parents.map((link) => link.parent);
+
+  for (const ref of held ?? []) {
+    const above = ref.deref();
+
+    if (above !== undefined) {
+      return above;
+    }
+  }
+
+  return undefined;
 }
 
 /**
  * The record that makes a value a node. The first name the developer wrote wins: a second binding
  * holding the same value has nothing better to offer. A name of ours is replaced by a written one
  * whenever one turns up, because a class field names its instance before any binding holds it.
+ *
+ * **The name rule and the parent rule are separate.** A second sighting keeps the first name and
+ * still appends its parent, because two containers holding one value are two references the
+ * developer wrote, and both draw.
  */
-function makeNode(value: object, node: NodeInfo): void {
-  const { nodes } = getDevtoolsGlobal();
-  const known = nodes.get(value);
+function makeNode(
+  module: ModuleHome,
+  value: object,
+  parent: object | undefined,
+  source: OwnerSource,
+  node: NodeInfo,
+): void {
+  const devtools = getDevtoolsGlobal();
+  const known = devtools.nodes.get(value);
 
-  if (known === undefined || (known.ours && !node.ours)) {
-    nodes.set(value, node);
+  if (known === undefined) {
+    devtools.nodes.set(value, node);
+
+    if (parent !== undefined) {
+      addParent(module, devtools, value, node, parent, source);
+    }
+
+    return;
   }
+
+  if (known.ours && !node.ours) {
+    rename(known, node);
+  }
+
+  if (parent !== undefined) {
+    addParent(module, devtools, value, known, parent, source);
+  }
+}
+
+/** The name and everything drawn beside it, without touching the parents already gathered. */
+function rename(known: NodeInfo, node: NodeInfo): void {
+  known.home = node.home;
+  known.external = node.external;
+  known.name = node.name;
+  known.ours = node.ours;
+  known.numbered = node.numbered;
+  known.type = node.type;
+  known.skipped = node.skipped;
+}
+
+/**
+ * One more thing that holds the node. Refused where the node already holds the parent, because a
+ * parent graph that loops would make the tree infinite, and refused where the same parent is
+ * already recorded, so a second walk over one binding draws no second copy of the node.
+ */
+function addParent(
+  module: ModuleHome,
+  devtools: DevtoolsGlobal,
+  value: object,
+  info: NodeInfo,
+  parent: object,
+  source: OwnerSource,
+): void {
+  info.parents = live(info.parents, (link) => link.parent);
+
+  if (info.parents.some((link) => link.parent.deref() === parent)) {
+    return;
+  }
+
+  if (parent === value || reaches(devtools, parent, value)) {
+    return;
+  }
+
+  info.parents.push({ parent: new WeakRef(parent), source, moduleKey: module.moduleKey });
+  noteLink(module.moduleKey, value);
 }
 
 /**
@@ -605,61 +730,163 @@ function propertiesOf(value: object): Binding[] {
 }
 
 /**
- * A new owner the store already holds above it is refused, itself included, because an owner chain
- * that loops would make the tree infinite. Every loop being refused is also why a chain can be
- * walked without a bound: no chain recorded here can hold one.
+ * One more thing that holds the store, once per reference the developer wrote. A `scan` and a
+ * `field` both know a property name, so both are references and both accumulate.
+ *
+ * **A frame is not a reference.** All it knows is that the store was born while an expression ran,
+ * which is a claim about when. There is at most one frame link, kept only where nothing better ever
+ * turns up, and the tree draws it only where the store has no other link at all.
+ *
+ * A new owner the store already holds above it is refused, itself included, because an owner graph
+ * that loops would make the tree infinite.
  */
-function recordOwner(store: Store, owner: object, source: OwnerSource, key?: string): void {
+function recordOwner(
+  module: ModuleHome,
+  store: Store,
+  owner: object,
+  source: OwnerSource,
+  key?: string,
+): void {
   const devtools = getDevtoolsGlobal();
-  const known = devtools.owners.get(store);
+  const links = live(devtools.owners.get(store) ?? [], (link) => link.owner);
+  const known = links.find((link) => link.owner.deref() === owner);
 
-  if (chainHolds(devtools, owner, store) || (known !== undefined && keeps(known, source))) {
+  devtools.owners.set(store, links);
+
+  /** The same owner proposed again: one link, and the source that knows a key names it. */
+  if (known !== undefined) {
+    if (known.source === "frame" || (source !== "frame" && known.key === undefined)) {
+      known.source = source;
+      known.key = key;
+      known.moduleKey = module.moduleKey;
+      /** The link is this module's from here, so its own reload has to be able to find it. */
+      noteLink(module.moduleKey, store);
+    }
+
     return;
   }
 
-  devtools.owners.set(store, { owner: new WeakRef(owner), source, key });
+  const frameTaken = source === "frame" && links.some((link) => link.source === "frame");
+
+  if (frameTaken || owner === store || reaches(devtools, owner, store)) {
+    return;
+  }
+
+  links.push({ owner: new WeakRef(owner), source, key, moduleKey: module.moduleKey });
+  noteLink(module.moduleKey, store);
 }
 
 /**
- * Whether the edge already recorded stays. A frame only knows that a store was born while some
- * expression ran; the binding scan and `this` in a class field both know a property name, so either
- * may correct a frame and neither corrects the other.
+ * Whether the graph already leads from one value up to another, which is the whole of what keeps
+ * the tree finite: an edge that would close a loop is refused, so no walk over these edges runs
+ * without end.
  *
- * One mechanism running again is a hot reload or a second binding: the first owner the registry
- * still knows keeps the store, and a node, which holds no entry to be known by, gives way.
+ * It searches every edge rather than one chain, because with several owners and several parents
+ * there is no one chain to walk. `MAX_DEPTH` and `MAX_MEMBERS` bound how much graph a scan can
+ * build, so the search is over a graph the developer's own source shapes.
  */
-function keeps(known: OwnerLink, source: OwnerSource): boolean {
-  const held = known.owner.deref();
+function reaches(devtools: DevtoolsGlobal, from: object, wanted: object): boolean {
+  const pending: object[] = [from];
+  const seen = new WeakSet<object>();
 
-  /** Nothing draws the owner any more, so whatever proposes one now is the better answer. */
-  if (held === undefined || (isStore(held) && getEntry(held) === undefined)) {
-    return false;
-  }
+  while (pending.length > 0) {
+    const current = pending.pop();
 
-  if (known.source !== source) {
-    return known.source !== "frame";
-  }
-
-  return isStore(held);
-}
-
-function chainHolds(devtools: DevtoolsGlobal, from: object, wanted: object): boolean {
-  let current: object | undefined = from;
-
-  while (current !== undefined) {
     if (current === wanted) {
       return true;
     }
 
-    current = holderOf(devtools, current);
+    if (current === undefined || seen.has(current)) {
+      continue;
+    }
+
+    seen.add(current);
+    pending.push(...holdersOf(devtools, current));
   }
 
   return false;
 }
 
-/** One step up: what holds a store, or what holds a node. */
-function holderOf(devtools: DevtoolsGlobal, value: object): object | undefined {
-  return isStore(value)
-    ? devtools.owners.get(value)?.owner.deref()
-    : devtools.nodes.get(value)?.parent?.deref();
+/**
+ * Every step up: what holds a store, and what holds a node. A frame link counts here even though
+ * the tree may not draw it, because a sweep can take the links in front of it away and leave the
+ * frame drawing after all.
+ */
+function holdersOf(devtools: DevtoolsGlobal, value: object): object[] {
+  const held = isStore(value)
+    ? devtools.owners.get(value)?.map((link) => link.owner)
+    : devtools.nodes.get(value)?.parents.map((link) => link.parent);
+
+  return (held ?? []).flatMap((ref) => {
+    const above = ref.deref();
+
+    return above === undefined ? [] : [above];
+  });
+}
+
+/**
+ * The links whose holder the app still holds, and whose holder the tree can still draw. A store
+ * owner the registry lost draws nowhere, so a link to it is worth no more than a dead reference.
+ */
+function live<TLink>(links: readonly TLink[], refOf: (link: TLink) => WeakRef<object>): TLink[] {
+  return links.filter((link) => {
+    const held = refOf(link).deref();
+
+    return held !== undefined && !(isStore(held) && getEntry(held) === undefined);
+  });
+}
+
+/**
+ * The value goes on the module's sweep list, which is the only way a reload finds the links it
+ * wrote: neither `owners` nor `nodes` nor `bound` can be listed. The reference is weak, so the list
+ * keeps nothing alive that the app has let go.
+ */
+function noteLink(moduleKey: string, value: object): void {
+  scopeOf(moduleKey).linked.add(new WeakRef(value));
+}
+
+/**
+ * The links one module's run wrote, dropped, because its body is about to run again and write them
+ * afresh. Without this a save appends where it used to overwrite, and the panel draws the store
+ * under both the container the last run made and the one this run makes.
+ */
+export function releaseLinks(scope: ModuleScope, moduleKey: string): void {
+  const devtools = peekDevtoolsGlobal();
+
+  if (devtools === undefined) {
+    return;
+  }
+
+  for (const held of scope.linked) {
+    const value = held.deref();
+
+    if (value === undefined) {
+      continue;
+    }
+
+    if (isStore(value)) {
+      dropOwn(devtools.owners, value, (link) => link.moduleKey !== moduleKey);
+      dropOwn(devtools.bound, value, (name) => name.moduleKey !== moduleKey);
+
+      continue;
+    }
+
+    const info = devtools.nodes.get(value);
+
+    if (info !== undefined) {
+      info.parents = info.parents.filter((link) => link.moduleKey !== moduleKey);
+    }
+  }
+}
+
+function dropOwn<TKey extends object, TItem>(
+  index: WeakMap<TKey, TItem[]>,
+  key: TKey,
+  keep: (item: TItem) => boolean,
+): void {
+  const items = index.get(key);
+
+  if (items !== undefined) {
+    index.set(key, items.filter(keep));
+  }
 }

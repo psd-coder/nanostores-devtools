@@ -29,7 +29,7 @@ function storesIn(nodes: readonly TreeNode[]): StoreNode[] {
 
 /** Every string the model holds for one node, so a rendered key cannot hide in any of them. */
 function stringsIn(node: TreeNode): string[] {
-  if (node.kind === "second") {
+  if (node.kind === "repeat") {
     return [node.name];
   }
 

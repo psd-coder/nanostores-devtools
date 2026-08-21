@@ -1,8 +1,9 @@
 import type { Store } from "nanostores";
 
+import { type BoundName, type NodeInfo, peekDevtoolsGlobal } from "../global.ts";
 import { drawnLately } from "./drawn.ts";
-import { type NodeInfo, peekDevtoolsGlobal } from "../global.ts";
 import { getEntry, isStore, type StoreEntry } from "../stores/registry.ts";
+import { primaryName } from "../stores/ownership.ts";
 
 /**
  * Whether a developer can see this store at all: at a key of its own, or inside the value of a
@@ -31,7 +32,7 @@ export function rowName(entry: StoreEntry): string {
     return entry.name;
   }
 
-  return drawnOwner(entry.store)?.key ?? entry.name;
+  return drawnOwners(entry.store)[0]?.key ?? entry.name;
 }
 
 /**
@@ -46,7 +47,7 @@ export function rowName(entry: StoreEntry): string {
  * exist and a row would announce a store the developer cannot find.
  */
 export function isPlaced(entry: StoreEntry): boolean {
-  return entry.fn === null || placedByDeveloper(entry) || drawnOwner(entry.store) !== undefined;
+  return entry.fn === null || placedByDeveloper(entry) || drawnOwners(entry.store).length > 0;
 }
 
 /**
@@ -59,18 +60,27 @@ export function placedByDeveloper(entry: StoreEntry): boolean {
 
 /** Whether a top-level binding of the developer's own names the store, which draws it flat. */
 export function namedByBinding(store: Store): boolean {
-  return peekDevtoolsGlobal()?.bound.has(store) ?? false;
+  return boundNames(store).length > 0;
 }
 
 /**
- * The owner a store is drawn under, with the key that owner knows it by. A store owner the registry
- * lost holds no place in the tree, so a store under it would be drawn nowhere at all and is drawn at
- * its own home instead.
+ * Every top-level binding of the developer's own that holds the store, primary first and the
+ * repeats after it in the order they were scanned.
  */
-export function drawnOwner(store: Store): LiveOwnerLink | undefined {
-  const link = ownerLinkOf(store);
+export function boundNames(store: Store): BoundName[] {
+  const names = peekDevtoolsGlobal()?.bound.get(store) ?? [];
+  const primary = primaryName(names);
 
-  return link !== undefined && drawable(link.owner) ? link : undefined;
+  return primary === undefined ? [] : [primary, ...names.filter((one) => one !== primary)];
+}
+
+/**
+ * Every owner the tree can draw the store under, in the order the links were recorded. A store
+ * owner the registry lost holds no place in the tree, so a store under it would be drawn nowhere at
+ * all and is drawn at its own home instead.
+ */
+export function drawnOwners(store: Store): LiveOwnerLink[] {
+  return ownerLinksOf(store).filter((link) => drawable(link.owner));
 }
 
 /** Whether the tree has a place for the owner itself, which is what a store under it hangs from. */
@@ -84,17 +94,38 @@ export function drawable(owner: object): boolean {
  */
 export type LiveOwnerLink = { owner: object; key: string | undefined };
 
-/** An owner the app has let go reads as none, and the store it held is drawn flat again. */
-export function ownerLinkOf(store: Store): LiveOwnerLink | undefined {
-  const link = peekDevtoolsGlobal()?.owners.get(store);
+/**
+ * Every live owner of a store, and the key each one knows it by. An owner the app has let go reads
+ * as none, and a store nothing else holds is drawn flat again.
+ *
+ * **A frame link draws only where nothing else does.** A scan and a field both know a property name,
+ * so each is a reference the developer wrote; a frame knows only that the store was born while an
+ * expression ran, and letting that stand beside a real reference would draw the store twice.
+ */
+export function ownerLinksOf(store: Store): LiveOwnerLink[] {
+  const links = peekDevtoolsGlobal()?.owners.get(store) ?? [];
+  const written = links.filter((link) => link.source !== "frame");
 
-  if (link === undefined) {
-    return undefined;
-  }
+  return (written.length > 0 ? written : links).flatMap((link) => {
+    const owner = link.owner.deref();
 
-  const owner = link.owner.deref();
+    return owner === undefined ? [] : [{ owner, key: link.key }];
+  });
+}
 
-  return owner === undefined ? undefined : { owner, key: link.key };
+/**
+ * Every parent the tree can draw a node under, in the order the links were recorded, on the same
+ * terms an owner link is read: a frame parent stands only where no written reference does.
+ */
+export function drawnParents(info: NodeInfo): object[] {
+  const written = info.parents.filter((link) => link.source !== "frame");
+  const links = written.length > 0 ? written : info.parents;
+
+  return links.flatMap((link) => {
+    const parent = link.parent.deref();
+
+    return parent === undefined || !drawable(parent) ? [] : [parent];
+  });
 }
 
 /** What the tree knows about a value it drew as a node, or nothing for a value it never walked. */

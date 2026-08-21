@@ -1,6 +1,7 @@
 import type { Store } from "nanostores";
 
 import {
+  type BoundName,
   getDevtoolsGlobal,
   type ModuleScope,
   type NameClaim,
@@ -172,10 +173,16 @@ function nameFiles(claim: NameClaim, home: string, name: string): void {
 
     /** Last, because a name the developer wrote beats the one the creation site gave. */
     for (const held of holder.bound) {
-      const entry = entryStillNamed(held.deref(), name, home);
+      const store = held.deref();
 
-      if (entry) {
-        renameEntry(entry.store, name, home, file);
+      if (store === undefined) {
+        continue;
+      }
+
+      nameBinding(store, { name, home, file, moduleKey });
+
+      if (entryStillNamed(store, name, home)) {
+        renameEntry(store, name, home, file);
       }
     }
   }
@@ -205,6 +212,26 @@ function listOf(parts: string[]): string {
   const last = parts[parts.length - 1] ?? "";
 
   return parts.length < 2 ? last : `${parts.slice(0, -1).join(", ")} and ${last}`;
+}
+
+/**
+ * The binding record under its new file, so a repeat of the store shows the same file its primary
+ * does. The record holds the file rather than reading it back, because the tree draws a name a
+ * module wrote and only this map knows which module wrote it.
+ */
+function nameBinding(
+  store: Store,
+  named: Pick<BoundName, "name" | "home" | "file" | "moduleKey">,
+): void {
+  for (const bound of getDevtoolsGlobal().bound.get(store) ?? []) {
+    if (
+      bound.moduleKey === named.moduleKey &&
+      bound.name === named.name &&
+      bound.home === named.home
+    ) {
+      bound.file = named.file;
+    }
+  }
 }
 
 function nameFile(state: SiteState, file: string | null, home: string): void {

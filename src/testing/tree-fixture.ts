@@ -258,7 +258,7 @@ export function redo(): void {
 /** An alias under a name of the developer's own choosing, not the property's name. */
 export const $undoable = $draft2.$canUndo;
 
-/** An alias to a store holding real data, which is what makes a second placement cost something. */
+/** An alias to a store holding real data, which is what makes a repeat cost something. */
 export const $entries = $draft.$history;
 
 /** A store with no \`$\` in its name that owns others, so only \`(value)\` tells it from a node. */
@@ -325,10 +325,20 @@ export const $open = atom(false);
 export const $dirty = atom(true);
 export const watched = new Set([$open, $dirty]);
 
+/** One store two containers hold. Both containers draw, and the store draws under each of them. */
+export const $ratio = atom(1.5);
+export const wide = [$ratio];
+export const tall = { ratio: $ratio };
+
 /** A second class, so two instances nothing can name share one numbering run across the file. */
 export class Viewer {
   $zoom = atom(1);
 }
+
+/** One node two containers hold. It is expanded under the first and shown under the second. */
+const pinned = new Viewer();
+export const left = { pinned };
+export const right = { pinned };
 
 /** A \`WeakMap\` cannot be enumerated at all, so nothing here can ever name what it holds. */
 export const hidden = new WeakMap<object, Editor | Viewer>([
