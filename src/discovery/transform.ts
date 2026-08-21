@@ -123,6 +123,12 @@ const THROTTLE_COMMENT = /^@devtools-throttle(?:\s+([^]*))?$/;
  */
 const NO_THROTTLE_COMMENT = /^@devtools-no-throttle(?:\s+[^]*)?$/;
 
+/**
+ * The third one: every store the statement below makes stays out of the devtools, so the statement
+ * comes back exactly as it was written. It reads nothing after the marker either.
+ */
+const IGNORE_COMMENT = /^@devtools-ignore(?:\s+[^]*)?$/;
+
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
   const parsed = input.parser.parseSync(input.moduleKey, input.code);
@@ -153,6 +159,13 @@ export function transformStores(input: TransformInput): StoreTransform {
   const awaits: number[] = [];
   /** The statements a throttle comment stands over, so every site inside one carries the flag. */
   const throttled: Mark[] = [];
+  /** The statements an ignore comment stands over, which the transform leaves as they were. */
+  const ignored: Span[] = [];
+
+  /** Whether this offset stands inside a statement the developer kept out of the devtools. */
+  function isIgnored(start: number): boolean {
+    return ignored.some((span) => start >= span.start && start < span.end);
+  }
 
   function currentName(): string | null {
     const top = stack.at(-1);
@@ -278,6 +291,11 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   function readCall(node: CallExpression): void {
+    /** Ignored: no wrapper of any kind reaches a store this statement makes. */
+    if (isIgnored(node.start)) {
+      return;
+    }
+
     /**
      * A store made inside an instrumented one is a temporary that the callback rebuilds on every
      * run, so it is the one thing callee matching finds and refuses, and adoption follows it.
@@ -404,27 +422,42 @@ export function transformStores(input: TransformInput): StoreTransform {
    * Every import is a top-level statement, and reading them all first frees the walk of order. The
    * module's own bindings come out of the same pass, because they stand at the same level.
    */
-  const marks = parsed.comments.flatMap(readThrottleComment);
+  const ignores = parsed.comments.filter(isIgnoreComment).map(spanOf);
+  const rates = parsed.comments.flatMap(readThrottleComment);
   let previousEnd = 0;
 
   for (const statement of parsed.program.body) {
+    const span = { start: statement.start, end: statement.end };
     /** A comment with no statement between it and this one stands over this one. */
-    const above = marks.filter((held) => held.start >= previousEnd && held.end <= statement.start);
-    /**
-     * Both comments over one statement: the mark wins, because it asks for a rate that the other
-     * one has nothing to say about, while all the other one asks for is to be left alone.
-     */
-    const mark = above.find((held) => held.throttle !== false) ?? above[0];
+    const stands = (held: Span): boolean =>
+      held.start >= previousEnd && held.end <= statement.start;
+    /** Ignore beats throttle over one statement: a store nobody draws has no rate. */
+    const ignoredHere = ignores.some(stands);
 
-    if (mark !== undefined) {
-      throttled.push({ start: statement.start, end: statement.end, throttle: mark.throttle });
+    if (ignoredHere) {
+      ignored.push(span);
+    } else {
+      const above = rates.filter(stands);
+      /**
+       * Both comments over one statement: the mark wins, because it asks for a rate that the other
+       * one has nothing to say about, while all the other one asks for is to be left alone.
+       */
+      const mark = above.find((held) => held.throttle !== false) ?? above[0];
+
+      if (mark !== undefined) {
+        throttled.push({ ...span, throttle: mark.throttle });
+      }
     }
 
     previousEnd = statement.end;
 
+    /**
+     * An import makes no store, so a mark over one has nothing to keep out. Reading it all the
+     * same leaves the rest of the file instrumented, which is what the developer asked for.
+     */
     if (statement.type === "ImportDeclaration") {
       readImport(statement);
-    } else {
+    } else if (!ignoredHere) {
       readBindings(statement);
     }
   }
@@ -667,7 +700,7 @@ function lineOf(starts: readonly number[], offset: number): number {
  */
 function readThrottleComment(comment: Comment): Mark[] {
   const text = comment.value.trim();
-  const span = { start: comment.start, end: comment.end };
+  const span = spanOf(comment);
 
   if (NO_THROTTLE_COMMENT.test(text)) {
     return [{ ...span, throttle: false }];
@@ -682,4 +715,12 @@ function readThrottleComment(comment: Comment): Mark[] {
   const rate = Number(match[1]);
 
   return [{ ...span, throttle: Number.isFinite(rate) && rate > 0 ? rate : true }];
+}
+
+function isIgnoreComment(comment: Comment): boolean {
+  return IGNORE_COMMENT.test(comment.value.trim());
+}
+
+function spanOf(node: Span): Span {
+  return { start: node.start, end: node.end };
 }

@@ -825,6 +825,119 @@ describe("the no-throttle comment", () => {
   });
 });
 
+describe("the ignore comment", () => {
+  const IMPORT = `import { atom } from "nanostores";\n`;
+
+  /** The module's own body, past the one header line the transform writes above it. */
+  function body(result: StoreTransform): string {
+    const code = output(result);
+
+    return code.slice(code.indexOf("\n") + 1);
+  }
+
+  it("hands the statement below it back exactly as it was written", () => {
+    const source = `// @devtools-ignore\nconst $secret = atom(0);\n`;
+
+    expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
+  });
+
+  it("reads a block comment the same way", () => {
+    const source = `/* @devtools-ignore */\nconst $secret = atom(0);\n`;
+
+    expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
+  });
+
+  it("ignores the store whatever a developer wrote behind the marker", () => {
+    const source = `// @devtools-ignore it holds a token\nconst $secret = atom(0);\n`;
+
+    expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
+  });
+
+  /** A class instance, a factory result and an array each hold stores nobody wrapped by name. */
+  it("draws none of the stores an ignored statement holds", () => {
+    const source =
+      `// @devtools-ignore\nconst editor = new Editor();\n` +
+      `// @devtools-ignore\nconst $theme = persistentAtom("theme", "dark");\n` +
+      `// @devtools-ignore\nconst $pair = merge([atom(0), atom(1)]);\n`;
+
+    expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
+  });
+
+  it("wraps no field of an ignored class, which is a store its instances make", () => {
+    const source = `// @devtools-ignore\nclass Editor {\n  $value = atom("");\n}\n`;
+
+    expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
+  });
+
+  /** A frame is the only thing that reaches a store an initializer kept in a closure. */
+  it("opens no creation frame around an ignored initializer", () => {
+    const result = transform(`${IMPORT}// @devtools-ignore\nconst editor = new Editor();\n`);
+
+    expect(output(result)).not.toContain("__nsdt.begin(");
+  });
+
+  it("leaves an ignored binding out of the own list, so it renames and places nothing", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-ignore\nexport const $secret = atom(0);\n` +
+        `export const $shown = atom(1);\n`,
+    );
+
+    expect(ownCall(result)).toBe(`__nsdt.own([["$shown", $shown, true]]);`);
+  });
+
+  it("reaches no further than that statement", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-ignore\nconst $secret = atom(0);\nconst $shown = atom(1);\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "$shown", fn: null, line: 4, type: "atom" }]);
+  });
+
+  it("marks nothing when a statement stands between it and the store", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-ignore\nconst other = 1;\nconst $shown = atom(0);\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "$shown", fn: null, line: 4, type: "atom" }]);
+  });
+
+  it("leaves a comment alone that only starts like the marker", () => {
+    const result = transform(`${IMPORT}// @devtools-ignored\nconst $frame = atom(0);\n`);
+
+    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+  });
+
+  /** A store nobody draws has no rate, so the comment that asks for one has nothing to say. */
+  it("wins over both throttle comments over the same statement, whichever stands first", () => {
+    const marked = transform(
+      `${IMPORT}// @devtools-throttle 100\n// @devtools-ignore\nconst $frame = atom(0);\n`,
+    );
+    const spared = transform(
+      `${IMPORT}// @devtools-ignore\n// @devtools-no-throttle\nconst $frame = atom(0);\n`,
+    );
+
+    expect(metas(marked)).toEqual([]);
+    expect(metas(spared)).toEqual([]);
+  });
+
+  it("gives a file back unchanged when it binds a creator for nothing but ignored stores", () => {
+    const result = transform(`// @devtools-ignore\nconst $theme = persistentAtom("theme", "");\n`);
+
+    expect(result.changed).toBe(false);
+  });
+
+  /**
+   * The header carries the clear a reload runs, so a file that imports a creator keeps it even
+   * with every store ignored: adding the comment has to drop the store the panel already drew.
+   */
+  it("keeps the header on a file that imports a creator and ignores every store", () => {
+    const result = transform(`${IMPORT}// @devtools-ignore\nconst $secret = atom(0);\n`);
+
+    expect(output(result)).toContain("__nsdt.clear();");
+    expect(ownCall(result)).toBeUndefined();
+  });
+});
+
 describe("the creation frame", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 
