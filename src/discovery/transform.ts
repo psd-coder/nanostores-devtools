@@ -129,6 +129,12 @@ const NO_THROTTLE_COMMENT = /^@devtools-no-throttle(?:\s+[^]*)?$/;
  */
 const IGNORE_COMMENT = /^@devtools-ignore(?:\s+[^]*)?$/;
 
+/** Every marker the plugin reads, for the developer who wrote one it does not. */
+const MARKERS = ["@devtools-ignore", "@devtools-throttle", "@devtools-no-throttle"] as const;
+
+/** How far a marker reaches: the word, so the rate a throttle names stays out of it. */
+const MARKER_WORD = /^@devtools-\S*/;
+
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
   const parsed = input.parser.parseSync(input.moduleKey, input.code);
@@ -416,6 +422,17 @@ export function transformStores(input: TransformInput): StoreTransform {
           : null,
       site: siteAt(init.start, name, "unknown"),
     });
+  }
+
+  for (const comment of parsed.comments) {
+    const written = unknownMarker(comment);
+
+    if (written !== undefined) {
+      warnings.add(
+        `"${input.moduleKey}" line ${lineOf(lines, comment.start)} holds "${written}", which is ` +
+          `no marker the plugin knows. The ones it reads are ${MARKERS.join(", ")}.`,
+      );
+    }
   }
 
   /**
@@ -715,6 +732,20 @@ function readThrottleComment(comment: Comment): Mark[] {
   const rate = Number(match[1]);
 
   return [{ ...span, throttle: Number.isFinite(rate) && rate > 0 ? rate : true }];
+}
+
+/**
+ * The marker word a comment opens with, when it names no marker at all. A typo is read as prose,
+ * so the store below stays drawn while the developer reads their file as if it were Ignored.
+ */
+function unknownMarker(comment: Comment): string | undefined {
+  const [written] = MARKER_WORD.exec(comment.value.trim()) ?? [];
+
+  if (written === undefined || MARKERS.some((marker) => marker === written)) {
+    return undefined;
+  }
+
+  return written;
 }
 
 function isIgnoreComment(comment: Comment): boolean {

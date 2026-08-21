@@ -938,6 +938,64 @@ describe("the ignore comment", () => {
   });
 });
 
+describe("a marker the plugin does not know", () => {
+  const IMPORT = `import { atom } from "nanostores";\n`;
+
+  it("warns, naming the file, the line, what was written and every marker it reads", () => {
+    const result = transform(`${IMPORT}\n// @devtools-ignored\nconst $frame = atom(0);\n`);
+    const [warning] = result.warnings;
+
+    expect(result.warnings).toHaveLength(1);
+    expect(warning).toContain(MODULE_KEY);
+    expect(warning).toContain("line 3");
+    expect(warning).toContain(`"@devtools-ignored"`);
+    expect(warning).toContain("@devtools-ignore, @devtools-throttle, @devtools-no-throttle");
+  });
+
+  it("reads a block comment the same way", () => {
+    const result = transform(`${IMPORT}/* @devtools-throtle */\nconst $frame = atom(0);\n`);
+
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain(`"@devtools-throtle"`);
+  });
+
+  it("warns about a file the transform gives back unchanged", () => {
+    const result = transform(`// @devtools-ignored\nfetchAll();\n`);
+
+    expect(result.changed).toBe(false);
+    expect(result.warnings).toHaveLength(1);
+  });
+
+  it("says nothing about the three markers it reads, whatever follows them", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-ignore it holds a token\nconst $secret = atom(0);\n` +
+        `// @devtools-throttle 100\nconst $frame = atom(1);\n` +
+        `// @devtools-no-throttle\nconst $fast = atom(2);\n`,
+    );
+
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("says nothing about an ordinary comment, whatever it says", () => {
+    const result = transform(
+      `${IMPORT}// devtools: skip this\n// @todo hide @devtools-ignore from the panel\n` +
+        `const $frame = atom(0);\n`,
+    );
+
+    expect(result.warnings).toEqual([]);
+  });
+
+  /** Two typos are two mistakes, and the line each one names is the only way to tell them apart. */
+  it("warns about every comment it cannot read, one line at a time", () => {
+    const result = transform(
+      `${IMPORT}// @devtools-ignored\nconst $a = atom(0);\n` +
+        `// @devtools-ignored\nconst $b = atom(1);\n// @devtools-throtle\nconst $c = atom(2);\n`,
+    );
+
+    expect(result.warnings).toHaveLength(3);
+  });
+});
+
 describe("the creation frame", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 
