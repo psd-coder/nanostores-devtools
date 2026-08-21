@@ -732,7 +732,7 @@ describe("autoThrottle", () => {
       expect.stringContaining('pass throttle: ["cart/$frame"]'),
     );
     expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining("write // @devtools-no-throttle above it"),
+      expect.stringContaining("write // @nanostores-devtools:no-throttle above it"),
     );
   });
 
@@ -756,7 +756,9 @@ describe("autoThrottle", () => {
     await endOfTurn();
 
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("pass autoThrottle: false"));
-    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("@devtools-no-throttle"));
+    expect(console.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("@nanostores-devtools:no-throttle"),
+    );
   });
 
   it("says the name the developer reads, not the qualified label", async () => {

@@ -14,7 +14,7 @@ export type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boo
 
 /**
  * What the plugin read over a creation site: nothing, a bare mark, the rate the mark named, or
- * `false`, which is `// @devtools-no-throttle` taking the store out of the automatic catch.
+ * `false`, which is `// @nanostores-devtools:no-throttle` taking the store out of the automatic catch.
  */
 export type ThrottleComment = boolean | number | undefined;
 
@@ -204,7 +204,7 @@ function warnAutoThrottle(entry: StoreEntry): void {
 /** The comment is only worth naming for a store the plugin found, since nothing else reads one. */
 function keepRows(entry: StoreEntry): string {
   return entry.origin === "plugin"
-    ? "write // @devtools-no-throttle above it, or pass autoThrottle: false for every store"
+    ? "write // @nanostores-devtools:no-throttle above it, or pass autoThrottle: false for every store"
     : "pass autoThrottle: false";
 }
 

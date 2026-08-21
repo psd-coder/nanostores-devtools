@@ -43,13 +43,13 @@ describe("createDiscovery", () => {
 
   /** Every save re-transforms the file, and the typo is still there until the developer fixes it. */
   it("tells the developer about an unknown devtools comment once, not on every save", async () => {
-    const code = `import { atom } from "nanostores";\n// @devtools-ignored\nconst $a = atom(0);\n`;
+    const code = `import { atom } from "nanostores";\n// @nanostores-devtools:ignored\nconst $a = atom(0);\n`;
     const plugin = discovery();
     const first = await plugin.run(code, KEYS);
     const second = await plugin.run(code, KEYS);
 
     expect(first.warnings).toHaveLength(1);
-    expect(first.warnings[0]).toContain(`"@devtools-ignored"`);
+    expect(first.warnings[0]).toContain(`"@nanostores-devtools:ignored"`);
     expect(second.warnings).toEqual([]);
   });
 });

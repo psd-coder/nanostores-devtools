@@ -669,7 +669,9 @@ describe("the throttle comment", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 
   it("marks the store made in the statement below it", () => {
-    const result = transform(`${IMPORT}// @devtools-throttle\nconst $frame = atom(0);\n`);
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:throttle\nconst $frame = atom(0);\n`,
+    );
 
     expect(metas(result)).toEqual([
       { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
@@ -677,7 +679,7 @@ describe("the throttle comment", () => {
   });
 
   it("marks a call adoption takes, which is where a store from a dependency arrives", () => {
-    const result = transform(`// @devtools-throttle\nconst $frame = countdown(60);\n`);
+    const result = transform(`// @nanostores-devtools:throttle\nconst $frame = countdown(60);\n`);
 
     expect(metas(result)).toContainEqual({
       name: "$frame",
@@ -689,7 +691,9 @@ describe("the throttle comment", () => {
   });
 
   it("reads a block comment the same way", () => {
-    const result = transform(`${IMPORT}/* @devtools-throttle */\nconst $frame = atom(0);\n`);
+    const result = transform(
+      `${IMPORT}/* @nanostores-devtools:throttle */\nconst $frame = atom(0);\n`,
+    );
 
     expect(metas(result)).toEqual([
       { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
@@ -699,7 +703,7 @@ describe("the throttle comment", () => {
   /** The comment marks a statement, and one statement can make more than one store. */
   it("marks every store the statement it stands over makes", () => {
     const result = transform(
-      `${IMPORT}// @devtools-throttle\nconst $pair = merge([atom(0), atom(1)]);\n`,
+      `${IMPORT}// @nanostores-devtools:throttle\nconst $pair = merge([atom(0), atom(1)]);\n`,
     );
 
     expect(metas(result).map((site) => site.throttle)).toEqual([true, true, true, true]);
@@ -707,7 +711,7 @@ describe("the throttle comment", () => {
 
   it("reaches no further than that statement", () => {
     const result = transform(
-      `${IMPORT}// @devtools-throttle\nconst $frame = atom(0);\nconst $other = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:throttle\nconst $frame = atom(0);\nconst $other = atom(0);\n`,
     );
 
     expect(metas(result)).toEqual([
@@ -718,7 +722,7 @@ describe("the throttle comment", () => {
 
   it("marks nothing when a statement stands between it and the store", () => {
     const result = transform(
-      `${IMPORT}// @devtools-throttle\nconst $other = 1;\nconst $frame = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:throttle\nconst $other = 1;\nconst $frame = atom(0);\n`,
     );
 
     expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 4, type: "atom" }]);
@@ -731,7 +735,9 @@ describe("the throttle comment", () => {
   });
 
   it("reads the rate the comment names, in milliseconds", () => {
-    const result = transform(`${IMPORT}// @devtools-throttle 100\nconst $frame = atom(0);\n`);
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:throttle 100\nconst $frame = atom(0);\n`,
+    );
 
     expect(metas(result)).toEqual([
       { name: "$frame", fn: null, line: 3, type: "atom", throttle: 100 },
@@ -740,7 +746,7 @@ describe("the throttle comment", () => {
 
   it("hands the rate to every store of the statement, block comment included", () => {
     const result = transform(
-      `${IMPORT}/* @devtools-throttle 250 */\nconst $pair = merge([atom(0), atom(1)]);\n`,
+      `${IMPORT}/* @nanostores-devtools:throttle 250 */\nconst $pair = merge([atom(0), atom(1)]);\n`,
     );
 
     expect(metas(result).map((site) => site.throttle)).toEqual([250, 250, 250, 250]);
@@ -750,7 +756,9 @@ describe("the throttle comment", () => {
   it.each(["100ms", "abc", "0", "-100", "Infinity", "100 200"])(
     "marks the store with the default rate when the comment says %s",
     (rate) => {
-      const result = transform(`${IMPORT}// @devtools-throttle ${rate}\nconst $frame = atom(0);\n`);
+      const result = transform(
+        `${IMPORT}// @nanostores-devtools:throttle ${rate}\nconst $frame = atom(0);\n`,
+      );
 
       expect(metas(result)).toEqual([
         { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
@@ -759,7 +767,9 @@ describe("the throttle comment", () => {
   );
 
   it("leaves a comment alone that only starts like the name", () => {
-    const result = transform(`${IMPORT}// @devtools-throttled\nconst $frame = atom(0);\n`);
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:throttled\nconst $frame = atom(0);\n`,
+    );
 
     expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
   });
@@ -769,7 +779,9 @@ describe("the no-throttle comment", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 
   it("spares the store made in the statement below it", () => {
-    const result = transform(`${IMPORT}// @devtools-no-throttle\nconst $frame = atom(0);\n`);
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:no-throttle\nconst $frame = atom(0);\n`,
+    );
 
     expect(metas(result)).toEqual([
       { name: "$frame", fn: null, line: 3, type: "atom", throttle: false },
@@ -778,7 +790,7 @@ describe("the no-throttle comment", () => {
 
   it("reads a block comment the same way, and spares every store of the statement", () => {
     const result = transform(
-      `${IMPORT}/* @devtools-no-throttle */\nconst $pair = merge([atom(0), atom(1)]);\n`,
+      `${IMPORT}/* @nanostores-devtools:no-throttle */\nconst $pair = merge([atom(0), atom(1)]);\n`,
     );
 
     expect(metas(result).map((site) => site.throttle)).toEqual([false, false, false, false]);
@@ -786,7 +798,7 @@ describe("the no-throttle comment", () => {
 
   it("reaches no further than that statement", () => {
     const result = transform(
-      `${IMPORT}// @devtools-no-throttle\nconst $frame = atom(0);\nconst $other = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:no-throttle\nconst $frame = atom(0);\nconst $other = atom(0);\n`,
     );
 
     expect(metas(result)).toEqual([
@@ -797,7 +809,7 @@ describe("the no-throttle comment", () => {
 
   it("spares the store whatever a developer wrote behind the name", () => {
     const result = transform(
-      `${IMPORT}// @devtools-no-throttle it runs at 60fps\nconst $frame = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:no-throttle it runs at 60fps\nconst $frame = atom(0);\n`,
     );
 
     expect(metas(result)).toEqual([
@@ -806,7 +818,9 @@ describe("the no-throttle comment", () => {
   });
 
   it("leaves a comment alone that only starts like the name", () => {
-    const result = transform(`${IMPORT}// @devtools-no-throttled\nconst $frame = atom(0);\n`);
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:no-throttled\nconst $frame = atom(0);\n`,
+    );
 
     expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
   });
@@ -814,10 +828,10 @@ describe("the no-throttle comment", () => {
   /** Two comments say two things, and the rate the mark names is the one nothing else can say. */
   it("loses to a throttle comment over the same statement, whichever stands first", () => {
     const marked = transform(
-      `${IMPORT}// @devtools-no-throttle\n// @devtools-throttle 100\nconst $frame = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:no-throttle\n// @nanostores-devtools:throttle 100\nconst $frame = atom(0);\n`,
     );
     const reversed = transform(
-      `${IMPORT}// @devtools-throttle 100\n// @devtools-no-throttle\nconst $frame = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:throttle 100\n// @nanostores-devtools:no-throttle\nconst $frame = atom(0);\n`,
     );
 
     expect(metas(marked).map((site) => site.throttle)).toEqual([100]);
@@ -836,19 +850,19 @@ describe("the ignore comment", () => {
   }
 
   it("hands the statement below it back exactly as it was written", () => {
-    const source = `// @devtools-ignore\nconst $secret = atom(0);\n`;
+    const source = `// @nanostores-devtools:ignore\nconst $secret = atom(0);\n`;
 
     expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
   });
 
   it("reads a block comment the same way", () => {
-    const source = `/* @devtools-ignore */\nconst $secret = atom(0);\n`;
+    const source = `/* @nanostores-devtools:ignore */\nconst $secret = atom(0);\n`;
 
     expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
   });
 
   it("ignores the store whatever a developer wrote behind the name", () => {
-    const source = `// @devtools-ignore it holds a token\nconst $secret = atom(0);\n`;
+    const source = `// @nanostores-devtools:ignore it holds a token\nconst $secret = atom(0);\n`;
 
     expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
   });
@@ -856,29 +870,31 @@ describe("the ignore comment", () => {
   /** A class instance, a factory result and an array each hold stores nobody wrapped by name. */
   it("draws none of the stores an ignored statement holds", () => {
     const source =
-      `// @devtools-ignore\nconst editor = new Editor();\n` +
-      `// @devtools-ignore\nconst $theme = persistentAtom("theme", "dark");\n` +
-      `// @devtools-ignore\nconst $pair = merge([atom(0), atom(1)]);\n`;
+      `// @nanostores-devtools:ignore\nconst editor = new Editor();\n` +
+      `// @nanostores-devtools:ignore\nconst $theme = persistentAtom("theme", "dark");\n` +
+      `// @nanostores-devtools:ignore\nconst $pair = merge([atom(0), atom(1)]);\n`;
 
     expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
   });
 
   it("wraps no field of an ignored class, which is a store its instances make", () => {
-    const source = `// @devtools-ignore\nclass Editor {\n  $value = atom("");\n}\n`;
+    const source = `// @nanostores-devtools:ignore\nclass Editor {\n  $value = atom("");\n}\n`;
 
     expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
   });
 
   /** A frame is the only thing that reaches a store an initializer kept in a closure. */
   it("opens no creation frame around an ignored initializer", () => {
-    const result = transform(`${IMPORT}// @devtools-ignore\nconst editor = new Editor();\n`);
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:ignore\nconst editor = new Editor();\n`,
+    );
 
     expect(output(result)).not.toContain("__nsdt.begin(");
   });
 
   it("leaves an ignored binding out of the own list, so it renames and places nothing", () => {
     const result = transform(
-      `${IMPORT}// @devtools-ignore\nexport const $secret = atom(0);\n` +
+      `${IMPORT}// @nanostores-devtools:ignore\nexport const $secret = atom(0);\n` +
         `export const $shown = atom(1);\n`,
     );
 
@@ -887,7 +903,7 @@ describe("the ignore comment", () => {
 
   it("reaches no further than that statement", () => {
     const result = transform(
-      `${IMPORT}// @devtools-ignore\nconst $secret = atom(0);\nconst $shown = atom(1);\n`,
+      `${IMPORT}// @nanostores-devtools:ignore\nconst $secret = atom(0);\nconst $shown = atom(1);\n`,
     );
 
     expect(metas(result)).toEqual([{ name: "$shown", fn: null, line: 4, type: "atom" }]);
@@ -895,14 +911,14 @@ describe("the ignore comment", () => {
 
   it("marks nothing when a statement stands between it and the store", () => {
     const result = transform(
-      `${IMPORT}// @devtools-ignore\nconst other = 1;\nconst $shown = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:ignore\nconst other = 1;\nconst $shown = atom(0);\n`,
     );
 
     expect(metas(result)).toEqual([{ name: "$shown", fn: null, line: 4, type: "atom" }]);
   });
 
   it("leaves a comment alone that only starts like the name", () => {
-    const result = transform(`${IMPORT}// @devtools-ignored\nconst $frame = atom(0);\n`);
+    const result = transform(`${IMPORT}// @nanostores-devtools:ignored\nconst $frame = atom(0);\n`);
 
     expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
   });
@@ -910,10 +926,10 @@ describe("the ignore comment", () => {
   /** A store nobody draws has no rate, so the comment that asks for one has nothing to say. */
   it("wins over both throttle comments over the same statement, whichever stands first", () => {
     const marked = transform(
-      `${IMPORT}// @devtools-throttle 100\n// @devtools-ignore\nconst $frame = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:throttle 100\n// @nanostores-devtools:ignore\nconst $frame = atom(0);\n`,
     );
     const spared = transform(
-      `${IMPORT}// @devtools-ignore\n// @devtools-no-throttle\nconst $frame = atom(0);\n`,
+      `${IMPORT}// @nanostores-devtools:ignore\n// @nanostores-devtools:no-throttle\nconst $frame = atom(0);\n`,
     );
 
     expect(metas(marked)).toEqual([]);
@@ -921,7 +937,9 @@ describe("the ignore comment", () => {
   });
 
   it("gives a file back unchanged when it binds a creator for nothing but ignored stores", () => {
-    const result = transform(`// @devtools-ignore\nconst $theme = persistentAtom("theme", "");\n`);
+    const result = transform(
+      `// @nanostores-devtools:ignore\nconst $theme = persistentAtom("theme", "");\n`,
+    );
 
     expect(result.changed).toBe(false);
   });
@@ -931,7 +949,7 @@ describe("the ignore comment", () => {
    * with every store ignored: adding the comment has to drop the store the panel already drew.
    */
   it("keeps the header on a file that imports a creator and ignores every store", () => {
-    const result = transform(`${IMPORT}// @devtools-ignore\nconst $secret = atom(0);\n`);
+    const result = transform(`${IMPORT}// @nanostores-devtools:ignore\nconst $secret = atom(0);\n`);
 
     expect(output(result)).toContain("__nsdt.clear();");
     expect(ownCall(result)).toBeUndefined();
@@ -942,25 +960,42 @@ describe("a devtools comment the plugin does not know", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 
   it("warns, naming the file, the line, what was written and every comment it reads", () => {
-    const result = transform(`${IMPORT}\n// @devtools-ignored\nconst $frame = atom(0);\n`);
+    const result = transform(
+      `${IMPORT}\n// @nanostores-devtools:ignored\nconst $frame = atom(0);\n`,
+    );
     const [warning] = result.warnings;
 
     expect(result.warnings).toHaveLength(1);
     expect(warning).toContain(MODULE_KEY);
     expect(warning).toContain("line 3");
-    expect(warning).toContain(`"@devtools-ignored"`);
-    expect(warning).toContain("@devtools-ignore, @devtools-throttle, @devtools-no-throttle");
+    expect(warning).toContain(`"@nanostores-devtools:ignored"`);
+    expect(warning).toContain(
+      "@nanostores-devtools:ignore, @nanostores-devtools:throttle, @nanostores-devtools:no-throttle",
+    );
   });
 
   it("reads a block comment the same way", () => {
-    const result = transform(`${IMPORT}/* @devtools-throtle */\nconst $frame = atom(0);\n`);
+    const result = transform(
+      `${IMPORT}/* @nanostores-devtools:throtle */\nconst $frame = atom(0);\n`,
+    );
 
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain(`"@devtools-throtle"`);
+    expect(result.warnings[0]).toContain(`"@nanostores-devtools:throtle"`);
+  });
+
+  /** The colon is the one separator, and a hyphen for it is the typo the namespace makes easy. */
+  it("warns about the namespace written with a hyphen where the colon belongs", () => {
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools-throttle\nconst $frame = atom(0);\n`,
+    );
+
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain(`"@nanostores-devtools-throttle"`);
+    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
   });
 
   it("warns about a file the transform gives back unchanged", () => {
-    const result = transform(`// @devtools-ignored\nfetchAll();\n`);
+    const result = transform(`// @nanostores-devtools:ignored\nfetchAll();\n`);
 
     expect(result.changed).toBe(false);
     expect(result.warnings).toHaveLength(1);
@@ -968,9 +1003,9 @@ describe("a devtools comment the plugin does not know", () => {
 
   it("says nothing about the three comments it reads, whatever follows them", () => {
     const result = transform(
-      `${IMPORT}// @devtools-ignore it holds a token\nconst $secret = atom(0);\n` +
-        `// @devtools-throttle 100\nconst $frame = atom(1);\n` +
-        `// @devtools-no-throttle\nconst $fast = atom(2);\n`,
+      `${IMPORT}// @nanostores-devtools:ignore it holds a token\nconst $secret = atom(0);\n` +
+        `// @nanostores-devtools:throttle 100\nconst $frame = atom(1);\n` +
+        `// @nanostores-devtools:no-throttle\nconst $fast = atom(2);\n`,
     );
 
     expect(result.warnings).toEqual([]);
@@ -978,7 +1013,7 @@ describe("a devtools comment the plugin does not know", () => {
 
   it("says nothing about an ordinary comment, whatever it says", () => {
     const result = transform(
-      `${IMPORT}// devtools: skip this\n// @todo hide @devtools-ignore from the panel\n` +
+      `${IMPORT}// devtools: skip this\n// @todo hide @nanostores-devtools:ignore from the panel\n` +
         `const $frame = atom(0);\n`,
     );
 
@@ -988,8 +1023,8 @@ describe("a devtools comment the plugin does not know", () => {
   /** Two typos are two mistakes, and the line each one names is the only way to tell them apart. */
   it("warns about every comment it cannot read, one line at a time", () => {
     const result = transform(
-      `${IMPORT}// @devtools-ignored\nconst $a = atom(0);\n` +
-        `// @devtools-ignored\nconst $b = atom(1);\n// @devtools-throtle\nconst $c = atom(2);\n`,
+      `${IMPORT}// @nanostores-devtools:ignored\nconst $a = atom(0);\n` +
+        `// @nanostores-devtools:ignored\nconst $b = atom(1);\n// @nanostores-devtools:throtle\nconst $c = atom(2);\n`,
     );
 
     expect(result.warnings).toHaveLength(3);

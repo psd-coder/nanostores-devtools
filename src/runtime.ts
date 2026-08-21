@@ -39,7 +39,7 @@ export type CreationSite = {
   type: StoreType;
   /**
    * What a comment standing over the statement said: a bare mark, the rate in milliseconds it holds
-   * the store to, or `false` from `// @devtools-no-throttle`, which spares it the automatic catch.
+   * the store to, or `false` from `// @nanostores-devtools:no-throttle`, which spares it the automatic catch.
    */
   throttle?: ThrottleComment;
 };

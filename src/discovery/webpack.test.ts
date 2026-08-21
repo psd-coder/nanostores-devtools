@@ -48,7 +48,7 @@ const APP =
   `\n` +
   `export const $count = atom<number>(0);\n` +
   `\n` +
-  `// @devtools-throttle 250\n` +
+  `// @nanostores-devtools:throttle 250\n` +
   `export const $ticks = atom(0);\n` +
   `\n` +
   `export const $theme = persistentAtom("theme", "dark");\n`;

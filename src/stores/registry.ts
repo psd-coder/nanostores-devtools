@@ -92,7 +92,7 @@ export type Registration = {
   fn: string | null;
   /**
    * What the comment over the store's creation site said: nothing, a bare mark, the rate in
-   * milliseconds it holds the store to, or `false` from `// @devtools-no-throttle`.
+   * milliseconds it holds the store to, or `false` from `// @nanostores-devtools:no-throttle`.
    */
   throttle?: ThrottleComment;
 } & Partial<NameParts>;

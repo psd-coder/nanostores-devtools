@@ -461,7 +461,7 @@ export const readTwo = secondRound();
  */
 import { atom } from "nanostores";
 
-// @devtools-throttle 250
+// @nanostores-devtools:throttle 250
 export const $frame = atom<number>(0);
 
 export function makeOne() {
