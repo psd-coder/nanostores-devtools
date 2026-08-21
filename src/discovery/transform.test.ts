@@ -758,7 +758,7 @@ describe("the throttle comment", () => {
     },
   );
 
-  it("leaves a comment alone that only starts like the marker", () => {
+  it("leaves a comment alone that only starts like the name", () => {
     const result = transform(`${IMPORT}// @devtools-throttled\nconst $frame = atom(0);\n`);
 
     expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
@@ -795,7 +795,7 @@ describe("the no-throttle comment", () => {
     ]);
   });
 
-  it("spares the store whatever a developer wrote behind the marker", () => {
+  it("spares the store whatever a developer wrote behind the name", () => {
     const result = transform(
       `${IMPORT}// @devtools-no-throttle it runs at 60fps\nconst $frame = atom(0);\n`,
     );
@@ -805,7 +805,7 @@ describe("the no-throttle comment", () => {
     ]);
   });
 
-  it("leaves a comment alone that only starts like the marker", () => {
+  it("leaves a comment alone that only starts like the name", () => {
     const result = transform(`${IMPORT}// @devtools-no-throttled\nconst $frame = atom(0);\n`);
 
     expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
@@ -847,7 +847,7 @@ describe("the ignore comment", () => {
     expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
   });
 
-  it("ignores the store whatever a developer wrote behind the marker", () => {
+  it("ignores the store whatever a developer wrote behind the name", () => {
     const source = `// @devtools-ignore it holds a token\nconst $secret = atom(0);\n`;
 
     expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
@@ -901,7 +901,7 @@ describe("the ignore comment", () => {
     expect(metas(result)).toEqual([{ name: "$shown", fn: null, line: 4, type: "atom" }]);
   });
 
-  it("leaves a comment alone that only starts like the marker", () => {
+  it("leaves a comment alone that only starts like the name", () => {
     const result = transform(`${IMPORT}// @devtools-ignored\nconst $frame = atom(0);\n`);
 
     expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
@@ -938,10 +938,10 @@ describe("the ignore comment", () => {
   });
 });
 
-describe("a marker the plugin does not know", () => {
+describe("a devtools comment the plugin does not know", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 
-  it("warns, naming the file, the line, what was written and every marker it reads", () => {
+  it("warns, naming the file, the line, what was written and every comment it reads", () => {
     const result = transform(`${IMPORT}\n// @devtools-ignored\nconst $frame = atom(0);\n`);
     const [warning] = result.warnings;
 
@@ -966,7 +966,7 @@ describe("a marker the plugin does not know", () => {
     expect(result.warnings).toHaveLength(1);
   });
 
-  it("says nothing about the three markers it reads, whatever follows them", () => {
+  it("says nothing about the three comments it reads, whatever follows them", () => {
     const result = transform(
       `${IMPORT}// @devtools-ignore it holds a token\nconst $secret = atom(0);\n` +
         `// @devtools-throttle 100\nconst $frame = atom(1);\n` +

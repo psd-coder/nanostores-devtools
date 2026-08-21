@@ -59,7 +59,7 @@ export function createThrottleSettings(
   throttle: ThrottleOption | undefined,
   autoThrottle: boolean | number | undefined,
 ): ThrottleSettings {
-  return { marks: marker(throttle), threshold: thresholdOf(autoThrottle) };
+  return { marks: marksOf(throttle), threshold: thresholdOf(autoThrottle) };
 }
 
 export function createThrottleState(comment: ThrottleComment): ThrottleState {
@@ -233,7 +233,7 @@ function settings(): ThrottleSettings | undefined {
   return peekDevtoolsGlobal()?.session?.throttle;
 }
 
-function marker(throttle: ThrottleOption | undefined): (target: ThrottleTarget) => boolean {
+function marksOf(throttle: ThrottleOption | undefined): (target: ThrottleTarget) => boolean {
   if (throttle === undefined) {
     return () => false;
   }

@@ -118,22 +118,26 @@ const THROTTLE_COMMENT = /^@devtools-throttle(?:\s+([^]*))?$/;
 
 /**
  * The other one: this store writes fast on purpose, so the write rate never takes it over. It reads
- * nothing after the marker, and whatever a developer wrote there leaves the store spared all the
+ * nothing after the name, and whatever a developer wrote there leaves the store spared all the
  * same, the way an unreadable rate still marks one.
  */
 const NO_THROTTLE_COMMENT = /^@devtools-no-throttle(?:\s+[^]*)?$/;
 
 /**
  * The third one: every store the statement below makes stays out of the devtools, so the statement
- * comes back exactly as it was written. It reads nothing after the marker either.
+ * comes back exactly as it was written. It reads nothing after the name either.
  */
 const IGNORE_COMMENT = /^@devtools-ignore(?:\s+[^]*)?$/;
 
-/** Every marker the plugin reads, for the developer who wrote one it does not. */
-const MARKERS = ["@devtools-ignore", "@devtools-throttle", "@devtools-no-throttle"] as const;
+/** Every devtools comment the plugin reads, for the developer who wrote one it does not. */
+const DEVTOOLS_COMMENTS = [
+  "@devtools-ignore",
+  "@devtools-throttle",
+  "@devtools-no-throttle",
+] as const;
 
-/** How far a marker reaches: the word, so the rate a throttle names stays out of it. */
-const MARKER_WORD = /^@devtools-\S*/;
+/** How far a devtools comment's name reaches, so the rate a throttle names stays out of it. */
+const COMMENT_NAME = /^@devtools-\S*/;
 
 export function transformStores(input: TransformInput): StoreTransform {
   const warnings = new Set<string>();
@@ -425,12 +429,12 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   for (const comment of parsed.comments) {
-    const written = unknownMarker(comment);
+    const written = unknownComment(comment);
 
     if (written !== undefined) {
       warnings.add(
         `"${input.moduleKey}" line ${lineOf(lines, comment.start)} holds "${written}", which is ` +
-          `no devtools comment the plugin knows. The ones it reads are ${MARKERS.join(", ")}.`,
+          `no devtools comment the plugin knows. The ones it reads are ${DEVTOOLS_COMMENTS.join(", ")}.`,
       );
     }
   }
@@ -712,7 +716,7 @@ function lineOf(starts: readonly number[], offset: number): number {
 }
 
 /**
- * A comment that starts with the marker marks its statement whatever follows it, so a rate nobody
+ * A comment that starts with the name marks its statement whatever follows it, so a rate nobody
  * can read as a positive count of milliseconds costs the developer the rate, never the mark.
  */
 function readThrottleComment(comment: Comment): Mark[] {
@@ -735,13 +739,14 @@ function readThrottleComment(comment: Comment): Mark[] {
 }
 
 /**
- * The marker word a comment opens with, when it names no marker at all. A typo is read as prose,
- * so the store below stays drawn while the developer reads their file as if it were Ignored.
+ * The `@devtools-` name a comment opens with, when it names none the plugin reads. A typo is read
+ * as prose, so the store below stays drawn while the developer reads their file as if it were
+ * Ignored.
  */
-function unknownMarker(comment: Comment): string | undefined {
-  const [written] = MARKER_WORD.exec(comment.value.trim()) ?? [];
+function unknownComment(comment: Comment): string | undefined {
+  const [written] = COMMENT_NAME.exec(comment.value.trim()) ?? [];
 
-  if (written === undefined || MARKERS.some((marker) => marker === written)) {
+  if (written === undefined || DEVTOOLS_COMMENTS.some((known) => known === written)) {
     return undefined;
   }
 
