@@ -322,7 +322,8 @@ describe("ownBindings", () => {
         ["$last", $typed, false],
       ]);
 
-      expect(boundNames($typed).map((bound) => bound.name)).toEqual(["$value", "$first", "$last"]);
+      expect(boundNames($typed)?.primary.name).toBe("$value");
+      expect(boundNames($typed)?.repeats.map((bound) => bound.name)).toEqual(["$first", "$last"]);
       expect(listEntries()[0]?.name).toBe("$value");
       /** A row points at one node, so it names the binding the entry took and no other. */
       expect(rowName(listEntries()[0] as StoreEntry)).toBe("$value");

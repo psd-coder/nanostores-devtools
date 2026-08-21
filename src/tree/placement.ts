@@ -1,6 +1,6 @@
 import type { Store } from "nanostores";
 
-import { type BoundName, type NodeInfo, peekDevtoolsGlobal } from "../global.ts";
+import { type BoundName, type NodeInfo, type OwnerSource, peekDevtoolsGlobal } from "../global.ts";
 import { drawnLately } from "./drawn.ts";
 import { getEntry, isStore, type StoreEntry } from "../stores/registry.ts";
 import { primaryName } from "../stores/ownership.ts";
@@ -60,18 +60,23 @@ export function placedByDeveloper(entry: StoreEntry): boolean {
 
 /** Whether a top-level binding of the developer's own names the store, which draws it flat. */
 export function namedByBinding(store: Store): boolean {
-  return boundNames(store).length > 0;
+  return boundNames(store) !== undefined;
 }
 
+/** The bindings that hold one store: the one the entry took, and every other one the tree draws. */
+export type BoundPlacements = { primary: BoundName; repeats: BoundName[] };
+
 /**
- * Every top-level binding of the developer's own that holds the store, primary first and the
- * repeats after it in the order they were scanned.
+ * Every top-level binding of the developer's own that holds the store, told apart rather than
+ * ordered, so nothing downstream has to know which end of a list the primary sits at.
  */
-export function boundNames(store: Store): BoundName[] {
+export function boundNames(store: Store): BoundPlacements | undefined {
   const names = peekDevtoolsGlobal()?.bound.get(store) ?? [];
   const primary = primaryName(names);
 
-  return primary === undefined ? [] : [primary, ...names.filter((one) => one !== primary)];
+  return primary === undefined
+    ? undefined
+    : { primary, repeats: names.filter((one) => one !== primary) };
 }
 
 /**
@@ -98,15 +103,12 @@ export type LiveOwnerLink = { owner: object; key: string | undefined };
  * Every live owner of a store, and the key each one knows it by. An owner the app has let go reads
  * as none, and a store nothing else holds is drawn flat again.
  *
- * **A frame link draws only where nothing else does.** A scan and a field both know a property name,
- * so each is a reference the developer wrote; a frame knows only that the store was born while an
- * expression ran, and letting that stand beside a real reference would draw the store twice.
+ * **A frame link draws only where nothing else does.** A scan and a field both know a property
+ * name, so each is a reference the developer wrote; a frame knows only that the store was born
+ * while an expression ran, and letting that stand beside a real reference draws the store twice.
  */
 export function ownerLinksOf(store: Store): LiveOwnerLink[] {
-  const links = peekDevtoolsGlobal()?.owners.get(store) ?? [];
-  const written = links.filter((link) => link.source !== "frame");
-
-  return (written.length > 0 ? written : links).flatMap((link) => {
+  return drawnLinks(peekDevtoolsGlobal()?.owners.get(store) ?? []).flatMap((link) => {
     const owner = link.owner.deref();
 
     return owner === undefined ? [] : [{ owner, key: link.key }];
@@ -114,14 +116,22 @@ export function ownerLinksOf(store: Store): LiveOwnerLink[] {
 }
 
 /**
+ * The links the tree draws: every one the developer wrote, or the one frame link where they wrote
+ * none. Shared by a store's owners and a node's parents, because the rule is about what a link
+ * knows and not about what it holds.
+ */
+function drawnLinks<TLink extends { source: OwnerSource }>(links: readonly TLink[]): TLink[] {
+  const written = links.filter((link) => link.source !== "frame");
+
+  return written.length > 0 ? written : [...links];
+}
+
+/**
  * Every parent the tree can draw a node under, in the order the links were recorded, on the same
  * terms an owner link is read: a frame parent stands only where no written reference does.
  */
 export function drawnParents(info: NodeInfo): object[] {
-  const written = info.parents.filter((link) => link.source !== "frame");
-  const links = written.length > 0 ? written : info.parents;
-
-  return links.flatMap((link) => {
+  return drawnLinks(info.parents).flatMap((link) => {
     const parent = link.parent.deref();
 
     return parent === undefined || !drawable(parent) ? [] : [parent];

@@ -224,7 +224,6 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
     ours: written === undefined,
     numbered: written === undefined,
     type: statics ? undefined : typeNameOf(owner),
-    parents: [],
     skipped: 0,
   });
 
@@ -242,7 +241,7 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
  * **The entry still takes exactly one of them.** `entry.name`, `entry.label`, the by-name index,
  * the throttle mark and every timeline row read one name, and a row can point at one node. An
  * exported binding is the name the rest of the app knows the store by, so it wins whatever order
- * the bindings are scanned in; two of the same kind pick one arbitrarily, and the last scanned wins.
+ * the bindings are scanned in; two of the same kind pick one arbitrarily, and the last one wins.
  *
  * The entry says which file it came from where a second module the home holds writes that name too,
  * which is what keeps two files `fileKey` maps onto one home from taking each other's entry.
@@ -320,7 +319,6 @@ function walk(
       ours: false,
       numbered: false,
       type: typeNameOf(value),
-      parents: [],
       skipped: members.past.length,
     });
   }
@@ -402,7 +400,6 @@ function frameHolder(module: ModuleHome, value: unknown, name: string | null): o
       ours: name === null,
       numbered: name === null,
       type: typeNameOf(value),
-      parents: [],
       skipped: skippedCount(value),
     });
   }
@@ -447,7 +444,7 @@ function hangUnder(
   const info = devtools.nodes.get(top);
 
   if (info !== undefined) {
-    addParent(module, devtools, top, info, holder, "frame");
+    addParent(module, top, info, holder, "frame");
   }
 }
 
@@ -470,10 +467,10 @@ function standsAlone(store: Store): boolean {
 /**
  * What holds a store at the very top of its chain, which is the store itself when nothing does.
  *
- * **A chain, not the graph.** This is frame machinery: it runs while the module body is still going,
- * before the binding scan has recorded anything, so what it walks is a class field's `this` and an
- * earlier frame's holder, and each of those gives one answer. Widening it to every edge would find
- * a top the frame has no business moving.
+ * **A chain, not the graph.** This is frame machinery: it runs while the module body is still
+ * going, before the binding scan has recorded anything, so what it walks is a class field's `this`
+ * and an earlier frame's holder, and each of those gives one answer. Widening it to every edge
+ * would find a top the frame has no business moving.
  */
 function topHolder(devtools: DevtoolsGlobal, store: Store): object {
   let current: object = store;
@@ -487,22 +484,13 @@ function topHolder(devtools: DevtoolsGlobal, store: Store): object {
   return current;
 }
 
-/** One step up the chain a frame walks: the first live owner of a store, or a node's first parent. */
+/** One step up the chain a frame walks: a store's first live owner, or a node's first parent. */
 function firstHolder(devtools: DevtoolsGlobal, value: object): object | undefined {
-  const held = isStore(value)
-    ? devtools.owners.get(value)?.map((link) => link.owner)
-    : devtools.nodes.get(value)?.parents.map((link) => link.parent);
-
-  for (const ref of held ?? []) {
-    const above = ref.deref();
-
-    if (above !== undefined) {
-      return above;
-    }
-  }
-
-  return undefined;
+  return holdersOf(devtools, value)[0];
 }
+
+/** Everything a node draws apart from what holds it, which is the one thing a walk never replaces. */
+type Drawn = Omit<NodeInfo, "parents">;
 
 /**
  * The record that makes a value a node. The first name the developer wrote wins: a second binding
@@ -518,39 +506,22 @@ function makeNode(
   value: object,
   parent: object | undefined,
   source: OwnerSource,
-  node: NodeInfo,
+  node: Drawn,
 ): void {
-  const devtools = getDevtoolsGlobal();
-  const known = devtools.nodes.get(value);
+  const { nodes } = getDevtoolsGlobal();
+  const known = nodes.get(value);
+  const info = known ?? { ...node, parents: [] };
 
   if (known === undefined) {
-    devtools.nodes.set(value, node);
-
-    if (parent !== undefined) {
-      addParent(module, devtools, value, node, parent, source);
-    }
-
-    return;
-  }
-
-  if (known.ours && !node.ours) {
-    rename(known, node);
+    nodes.set(value, info);
+  } else if (known.ours && !node.ours) {
+    /** Everything drawn beside the name, and never the parents, which `Drawn` leaves out. */
+    Object.assign(known, node);
   }
 
   if (parent !== undefined) {
-    addParent(module, devtools, value, known, parent, source);
+    addParent(module, value, info, parent, source);
   }
-}
-
-/** The name and everything drawn beside it, without touching the parents already gathered. */
-function rename(known: NodeInfo, node: NodeInfo): void {
-  known.home = node.home;
-  known.external = node.external;
-  known.name = node.name;
-  known.ours = node.ours;
-  known.numbered = node.numbered;
-  known.type = node.type;
-  known.skipped = node.skipped;
 }
 
 /**
@@ -560,12 +531,13 @@ function rename(known: NodeInfo, node: NodeInfo): void {
  */
 function addParent(
   module: ModuleHome,
-  devtools: DevtoolsGlobal,
   value: object,
   info: NodeInfo,
   parent: object,
   source: OwnerSource,
 ): void {
+  const devtools = getDevtoolsGlobal();
+
   info.parents = live(info.parents, (link) => link.parent);
 
   if (info.parents.some((link) => link.parent.deref() === parent)) {

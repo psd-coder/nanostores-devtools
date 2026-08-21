@@ -408,6 +408,22 @@ describe("a name two modules mapped to one home claim", () => {
     return fileScope(moduleKey, SHARED, CAP, false);
   }
 
+  it("shows the file on every binding for one store, not only on the one the entry took", () => {
+    const a = mapped(A_KEY);
+    const b = mapped(B_KEY);
+    const $shared = atom(0);
+
+    a.store($shared, site({ name: "$counter" }));
+    a.own([["$counter", $shared, true]]);
+    b.own([["$counter", $shared, true]]);
+
+    /** Two modules, one name, one store: the repeat needs the file as much as the primary does. */
+    expect(Object.keys(buildSnapshot()[SHARED] ?? {})).toEqual([
+      "$counter [store] (a.ts)",
+      "$counter [store] (b.ts)",
+    ]);
+  });
+
   it("keeps both stores and names the file each one came from", () => {
     const a = mapped(A_KEY);
     const b = mapped(B_KEY);

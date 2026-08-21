@@ -233,9 +233,8 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
 }
 
 /**
- * One module's own bookkeeping, made on first use. Here rather than beside the module body that
- * needs it, because ownership writes the sweep list and the runtime reads it, and the map itself is
- * part of the shape two copies of the package share.
+ * One module's own bookkeeping, made on first use. `scopes` is part of the shape two copies of the
+ * package share, so the one call that brings a scope into being sits with it.
  */
 export function scopeOf(moduleKey: string): ModuleScope {
   const { scopes } = getDevtoolsGlobal();

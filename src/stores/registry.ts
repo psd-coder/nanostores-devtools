@@ -237,8 +237,9 @@ export function trackStores(group: string, stores: Readonly<Record<string, Store
 /**
  * The name a top-level binding of the developer's own gives a store, which beats the one its
  * creation site gave it. One of several such bindings reaches here: the tree draws every one of
- * them, and the entry takes the one the primary rule picked. The store keeps its identity and its entry, so this is one entry under a
- * new name: the tree draws it, and the rows the timeline writes read it too.
+ * them, and the entry takes the one the primary rule picked. The store keeps its identity and its
+ * entry, so this is one entry under a new name: the tree draws it, and the rows the timeline
+ * writes read it too.
  *
  * A name a group was given by hand is left alone, as it is everywhere else: the developer wrote
  * that one as well, and they wrote it for this store rather than for whatever holds it.
