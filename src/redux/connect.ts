@@ -36,7 +36,7 @@ export type DevtoolsOptions = {
   /** The stores held to one row a second by hand: a list of `home/name`, or a rule over them. */
   throttle?: ThrottleOption | undefined;
   /** Writes a second above which the bridge throttles a store itself. `false` turns it off. */
-  autoThrottle?: boolean | number | undefined;
+  autoThrottle?: number | false | undefined;
   /** Levels drawn below a class instance. `Infinity` turns the cap off. */
   maxValueDepth?: number | undefined;
   /** Members drawn per shape below a class instance. `Infinity` turns the cap off. */

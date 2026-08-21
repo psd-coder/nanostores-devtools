@@ -57,7 +57,7 @@ const DEFAULT_THRESHOLD = 10;
 
 export function createThrottleSettings(
   throttle: ThrottleOption | undefined,
-  autoThrottle: boolean | number | undefined,
+  autoThrottle: number | false | undefined,
 ): ThrottleSettings {
   return { marks: marksOf(throttle), threshold: thresholdOf(autoThrottle) };
 }
@@ -248,10 +248,6 @@ function marksOf(throttle: ThrottleOption | undefined): (target: ThrottleTarget)
   return (target) => names.has(`${target.home}/${target.name}`);
 }
 
-function thresholdOf(autoThrottle: boolean | number | undefined): number | undefined {
-  if (autoThrottle === false) {
-    return undefined;
-  }
-
-  return typeof autoThrottle === "number" ? autoThrottle : DEFAULT_THRESHOLD;
+function thresholdOf(autoThrottle: number | false | undefined): number | undefined {
+  return autoThrottle === false ? undefined : (autoThrottle ?? DEFAULT_THRESHOLD);
 }
