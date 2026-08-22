@@ -2,16 +2,13 @@ import type { ModuleKeys, ModuleRoots } from "./module-keys.ts";
 import { moduleKeys } from "./module-keys.ts";
 import type { Parser } from "./parser.ts";
 import { mergeStoreTypes, type StoreTypesOption } from "./store-types.ts";
-import { type AdoptFactories, type StoreTransform, transformStores } from "./transform.ts";
+import { type StoreTransform, transformStores } from "./transform.ts";
 
 /** Everything a developer sets that no bundler has an opinion about. */
 export type DiscoveryOptions = {
   fileKey?: ((path: string) => string) | undefined;
-  /**
-   * How far adoption reaches: `true` for every named call, `false` for none, and `"dollar-only"`
-   * for the older rule, where a call is adopted only under a name that starts with `$`.
-   */
-  adoptFactories?: AdoptFactories | undefined;
+  /** How far adoption reaches: `true` for every named call, `false` for none. */
+  adoptFactories?: boolean | undefined;
   maxStoresPerSite?: number | undefined;
   /**
    * Packages the plugin should read a kind off, laid over the built-in map per package and per
@@ -67,13 +64,13 @@ export function resolveStoreCap(value: number | undefined): StoreCap {
 }
 
 /** What adoption is held to, and what the developer is told when their setting is refused. */
-export type AdoptionSetting = { adopt: AdoptFactories; warning: string | undefined };
+export type AdoptionSetting = { adopt: boolean; warning: string | undefined };
 
 const DEFAULT_ADOPT_FACTORIES = true;
 
 /**
  * Takes `unknown` because the option reaches a plain JavaScript config with no type to stop it, and
- * a value we cannot read is refused rather than being taken for one of the three. Refusing it takes
+ * a value we cannot read is refused rather than being taken for one of the two. Refusing it takes
  * the default, so a typo costs a warning and the wider tree, never a build.
  */
 export function resolveAdoption(value: unknown): AdoptionSetting {
@@ -81,17 +78,16 @@ export function resolveAdoption(value: unknown): AdoptionSetting {
     return { adopt: DEFAULT_ADOPT_FACTORIES, warning: undefined };
   }
 
-  if (value === true || value === false || value === "dollar-only") {
+  if (value === true || value === false) {
     return { adopt: value, warning: undefined };
   }
 
   return {
     adopt: DEFAULT_ADOPT_FACTORIES,
     warning:
-      `adoptFactories is ${JSON.stringify(value)} in your devtools options, which is none of its ` +
-      `settings, so the plugin adopts every named call instead. Pass true to adopt every named ` +
-      `call, false to adopt none, or "dollar-only" to adopt only a call standing under a name ` +
-      `that starts with "$".`,
+      `adoptFactories is ${JSON.stringify(value)} in your devtools options, which is neither of ` +
+      `its settings, so the plugin adopts every named call instead. Pass true to adopt every ` +
+      `named call, or false to adopt none.`,
   };
 }
 

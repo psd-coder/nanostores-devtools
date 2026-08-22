@@ -30,18 +30,17 @@ describe("resolveStoreCap", () => {
 });
 
 describe("resolveAdoption", () => {
-  it("keeps each of the three settings", () => {
+  it("keeps both settings", () => {
     expect(resolveAdoption(true)).toEqual({ adopt: true, warning: undefined });
     expect(resolveAdoption(false)).toEqual({ adopt: false, warning: undefined });
-    expect(resolveAdoption("dollar-only")).toEqual({ adopt: "dollar-only", warning: undefined });
   });
 
   it("takes the wide rule without a warning when the option is unset", () => {
     expect(resolveAdoption(undefined)).toEqual({ adopt: true, warning: undefined });
   });
 
-  it("refuses a value it cannot read, and names the option, the value and all three", () => {
-    for (const value of ["dollarOnly", "$", 1, null]) {
+  it("refuses a value it cannot read, and names the option, the value and both settings", () => {
+    for (const value of ["dollar-only", "$", 1, null]) {
       const { adopt, warning } = resolveAdoption(value);
 
       expect(adopt).toBe(true);
@@ -49,8 +48,11 @@ describe("resolveAdoption", () => {
       expect(warning).toContain(JSON.stringify(value));
       expect(warning).toContain("true");
       expect(warning).toContain("false");
-      expect(warning).toContain("dollar-only");
     }
+  });
+
+  it("does not name dollar-only among the settings to pass", () => {
+    expect(resolveAdoption(1).warning).not.toContain("dollar-only");
   });
 });
 
