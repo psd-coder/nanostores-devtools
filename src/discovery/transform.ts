@@ -340,12 +340,13 @@ export function transformStores(input: TransformInput): StoreTransform {
     const name = callName(node.start);
 
     /**
-     * A call standing in an argument is adopted as much as one bound straight to a name: what it
-     * hands back is the developer's either way, and the name it carries says where they wrote it.
-     * `adopt` hands a value that is no store straight back, so a call that builds anything else
-     * costs one wrapper and nothing more.
+     * The name is the whole gate: a codebase that never writes the `$` prefix makes stores all the
+     * same, and a call standing in an argument is adopted as much as one bound straight to a name.
+     * What it hands back is the developer's either way, and the name it carries says where they
+     * wrote it. `adopt` hands a value that is no store straight back, so a call that builds
+     * anything else costs one wrapper and nothing more.
      */
-    if (name !== null && name.startsWith("$")) {
+    if (name !== null) {
       adopts.push({
         start: node.start,
         end: node.end,

@@ -58,11 +58,12 @@ describe("the pre-parse test", () => {
   const FACTORY_CALL =
     `import { createPanel } from "./panel.ts";\n` + `export const panel = createPanel();\n`;
 
-  it("parses a file that imports no nanostores and binds no $ name", () => {
+  it("parses a file that imports no nanostores", () => {
     const result = transform(FACTORY_CALL);
 
     expect(output(result)).toContain(
-      `__nsdt.end((__nsdt.begin(), createPanel()), ` +
+      `__nsdt.end((__nsdt.begin(), __nsdt.adopt(createPanel(), ` +
+        `{"name":"panel","fn":null,"line":2,"type":"unknown"})), ` +
         `{"name":"panel","fn":null,"line":2,"type":"unknown"})`,
     );
     expect(ownCall(result)).toBe(`__nsdt.own([["panel", panel, true]]);`);
@@ -360,12 +361,32 @@ describe("adoption", () => {
     );
   });
 
-  /** The wide gate still frames the call and lists the binding: only adoption stays out of it. */
-  it("adopts no binding without a $", () => {
+  /** The name is the whole gate, so a codebase that never writes the prefix is adopted too. */
+  it("wraps a binding without a $", () => {
     const result = transform(`const theme = persistentAtom("theme", "dark");\n`);
 
-    expect(output(result)).not.toContain("__nsdt.adopt(");
+    expect(output(result)).toContain(
+      `__nsdt.adopt(persistentAtom("theme", "dark"), ` +
+        `{"name":"theme","fn":null,"line":1,"type":"unknown"})`,
+    );
     expect(ownCall(result)).toBe(`__nsdt.own([["theme", theme, false]]);`);
+  });
+
+  it("numbers a call standing in an argument under a plain name", () => {
+    const result = transform(`const theme = persistent(fallback("dark"));\n`);
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(persistent(__nsdt.adopt(fallback("dark"), ` +
+        `{"name":"theme unassigned 1","fn":null,"line":1,"type":"unknown"})), ` +
+        `{"name":"theme","fn":null,"line":1,"type":"unknown"})`,
+    );
+  });
+
+  it("leaves a plain-named call callee matching already wrapped alone", () => {
+    const result = transform(`import { atom } from "nanostores";\nconst count = atom(0);\n`);
+
+    expect(output(result)).not.toContain("__nsdt.adopt(");
+    expect(metas(result)).toEqual([{ name: "count", fn: null, line: 2, type: "atom" }]);
   });
 
   it("leaves a call callee matching already wrapped alone", () => {
@@ -1111,7 +1132,7 @@ describe("the creation frame", () => {
     );
 
     expect(frames(result)).toBe(1);
-    expect(output(result)).toContain(`const model = ${OPENED}makeModel()`);
+    expect(output(result)).toContain(`const model = ${OPENED}__nsdt.adopt(makeModel(), `);
   });
 
   it("opens none for a destructured binding, which no one name holds", () => {
