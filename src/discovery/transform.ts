@@ -4,6 +4,8 @@ import type {
   AssignmentTargetMaybeDefault,
   BindingPattern,
   CallExpression,
+  ChainElement,
+  ChainExpression,
   Comment,
   ExportNamedDeclaration,
   Expression,
@@ -192,6 +194,11 @@ export function transformStores(input: TransformInput): StoreTransform {
   const throttled: Mark[] = [];
   /** The statements an ignore comment stands over, which the transform leaves as they were. */
   const ignored: Span[] = [];
+  /**
+   * Every call an optional chain can skip, with more of the chain written after it. Keyed by the
+   * end offset, because every link of one chain starts where the chain itself starts.
+   */
+  const chained = new Set<number>();
 
   /** Whether this offset stands inside a statement the developer kept out of the devtools. */
   function isIgnored(start: number): boolean {
@@ -343,9 +350,45 @@ export function transformStores(input: TransformInput): StoreTransform {
     return site;
   }
 
+  /**
+   * The chain read from the outside in, link by link, to find the calls a `?.` under them skips.
+   * A wrapper around one of those takes the `undefined` the chain handed back and gives it to
+   * whatever follows, so `a?.b().c` throws where the file it stands in reads `undefined`.
+   *
+   * Two calls keep their wrapper. The one the chain ends on is wrapped from outside the whole
+   * chain, so it hands that `undefined` on unchanged. One written under every `?.` runs whatever
+   * the chain does.
+   */
+  function readChain(node: ChainExpression): void {
+    /** The calls read so far, which no `?.` under them skips yet. */
+    let skippable: number[] = [];
+    let link = under(node.expression);
+
+    while (link !== undefined) {
+      if (link.type === "CallExpression") {
+        skippable.push(link.end);
+      }
+
+      if (link.type !== "TSNonNullExpression" && link.optional) {
+        for (const end of skippable) {
+          chained.add(end);
+        }
+
+        skippable = [];
+      }
+
+      link = under(link);
+    }
+  }
+
   function readCall(node: CallExpression): void {
     /** Ignored: no wrapper of any kind reaches a store this statement makes. */
     if (isIgnored(node.start)) {
+      return;
+    }
+
+    /** An optional chain can skip this call, so a wrapper here would cost the short circuit. */
+    if (chained.has(node.end)) {
       return;
     }
 
@@ -598,6 +641,7 @@ export function transformStores(input: TransformInput): StoreTransform {
         open.pop();
       }
     },
+    ChainExpression: readChain,
     VariableDeclarator(node) {
       const name = node.id.type === "Identifier" ? node.id.name : null;
 
@@ -737,6 +781,26 @@ function calledIn(node: Expression): CallExpression | NewExpression | undefined 
   const bare = bared(node);
 
   return bare.type === "CallExpression" || bare.type === "NewExpression" ? bare : undefined;
+}
+
+/**
+ * The link under this one: what a call is made on, or what a member stands on. Anything else ends
+ * the chain, parentheses included, which is why `(a?.b)().c` is three expressions and not one.
+ */
+function under(node: ChainElement): ChainElement | undefined {
+  if (node.type === "TSNonNullExpression") {
+    return chainLink(node.expression);
+  }
+
+  return chainLink(node.type === "CallExpression" ? node.callee : node.object);
+}
+
+function chainLink(node: Expression): ChainElement | undefined {
+  return node.type === "CallExpression" ||
+    node.type === "MemberExpression" ||
+    node.type === "TSNonNullExpression"
+    ? node
+    : undefined;
 }
 
 function bared(node: Written): Written {

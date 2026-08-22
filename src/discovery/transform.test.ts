@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { loadParser } from "./parser.ts";
 import { mergeStoreTypes } from "./store-types.ts";
-import type { CreationSite, StoreType } from "../runtime.ts";
+import type { CreationSite, FileScope, StoreType } from "../runtime.ts";
 import { type StoreTransform, type TransformInput, transformStores } from "./transform.ts";
 
 const MODULE_KEY = "src/stores/cart.ts";
@@ -54,6 +54,38 @@ function ownCall(result: StoreTransform): string | undefined {
   return output(result)
     .split("\n")
     .find((line) => line.startsWith("__nsdt.own("));
+}
+
+/** Enough of the runtime to run a transformed file: every call hands its own value straight back. */
+const runtime: FileScope = {
+  store: (store) => store,
+  adopt: (value) => value,
+  own: () => {},
+  begin: () => {},
+  end: (value) => value,
+  clear: () => {},
+};
+
+/**
+ * What the transformed file evaluates to, so a test reads the developer's own semantics rather
+ * than the text they were rewritten to. A module body is no function body, so every import line
+ * is dropped, the injected header first among them, and the names the file imported are handed in
+ * as arguments instead. So is every free name the source reads, which is otherwise a
+ * `ReferenceError` rather than the value under test.
+ */
+function evaluate(result: StoreTransform, read: string, given: Record<string, unknown>): unknown {
+  const body = output(result)
+    .split("\n")
+    .filter((line) => !line.startsWith("import "))
+    .join("\n");
+  const names = Object.keys(given);
+  /** `new Function` is the one way to run a module body without a module, and it types nothing. */
+  const run = new Function("__nsdt", ...names, `${body}\nreturn ${read};`) as (
+    scope: FileScope,
+    ...values: unknown[]
+  ) => unknown;
+
+  return run(runtime, ...names.map((name) => given[name]));
 }
 
 describe("the pre-parse test", () => {
@@ -779,6 +811,76 @@ describe("a call no name reaches", () => {
 
     expect(output(result)).toContain("__nsdt.clear();");
     expect(ownCall(result)).toBeUndefined();
+  });
+});
+
+describe("an optional chain", () => {
+  it("leaves a call alone where the chain runs on past it", () => {
+    const result = transform(`const x = a?.b().c;\n`);
+
+    expect(output(result)).toContain(`const x = a?.b().c;`);
+    expect(metas(result)).toEqual([]);
+  });
+
+  it("keeps the short circuit of an adopted call, which gives undefined and throws nothing", () => {
+    const result = transform(`const x = a?.b().c;\n`);
+
+    expect(evaluate(result, "x", { a: null })).toBeUndefined();
+  });
+
+  it("keeps the short circuit of a creator call the chain can skip", () => {
+    const result = transform(`import { atom } from "nanostores";\nconst x = atom?.(0).get();\n`);
+
+    expect(output(result)).not.toContain(`__nsdt.store(atom?.(0)`);
+    expect(evaluate(result, "x", { atom: undefined })).toBeUndefined();
+  });
+
+  it("wraps the call the chain ends on, where the wrapper stands outside the short circuit", () => {
+    const result = transform(`const x = a?.b();\n`);
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(a?.b(), {"name":"x","fn":null,"line":1,"type":"unknown"})`,
+    );
+    expect(evaluate(result, "x", { a: null })).toBeUndefined();
+  });
+
+  it("wraps a call standing under every `?.`, which the chain runs whatever happens", () => {
+    const result = transform(`const x = f()?.b().c;\n`);
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(f(), {"name":"x","fn":null,"line":1,"type":"unknown"})?.b().c;`,
+    );
+  });
+
+  it("wraps a creator call standing in an argument inside a chain", () => {
+    const result = transform(`import { atom } from "nanostores";\nconst x = a?.b(atom(0)).c;\n`);
+
+    expect(output(result)).toContain(
+      `a?.b(__nsdt.store(atom(0), {"name":"x unassigned 1","fn":null,"line":2,"type":"atom"})).c;`,
+    );
+    expect(evaluate(result, "x", { atom: () => ({}), a: null })).toBeUndefined();
+  });
+
+  it("reads a `!` as a link of the chain, which is all TypeScript leaves of it", () => {
+    const result = transform(`const x = a?.b!.c().d;\n`);
+
+    expect(output(result)).toContain(`const x = a?.b!.c().d;`);
+  });
+
+  it("wraps a call outside the parentheses that ended the chain", () => {
+    const result = transform(`const x = (a?.b)().c;\n`);
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt((a?.b)(), {"name":"x","fn":null,"line":1,"type":"unknown"}).c;`,
+    );
+  });
+
+  it("wraps a chain that is not optional the way it always did", () => {
+    const result = transform(`const x = a.b().c;\n`);
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(a.b(), {"name":"x","fn":null,"line":1,"type":"unknown"}).c;`,
+    );
   });
 });
 
