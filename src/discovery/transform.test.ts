@@ -581,6 +581,110 @@ describe("adoption", () => {
   });
 });
 
+describe("adoptFactories: dollar-only", () => {
+  const QUIET: Overrides = { adoptFactories: "dollar-only" };
+
+  /** The frame around a top-level initializer carries a site of its own, so it reads the wrapper. */
+  function adopts(result: StoreTransform): boolean {
+    return output(result).includes("__nsdt.adopt(");
+  }
+
+  it("adopts a call bound straight to a $ name", () => {
+    const result = transform(`const $theme = persistentAtom("theme", "dark");\n`, QUIET);
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(persistentAtom("theme", "dark"), ` +
+        `{"name":"$theme","fn":null,"line":1,"type":"unknown"})`,
+    );
+  });
+
+  it("leaves a call under a plain name alone, rather than adopting it under its callee", () => {
+    const result = transform(
+      `import { persistentAtom } from "@nanostores/persistent";\n` +
+        `const theme = persistentAtom("theme", "dark");\n`,
+      QUIET,
+    );
+
+    expect(adopts(result)).toBe(false);
+  });
+
+  it("adopts a call standing in an argument under a $ binding", () => {
+    const result = transform(`const $theme = persistent(fallback("dark"));\n`, QUIET);
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(fallback("dark"), ` +
+        `{"name":"$theme unassigned 1","fn":null,"line":1,"type":"unknown"})`,
+    );
+  });
+
+  it("leaves a call standing in an argument under a plain binding alone", () => {
+    expect(adopts(transform(`const theme = persistent(fallback("dark"));\n`, QUIET))).toBe(false);
+  });
+
+  /** A call it turns away books no number, so the sites it keeps still run 1, 2, 3 with no gaps. */
+  it("gives no number to a call it turned away", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\nconst pair = combine(fallback("a"), atom(0));\n`,
+      QUIET,
+    );
+
+    expect(output(result)).toContain(
+      `__nsdt.store(atom(0), {"name":"pair unassigned 1","fn":null,"line":2,"type":"atom"})`,
+    );
+  });
+
+  it("reads the property a store is written under, not the object around it", () => {
+    const result = transform(
+      `export const stores = { $count: fallback(0), total: fallback(1) };\n`,
+      QUIET,
+    );
+
+    expect(output(result)).toContain(
+      `{ $count: __nsdt.adopt(fallback(0), ` +
+        `{"name":"$count","fn":null,"line":1,"type":"unknown"}), total: fallback(1) }`,
+    );
+  });
+
+  it("holds a call no name reaches to the same test, on the callee it is named after", () => {
+    const source =
+      `import { userStore, $userStore } from "./stores.ts";\n` +
+      `export function Row(id) {\n  return [userStore(id), $userStore(id)];\n}\n`;
+
+    expect(output(transform(source, QUIET))).toContain(
+      `[userStore(id), __nsdt.adopt($userStore(id), ` +
+        `{"name":"$userStore","fn":"Row","line":3,"type":"unknown"})]`,
+    );
+    expect(metas(transform(source)).map((meta) => meta.name)).toEqual(["userStore", "$userStore"]);
+  });
+
+  it("leaves callee matching alone, so a plain-named creator call is still instrumented", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `const count = atom(0);\n` +
+        `const theme = persistentAtom("theme", "dark");\n`,
+      QUIET,
+    );
+
+    expect(adopts(result)).toBe(false);
+    expect(output(result)).toContain(
+      `__nsdt.store(atom(0), {"name":"count","fn":null,"line":2,"type":"atom"})`,
+    );
+  });
+
+  it("still gives an adopted store the kind its package makes", () => {
+    const result = transform(
+      `import { persistentMap } from "@nanostores/persistent";\n` +
+        `export const $settings = persistentMap("settings:", {});\n`,
+      QUIET,
+    );
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(persistentMap("settings:", {}), ` +
+        `{"name":"$settings","fn":null,"line":2,"type":"map"})`,
+    );
+  });
+});
+
 describe("a call no name reaches", () => {
   const IMPORTED = `import { userStore } from "./stores.ts";\n`;
   const IN_A_COMPONENT = `${IMPORTED}export function Row(id) {\n  return userStore(id);\n}\n`;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createDiscovery, resolveStoreCap } from "./core.ts";
+import { createDiscovery, resolveAdoption, resolveStoreCap } from "./core.ts";
 import type { ModuleKeys } from "./module-keys.ts";
 import { loadParser } from "./parser.ts";
 
@@ -25,6 +25,31 @@ describe("resolveStoreCap", () => {
       expect(cap).toBe(50);
       expect(warning).toContain("maxStoresPerSite");
       expect(warning).toContain(String(value));
+    }
+  });
+});
+
+describe("resolveAdoption", () => {
+  it("keeps each of the three settings", () => {
+    expect(resolveAdoption(true)).toEqual({ adopt: true, warning: undefined });
+    expect(resolveAdoption(false)).toEqual({ adopt: false, warning: undefined });
+    expect(resolveAdoption("dollar-only")).toEqual({ adopt: "dollar-only", warning: undefined });
+  });
+
+  it("takes the wide rule without a warning when the option is unset", () => {
+    expect(resolveAdoption(undefined)).toEqual({ adopt: true, warning: undefined });
+  });
+
+  it("refuses a value it cannot read, and names the option, the value and all three", () => {
+    for (const value of ["dollarOnly", "$", 1, null]) {
+      const { adopt, warning } = resolveAdoption(value);
+
+      expect(adopt).toBe(true);
+      expect(warning).toContain("adoptFactories");
+      expect(warning).toContain(JSON.stringify(value));
+      expect(warning).toContain("true");
+      expect(warning).toContain("false");
+      expect(warning).toContain("dollar-only");
     }
   });
 });

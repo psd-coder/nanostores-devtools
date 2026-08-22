@@ -20,6 +20,12 @@ import type { Parser } from "./parser.ts";
 import type { PackageStoreTypes } from "./store-types.ts";
 import type { CreationSite } from "../runtime.ts";
 
+/**
+ * How far adoption reaches: every named call, none at all, or only a call standing under a name
+ * that starts with `$`. The quiet setting is for a codebase whose panel the wide rule filled up.
+ */
+export type AdoptFactories = boolean | "dollar-only";
+
 export type TransformInput = {
   code: string;
   /** The module's own key, and the unit a hot reload clears. Never an absolute path. */
@@ -28,7 +34,7 @@ export type TransformInput = {
   /** Whether the file is somebody else's. Handed in, because no path spelling settles it. */
   external: boolean;
   maxStoresPerSite: number;
-  adoptFactories: boolean;
+  adoptFactories: AdoptFactories;
   /** The kind a known package's export returns, which an adoption site carries instead of none. */
   storeTypes: PackageStoreTypes;
   parser: Parser;
@@ -301,16 +307,19 @@ export function transformStores(input: TransformInput): StoreTransform {
    * store never asks.
    */
   function callName(start: number): string | null {
-    if (namedValues.has(start)) {
-      return namedValues.get(start) ?? null;
+    const named = namedValues.get(start);
+
+    if (named !== undefined) {
+      return named;
     }
 
     const base = currentName();
 
-    if (base === null) {
-      return null;
-    }
+    return base === null ? null : numbered(base);
+  }
 
+  /** The name a call with none of its own takes, plus which one it is under that binding. */
+  function numbered(base: string): string {
     const next = (unassigned.get(base) ?? 0) + 1;
 
     unassigned.set(base, next);
@@ -364,11 +373,12 @@ export function transformStores(input: TransformInput): StoreTransform {
       return;
     }
 
-    if (!input.adoptFactories) {
+    if (input.adoptFactories === false) {
       return;
     }
 
-    const name = callName(node.start);
+    const named = namedValues.get(node.start);
+    const base = named === undefined ? currentName() : named;
     const kind = packagedType(callee);
 
     /**
@@ -381,9 +391,15 @@ export function transformStores(input: TransformInput): StoreTransform {
      * A call the package map knows carries that package's kind rather than none. It stays an
      * adoption all the same: the map says what a store is, never where one is, and the runtime
      * keeps a kind the store already carries over the one the map offers.
+     *
+     * A name reaching the call ends it either way. Under the quiet setting a call standing under a
+     * plain name is left alone rather than falling through to its callee, which would put back the
+     * store the setting was asked to leave out.
      */
-    if (name !== null) {
-      adopt(node, name, kind);
+    if (base !== null) {
+      if (adoptable(base)) {
+        adopt(node, named === undefined ? numbered(base) : base, kind);
+      }
 
       return;
     }
@@ -398,9 +414,18 @@ export function transformStores(input: TransformInput): StoreTransform {
      * declares itself is a helper of its own, and a member call names no import either. Without
      * that limit every call in every function body would carry a wrapper.
      */
-    if (callee !== undefined && imports.has(callee)) {
+    if (callee !== undefined && imports.has(callee) && adoptable(callee)) {
       adopt(node, callee, kind);
     }
+  }
+
+  /**
+   * Whether the setting lets a store take this name. It reads the binding rather than the numbered
+   * name built from it, because the two start alike and asking first leaves the numbers of a
+   * binding that is adopted running 1, 2, 3.
+   */
+  function adoptable(name: string): boolean {
+    return input.adoptFactories !== "dollar-only" || name.startsWith("$");
   }
 
   function adopt(node: CallExpression, name: string, kind: StoreType | undefined): void {
