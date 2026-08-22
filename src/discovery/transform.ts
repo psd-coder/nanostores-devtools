@@ -87,6 +87,12 @@ type Injection = {
  */
 type FramedInit = { start: number; end: number; callee: string | null; site: CreationSite };
 
+/**
+ * One name the file brings in: the module it came from, and the export it reads there. A default
+ * binding reads no export a map of export names can be written for.
+ */
+type ImportedName = { module: string; exported: string | null };
+
 /** An object property, a class field and a method all name what sits under them the same way. */
 type Keyed = { key: NodePropertyKey; computed: boolean };
 
@@ -155,8 +161,8 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   const creators = new Map<string, StoreType>();
-  /** What a name this file took from a known package makes, which is a kind and nothing more. */
-  const packaged = new Map<string, StoreType>();
+  /** Every name this file imported, keyed by the name it wrote, which is what a callee reads as. */
+  const imports = new Map<string, ImportedName>();
   const wraps: Injection[] = [];
   const adopts: Injection[] = [];
   const stack: Frame[] = [];
@@ -215,8 +221,9 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   /**
-   * Both ways a name comes into the file: `nanostores` itself, which gives a call a type and a
-   * wrap, and a package the map knows, which gives an adopted store its kind and nothing else.
+   * `nanostores` itself gives a call a type and a wrap. Every import is written down beside that,
+   * because a name the file brought in is both what the package map reads a kind off and the one
+   * name a call nobody named can be adopted under.
    */
   function readImport(node: ImportDeclaration): void {
     if (node.importKind === "type") {
@@ -225,23 +232,20 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     if (node.source.value === "nanostores") {
       readCreatorImport(node);
-
-      return;
     }
 
-    const exports = input.storeTypes.get(node.source.value);
-
-    if (exports === undefined) {
-      return;
+    for (const [local, from] of importedNames(node)) {
+      imports.set(local, from);
     }
+  }
 
-    for (const [imported, local] of namedImports(node)) {
-      const type = exports.get(imported);
+  /** The kind a call's callee makes, where the file imported it and the map names that export. */
+  function packagedType(callee: string | undefined): StoreType | undefined {
+    const from = callee === undefined ? undefined : imports.get(callee);
 
-      if (type !== undefined) {
-        packaged.set(local, type);
-      }
-    }
+    return from === undefined
+      ? undefined
+      : typeOf(input.storeTypes.get(from.module), from.exported);
   }
 
   function readCreatorImport(node: ImportDeclaration): void {
@@ -252,8 +256,8 @@ export function transformStores(input: TransformInput): StoreTransform {
       );
     }
 
-    for (const [imported, local] of namedImports(node)) {
-      const type = CREATORS.get(imported);
+    for (const [local, from] of importedNames(node)) {
+      const type = typeOf(CREATORS, from.exported);
 
       if (type !== undefined) {
         creators.set(local, type);
@@ -365,6 +369,7 @@ export function transformStores(input: TransformInput): StoreTransform {
     }
 
     const name = callName(node.start);
+    const kind = packagedType(callee);
 
     /**
      * The name is the whole gate: a codebase that never writes the `$` prefix makes stores all the
@@ -378,16 +383,34 @@ export function transformStores(input: TransformInput): StoreTransform {
      * keeps a kind the store already carries over the one the map offers.
      */
     if (name !== null) {
-      const kind = callee === undefined ? undefined : packaged.get(callee);
+      adopt(node, name, kind);
 
-      adopts.push({
-        start: node.start,
-        end: node.end,
-        call: "adopt",
-        site: siteAt(node.start, name, kind ?? "unknown"),
-        self: false,
-      });
+      return;
     }
+
+    /**
+     * A store made where it is used rather than where it is declared: `useStore(userStore(id))`
+     * inside a component binds nothing, is nobody's property, and the function around it ends the
+     * reach of every name. The call that made it is the only name left, so the store takes that
+     * one, and the runtime numbers the stores of one site apart.
+     *
+     * Only a callee the file imported, which is also where that name comes from. A callee the file
+     * declares itself is a helper of its own, and a member call names no import either. Without
+     * that limit every call in every function body would carry a wrapper.
+     */
+    if (callee !== undefined && imports.has(callee)) {
+      adopt(node, callee, kind);
+    }
+  }
+
+  function adopt(node: CallExpression, name: string, kind: StoreType | undefined): void {
+    adopts.push({
+      start: node.start,
+      end: node.end,
+      call: "adopt",
+      site: siteAt(node.start, name, kind ?? "unknown"),
+      self: false,
+    });
   }
 
   /**
@@ -705,15 +728,30 @@ function bared(node: Written): Written {
 }
 
 /**
- * Every name a declaration takes by name, as the export it reads and the binding it makes. A
- * namespace and a default binding are left out: neither says which export a later call means.
+ * Every value a declaration brings in, as the binding it makes and where that name came from. A
+ * namespace binding is left out: it says nothing about which export a later call means, and every
+ * call through it is a member call.
  */
-function namedImports(node: ImportDeclaration): [string, string][] {
-  return node.specifiers.flatMap((specifier) =>
-    specifier.type === "ImportSpecifier" && specifier.importKind !== "type"
-      ? [[exportName(specifier.imported), specifier.local.name] satisfies [string, string]]
-      : [],
-  );
+function importedNames(node: ImportDeclaration): [string, ImportedName][] {
+  const module = node.source.value;
+
+  return node.specifiers.flatMap((specifier): [string, ImportedName][] => {
+    if (specifier.type === "ImportDefaultSpecifier") {
+      return [[specifier.local.name, { module, exported: null }]];
+    }
+
+    return specifier.type === "ImportSpecifier" && specifier.importKind !== "type"
+      ? [[specifier.local.name, { module, exported: exportName(specifier.imported) }]]
+      : [];
+  });
+}
+
+/** What a map of export names says one import makes, where the import names an export at all. */
+function typeOf(
+  types: ReadonlyMap<string, StoreType> | undefined,
+  exported: string | null,
+): StoreType | undefined {
+  return types === undefined || exported === null ? undefined : types.get(exported);
 }
 
 function exportName(name: ModuleExportName): string {

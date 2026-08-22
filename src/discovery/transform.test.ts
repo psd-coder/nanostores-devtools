@@ -83,16 +83,16 @@ describe("the pre-parse test", () => {
   });
 
   it("leaves a file that binds nothing at the top level alone, though it parses it", () => {
-    const result = transform(
-      `import { useStore } from "@nanostores/react";\n` +
-        `export function Cart() {\n  return useStore($cart);\n}\n`,
-    );
+    const result = transform(`export function Cart() {\n  return render($cart);\n}\n`);
 
     expect(result.changed).toBe(false);
   });
 
   it("leaves a file that imports nanostores and makes no store alone", () => {
-    const result = transform(`import { onMount } from "nanostores";\nonMount($cart, () => {});\n`);
+    const result = transform(
+      `import { onMount } from "nanostores";\n` +
+        `export function start() {\n  $cart.listen(() => {});\n}\n`,
+    );
 
     expect(result.changed).toBe(false);
   });
@@ -144,12 +144,14 @@ describe("callee matching", () => {
         `onMount($a, () => {});\n`,
     );
 
+    /** `onMount` is no creator, so it takes no type here and reaches the file as an adoption. */
     expect(metas(result).map((meta) => meta.type)).toEqual([
       "atom",
       "map",
       "deepMap",
       "computed",
       "batched",
+      "unknown",
     ]);
   });
 
@@ -579,6 +581,103 @@ describe("adoption", () => {
   });
 });
 
+describe("a call no name reaches", () => {
+  const IMPORTED = `import { userStore } from "./stores.ts";\n`;
+  const IN_A_COMPONENT = `${IMPORTED}export function Row(id) {\n  return userStore(id);\n}\n`;
+
+  it("adopts it under its callee, where the file imported that callee", () => {
+    const result = transform(IN_A_COMPONENT);
+
+    expect(output(result)).toContain(
+      `__nsdt.adopt(userStore(id), {"name":"userStore","fn":"Row","line":3,"type":"unknown"})`,
+    );
+  });
+
+  /** The store is made where it is used, and the call around it is nobody's value either. */
+  it("wraps the call around it too, which hands a value that is no store straight back", () => {
+    const result = transform(
+      `import { useStore } from "@nanostores/react";\n${IMPORTED}` +
+        `export function Row(id) {\n  return useStore(userStore(id));\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: "userStore", fn: "Row", line: 4, type: "unknown" },
+      { name: "useStore", fn: "Row", line: 4, type: "unknown" },
+    ]);
+  });
+
+  /** One site, which is the unit the runtime numbers its stores under and caps. */
+  it("gives two calls on one line the same site, so their numbers tell them apart", () => {
+    const result = transform(
+      `${IMPORTED}export function Row() {\n  return [userStore(1), userStore(2)];\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: "userStore", fn: "Row", line: 3, type: "unknown" },
+      { name: "userStore", fn: "Row", line: 3, type: "unknown" },
+    ]);
+  });
+
+  it("takes a default import, which is a name the file brought in as much as any other", () => {
+    const result = transform(
+      `import userStore from "./stores.ts";\nexport function Row(id) {\n  return userStore(id);\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "userStore", fn: "Row", line: 3, type: "unknown" }]);
+  });
+
+  it("writes the name the file wrote, and reads the kind off the export behind it", () => {
+    const result = transform(
+      `import { persistentAtom as stored } from "@nanostores/persistent";\n` +
+        `export function themeFor(key) {\n  return stored(key, "dark");\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "stored", fn: "themeFor", line: 3, type: "atom" }]);
+  });
+
+  it("leaves a callee the file declares itself alone, which is a helper of its own", () => {
+    const result = transform(
+      `function localStore(id) {\n  return { id };\n}\nexport function Row() {\n` +
+        `  return localStore(1);\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([]);
+  });
+
+  it("leaves a member call alone, though the file imported what it stands on", () => {
+    const result = transform(
+      `import { api } from "./api.ts";\nexport function Row(id) {\n  return api.userStore(id);\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([]);
+  });
+
+  /** Every store one factory line makes carries the same name, so it still waits to be adopted. */
+  it("leaves a creator call as it was: kind recorded, and no name of its own", () => {
+    const result = transform(
+      `import { map } from "nanostores";\nexport function userStore(id) {\n  return map({ id });\n}\n`,
+    );
+
+    expect(output(result)).toContain(
+      `__nsdt.store(map({ id }), {"name":null,"fn":"userStore","line":3,"type":"map"})`,
+    );
+    expect(output(result)).not.toContain("__nsdt.adopt(");
+  });
+
+  it("adopts nothing at all with adoption turned off", () => {
+    const result = transform(IN_A_COMPONENT, { adoptFactories: false });
+
+    expect(metas(result)).toEqual([]);
+  });
+
+  it("gives a file whose only store is one of these the header, so a reload clears it", () => {
+    const result = transform(IN_A_COMPONENT);
+
+    expect(output(result)).toContain("__nsdt.clear();");
+    expect(ownCall(result)).toBeUndefined();
+  });
+});
+
 describe("the package map", () => {
   /** What an adoption site carries, which is the whole of what the map changes. */
   function type(code: string, overrides: Overrides = {}): StoreType | undefined {
@@ -638,6 +737,14 @@ describe("the package map", () => {
 
     expect(metas(result)[0]?.type).toBe("unknown");
     expect(result.warnings).toEqual([]);
+  });
+
+  it("gives no kind to a default import, whatever an entry of that name says", () => {
+    expect(
+      type(`import stored from "@acme/state";\nexport const $c = stored(0);\n`, {
+        storeTypes: mergeStoreTypes({ "@acme/state": { default: "map" } }),
+      }),
+    ).toBe("unknown");
   });
 
   it("gives no kind to a type-only import", () => {
