@@ -217,14 +217,12 @@ describe("a file that imports no nanostores creator", () => {
     expect(buildSnapshot()[APP_HOME]?.["$theme [store]"]).toBe("dark");
   });
 
-  it("puts a dependency's store in the tree with its type lost", () => {
-    expect(entryNamed("$router")).toMatchObject({ home: APP_HOME, type: "unknown" });
+  it("puts a dependency's store in the tree under the kind the package map gives it", () => {
+    expect(entryNamed("$router")).toMatchObject({ home: APP_HOME, type: "atom" });
   });
 
-  it("marks the dependency's store, because an unknown type is not trusted unmounted", () => {
-    expect(buildSnapshot()[APP_HOME]?.["$router [store]"]).toMatchObject({
-      __serializedType__: "not mounted, may be stale",
-    });
+  it("reads the dependency's store, because the map settled what it holds", () => {
+    expect(buildSnapshot()[APP_HOME]?.["$router [store]"]).toMatchObject({ params: {} });
   });
 
   it("changes nothing for a $ name holding a value that is no store", () => {

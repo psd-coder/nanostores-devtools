@@ -17,6 +17,7 @@ import type {
 
 import type { StoreType } from "../stores/registry.ts";
 import type { Parser } from "./parser.ts";
+import type { PackageStoreTypes } from "./store-types.ts";
 import type { CreationSite } from "../runtime.ts";
 
 export type TransformInput = {
@@ -28,6 +29,8 @@ export type TransformInput = {
   external: boolean;
   maxStoresPerSite: number;
   adoptFactories: boolean;
+  /** The kind a known package's export returns, which an adoption site carries instead of none. */
+  storeTypes: PackageStoreTypes;
   parser: Parser;
   /** The module id the injected import reads the runtime from. */
   runtimeModule: string;
@@ -152,6 +155,8 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   const creators = new Map<string, StoreType>();
+  /** What a name this file took from a known package makes, which is a kind and nothing more. */
+  const packaged = new Map<string, StoreType>();
   const wraps: Injection[] = [];
   const adopts: Injection[] = [];
   const stack: Frame[] = [];
@@ -209,28 +214,49 @@ export function transformStores(input: TransformInput): StoreTransform {
     stack.pop();
   }
 
+  /**
+   * Both ways a name comes into the file: `nanostores` itself, which gives a call a type and a
+   * wrap, and a package the map knows, which gives an adopted store its kind and nothing else.
+   */
   function readImport(node: ImportDeclaration): void {
-    if (node.source.value !== "nanostores" || node.importKind === "type") {
+    if (node.importKind === "type") {
       return;
     }
 
-    for (const specifier of node.specifiers) {
-      if (specifier.type === "ImportNamespaceSpecifier") {
-        warnings.add(
-          `"${input.moduleKey}" imports nanostores as a namespace, so the plugin cannot tell ` +
-            `what its stores are. Import atom, map, deepMap, computed or batched by name instead.`,
-        );
-        continue;
-      }
+    if (node.source.value === "nanostores") {
+      readCreatorImport(node);
 
-      if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") {
-        continue;
-      }
+      return;
+    }
 
-      const type = CREATORS.get(exportName(specifier.imported));
+    const exports = input.storeTypes.get(node.source.value);
+
+    if (exports === undefined) {
+      return;
+    }
+
+    for (const [imported, local] of namedImports(node)) {
+      const type = exports.get(imported);
 
       if (type !== undefined) {
-        creators.set(specifier.local.name, type);
+        packaged.set(local, type);
+      }
+    }
+  }
+
+  function readCreatorImport(node: ImportDeclaration): void {
+    if (node.specifiers.some((specifier) => specifier.type === "ImportNamespaceSpecifier")) {
+      warnings.add(
+        `"${input.moduleKey}" imports nanostores as a namespace, so the plugin cannot tell ` +
+          `what its stores are. Import atom, map, deepMap, computed or batched by name instead.`,
+      );
+    }
+
+    for (const [imported, local] of namedImports(node)) {
+      const type = CREATORS.get(imported);
+
+      if (type !== undefined) {
+        creators.set(local, type);
       }
     }
   }
@@ -318,7 +344,8 @@ export function transformStores(input: TransformInput): StoreTransform {
       return;
     }
 
-    const type = node.callee.type === "Identifier" ? creators.get(node.callee.name) : undefined;
+    const callee = node.callee.type === "Identifier" ? node.callee.name : undefined;
+    const type = callee === undefined ? undefined : creators.get(callee);
 
     if (type !== undefined) {
       open.push(node.start);
@@ -345,13 +372,19 @@ export function transformStores(input: TransformInput): StoreTransform {
      * What it hands back is the developer's either way, and the name it carries says where they
      * wrote it. `adopt` hands a value that is no store straight back, so a call that builds
      * anything else costs one wrapper and nothing more.
+     *
+     * A call the package map knows carries that package's kind rather than none. It stays an
+     * adoption all the same: the map says what a store is, never where one is, and the runtime
+     * keeps a kind the store already carries over the one the map offers.
      */
     if (name !== null) {
+      const kind = callee === undefined ? undefined : packaged.get(callee);
+
       adopts.push({
         start: node.start,
         end: node.end,
         call: "adopt",
-        site: siteAt(node.start, name, "unknown"),
+        site: siteAt(node.start, name, kind ?? "unknown"),
         self: false,
       });
     }
@@ -669,6 +702,18 @@ function bared(node: Written): Written {
     default:
       return node;
   }
+}
+
+/**
+ * Every name a declaration takes by name, as the export it reads and the binding it makes. A
+ * namespace and a default binding are left out: neither says which export a later call means.
+ */
+function namedImports(node: ImportDeclaration): [string, string][] {
+  return node.specifiers.flatMap((specifier) =>
+    specifier.type === "ImportSpecifier" && specifier.importKind !== "type"
+      ? [[exportName(specifier.imported), specifier.local.name] satisfies [string, string]]
+      : [],
+  );
 }
 
 function exportName(name: ModuleExportName): string {

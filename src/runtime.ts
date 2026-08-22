@@ -187,7 +187,7 @@ export function fileScope(
   };
 }
 
-/** A type the store already carries beats the one an adopt site can give, which is none. */
+/** A type the store already carries beats the one an adopt site read off the package map. */
 function adoptedType(store: Store, site: CreationSite): StoreType {
   const registered = getEntry(store)?.type;
 

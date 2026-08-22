@@ -819,6 +819,26 @@ describe("adopt", () => {
     expect(getEntry($theme)).toMatchObject({ name: "$theme", home: HOME, type: "unknown" });
   });
 
+  /** The kind the package map gives the site, for a store the walk could never reach. */
+  it("registers a store nothing instrumented made under the kind the site carries", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $theme = atom("dark");
+
+    scope.adopt($theme, site({ name: "$theme", type: "map" }));
+
+    expect(getEntry($theme)).toMatchObject({ name: "$theme", home: HOME, type: "map" });
+  });
+
+  it("keeps what callee matching read over the kind the site carries", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false);
+    const $theme = atom("dark");
+
+    scope.store($theme, site({ name: null, type: "computed" }));
+    scope.adopt($theme, site({ name: "$theme", type: "map" }));
+
+    expect(getEntry($theme)).toMatchObject({ name: "$theme", type: "computed" });
+  });
+
   it("numbers repeats of one adopt site", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 

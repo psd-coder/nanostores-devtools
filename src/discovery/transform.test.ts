@@ -2,7 +2,8 @@ import { decode } from "@jridgewell/sourcemap-codec";
 import { describe, expect, it } from "vitest";
 
 import { loadParser } from "./parser.ts";
-import type { CreationSite } from "../runtime.ts";
+import { mergeStoreTypes } from "./store-types.ts";
+import type { CreationSite, StoreType } from "../runtime.ts";
 import { type StoreTransform, type TransformInput, transformStores } from "./transform.ts";
 
 const MODULE_KEY = "src/stores/cart.ts";
@@ -19,6 +20,7 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     external: false,
     maxStoresPerSite: 50,
     adoptFactories: true,
+    storeTypes: mergeStoreTypes(undefined),
     parser,
     runtimeModule: "nanostores-devtools/runtime",
     hotReload: (clear) => `if (import.meta.hot) import.meta.hot.prune(() => { ${clear} });`,
@@ -357,7 +359,7 @@ describe("adoption", () => {
 
     expect(output(result)).toContain(
       `__nsdt.adopt(persistentAtom("theme", "dark"), ` +
-        `{"name":"$theme","fn":null,"line":2,"type":"unknown"})`,
+        `{"name":"$theme","fn":null,"line":2,"type":"atom"})`,
     );
   });
 
@@ -574,6 +576,133 @@ describe("adoption", () => {
     const result = transform(`const $theme = persistentAtom("theme", "dark");\n`);
 
     expect(output(result)).toContain("__nsdt.clear();");
+  });
+});
+
+describe("the package map", () => {
+  /** What an adoption site carries, which is the whole of what the map changes. */
+  function type(code: string, overrides: Overrides = {}): StoreType | undefined {
+    return metas(transform(code, overrides))[0]?.type;
+  }
+
+  it("gives an adopted store the kind its package's export makes", () => {
+    expect(
+      type(
+        `import { persistentMap } from "@nanostores/persistent";\n` +
+          `export const $settings = persistentMap("settings:", {});\n`,
+      ),
+    ).toBe("map");
+  });
+
+  it("reads the export name rather than the local one, so a renamed import still lands", () => {
+    expect(
+      type(
+        `import { persistentAtom as stored } from "@nanostores/persistent";\n` +
+          `export const $theme = stored("theme", "dark");\n`,
+      ),
+    ).toBe("atom");
+  });
+
+  it("leaves a package it has no entry for without a kind", () => {
+    expect(
+      type(`import { createStore } from "@acme/state";\nexport const $c = createStore(0);\n`),
+    ).toBe("unknown");
+  });
+
+  it("leaves an export the entry does not name without a kind", () => {
+    expect(
+      type(
+        `import { createStorage } from "@nanostores/persistent";\n` +
+          `export const $c = createStorage();\n`,
+      ),
+    ).toBe("unknown");
+  });
+
+  /** An entry may name an export its package dropped, or never had. Nothing here reads it. */
+  it("says nothing about an entry naming an export the file never imports", () => {
+    const result = transform(
+      `import { persistentAtom } from "@nanostores/persistent";\n` +
+        `export const $theme = persistentAtom("theme", "dark");\n`,
+      { storeTypes: mergeStoreTypes({ "@nanostores/persistent": { gone: "map" } }) },
+    );
+
+    expect(metas(result)[0]).toEqual({ name: "$theme", fn: null, line: 2, type: "atom" });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("gives no kind to a namespace import, and says nothing about it", () => {
+    const result = transform(
+      `import * as persistent from "@nanostores/persistent";\n` +
+        `export const $theme = persistent.persistentAtom("theme", "dark");\n`,
+    );
+
+    expect(metas(result)[0]?.type).toBe("unknown");
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("gives no kind to a type-only import", () => {
+    expect(
+      type(
+        `import type { persistentAtom } from "@nanostores/persistent";\n` +
+          `export const $theme = persistentAtom("theme", "dark");\n`,
+      ),
+    ).toBe("unknown");
+  });
+
+  it("keeps callee matching's own kind, which the map never reaches", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `import { persistentAtom } from "@nanostores/persistent";\n` +
+        `export const $c = atom(0);\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "$c", fn: null, line: 3, type: "atom" }]);
+  });
+
+  it("carries a package kind wherever adoption reaches, not only a top-level binding", () => {
+    const result = transform(
+      `import { persistentAtom } from "@nanostores/persistent";\n` +
+        `export function make() {\n  return { theme: persistentAtom("theme", "dark") };\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "theme", fn: "make", line: 3, type: "atom" }]);
+  });
+
+  it("takes no kind at all with adoption turned off", () => {
+    const result = transform(
+      `import { persistentAtom } from "@nanostores/persistent";\n` +
+        `export const $theme = persistentAtom("theme", "dark");\n`,
+      { adoptFactories: false },
+    );
+
+    expect(output(result)).not.toContain("__nsdt.adopt(");
+  });
+
+  it("takes an entry a developer added", () => {
+    expect(
+      type(`import { deep } from "@acme/state";\nexport const $c = deep({});\n`, {
+        storeTypes: mergeStoreTypes({ "@acme/state": { deep: "deepMap" } }),
+      }),
+    ).toBe("deepMap");
+  });
+
+  it("takes a correction to one export, and keeps the rest of that package", () => {
+    const added = { "@nanostores/persistent": { persistentAtom: "deepMap" } } as const;
+
+    expect(
+      type(
+        `import { persistentAtom } from "@nanostores/persistent";\n` +
+          `export const $theme = persistentAtom("theme", "dark");\n`,
+        { storeTypes: mergeStoreTypes(added) },
+      ),
+    ).toBe("deepMap");
+    expect(
+      type(
+        `import { persistentMap } from "@nanostores/persistent";\n` +
+          `export const $settings = persistentMap("settings:", {});\n`,
+        { storeTypes: mergeStoreTypes(added) },
+      ),
+    ).toBe("map");
   });
 });
 

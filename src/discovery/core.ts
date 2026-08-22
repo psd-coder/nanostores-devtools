@@ -1,6 +1,7 @@
 import type { ModuleKeys, ModuleRoots } from "./module-keys.ts";
 import { moduleKeys } from "./module-keys.ts";
 import type { Parser } from "./parser.ts";
+import { mergeStoreTypes, type StoreTypesOption } from "./store-types.ts";
 import { type StoreTransform, transformStores } from "./transform.ts";
 
 /** Everything a developer sets that no bundler has an opinion about. */
@@ -8,6 +9,11 @@ export type DiscoveryOptions = {
   fileKey?: ((path: string) => string) | undefined;
   adoptFactories?: boolean | undefined;
   maxStoresPerSite?: number | undefined;
+  /**
+   * Packages the plugin should read a kind off, laid over the built-in map per package and per
+   * export, so adding a package or correcting one export restates nothing else.
+   */
+  storeTypes?: StoreTypesOption | undefined;
 };
 
 /** What an adapter adds to the options: the roots it worked out, and its own bundler's words. */
@@ -69,6 +75,8 @@ export function createDiscovery(input: DiscoveryInput): Discovery {
    * skip our warnings.
    */
   const warned = new Set<string>();
+  /** Merged once for the whole run: the map is the same for every file the plugin is offered. */
+  const storeTypes = mergeStoreTypes(input.storeTypes);
   let parser: Promise<Parser> | undefined;
 
   return {
@@ -84,6 +92,7 @@ export function createDiscovery(input: DiscoveryInput): Discovery {
         external: keys.external,
         maxStoresPerSite: cap,
         adoptFactories: input.adoptFactories ?? true,
+        storeTypes,
         parser: await parser,
         runtimeModule: input.runtimeModule,
         hotReload: input.hotReload,
