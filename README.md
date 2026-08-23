@@ -1,32 +1,138 @@
 # nanostores-devtools
 
+<img align="right" width="92" height="92" alt="nanostores-devtools logo" title="nanostores-devtools logo" src="https://raw.githubusercontent.com/psd-coder/nanostores-devtools/main/logo.svg">
+
 Inspect [nanostores](https://github.com/nanostores/nanostores) state in the
-[redux-devtools](https://github.com/reduxjs/redux-devtools) browser extension.
+[Redux DevTools](https://github.com/reduxjs/redux-devtools) browser extension. Every store your
+source gives a name to becomes a key in one state tree, and every write draws a named row in the
+timeline, with the recomputes that write caused folded into it. A store from a dependency joins the
+tree the moment you name it, in one line.
 
-Every store on the page becomes a key in one state tree, and every change draws one named row in
-the timeline. The bridge is read-only: it reads `.value`, attaches nanostores lifecycle hooks, and
-runs no app code at all.
+A bundler plugin reads your source during development and gives each store the name you wrote for
+it, so you write no per-store setup at all. The bridge is **read-only**: it reads `.value` through
+its own property descriptor, and runs none of your app's own code. It never calls `store.get()` and
+never reads a getter you wrote. The one code of yours it does run is code you handed it on purpose:
+a `serializers` rule, or a `throttle` predicate.
 
-**This package ships no UI.** You install the redux-devtools extension in your browser yourself.
-We never fork it, repackage it, or build our own panel. This package only speaks its protocol.
+## Features
 
-## Install
+- ✅ Every store is named after the binding, object key, array index or `Map` key you wrote. A
+  value that holds stores and has no name in your source is keyed `ref#1` rather than given an
+  invented one.
+- ✅ Read-only. Never calls `store.get()`, never reads a getter you wrote, never mounts a store.
+- ✅ One timeline row per change, named after the store: `$counter/set`, `$user/setKey:name`.
+- ✅ Each store's kind sits in its key: `[computed]`, `[map]`, `[deepMap]`, `[batched]`.
+- ✅ A store is drawn under whatever built it: a class instance, an object a factory returned, an
+  array, a `Map`.
+- ✅ Vite, webpack and Rspack. One plugin, one subpath each, and none of the three runs outside a
+  development build.
+- ✅ Builds no tree and sends nothing while no panel is open, and the panel's own pause button
+  reads the same way.
+- ✅ Ships nothing into a production build but three empty functions, on Vite, webpack and Rspack
+  with no work from you. The `production` export condition swaps the real module out, and every
+  other bundler reaches the same place with one condition set.
+- ✅ Holds a store writing more than 10 times a second to one row a second, so a frame loop cannot
+  push the rows you came to read out of the panel.
+- ✅ Keeps a store out on request: `// @nanostores-devtools:ignore` above it and the plugin walks
+  past it, so it never registers, takes no key in the tree and draws no row.
+- ✅ ESM only, `sideEffects: false`, `nanostores` as its one browser peer.
 
-```bash
-pnpm add -D nanostores-devtools
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import { nanostoresDevtools } from "nanostores-devtools/vite";
+
+export default defineConfig({
+  plugins: [nanostoresDevtools()],
+});
 ```
 
-Then install the redux-devtools extension in your browser. With no extension on the page the
-package does nothing, logs nothing, and attaches no hook.
+```ts
+// src/main.ts
+import { connectDevtools } from "nanostores-devtools";
 
-## Setup
+connectDevtools({ name: "my-app" });
+```
 
-Two steps: add the plugin for your bundler, then call `connectDevtools()` once.
+That is the whole code. Two things besides the package have to be in place first: the Redux
+DevTools extension in your browser, and, on anything but Vite 8, `oxc-parser`. See
+[Installation](#installation). Then open the Redux tab in your browser devtools and pick `my-app`
+from the dropdown.
 
-### 1. Add the plugin
+## Contents
 
-There is one plugin, and one subpath per bundler. Pick the line for yours; everything after it is
+- [Installation](#installation)
+- [Core Concepts](#core-concepts)
+- [Usage](#usage)
+- [What you see in the panel](#what-you-see-in-the-panel)
+- [When nothing shows up](#when-nothing-shows-up)
+- [Turning it off in a production build](#turning-it-off-in-a-production-build)
+- [API](#api)
+- [Documentation](#documentation)
+- [Design Notes](#design-notes)
+- [License](#license)
+
+## Installation
+
+```bash
+# npm
+npm install -D nanostores-devtools
+
+# pnpm
+pnpm add -D nanostores-devtools
+
+# yarn
+yarn add -D nanostores-devtools
+```
+
+**This package ships no UI.** Install the
+[Redux DevTools extension](https://github.com/reduxjs/redux-devtools) in your browser yourself. We
+never fork it, repackage it, or build our own panel. With no extension on the page this package does
+nothing, logs nothing, and attaches nothing to your stores.
+
+Requires an ESM environment and `nanostores` 1.x. The bundler plugin runs in Node during
+development only.
+
+**On webpack, on Rspack and on Vite 6 and 7, add `oxc-parser` too:**
+
+```bash
+pnpm add -D oxc-parser
+```
+
+That is what reads your source. Vite 8 re-exports a parser the plugin can borrow, so a Vite 8
+project needs nothing extra. Everywhere else the first file the plugin touches fails the build with
+an error naming `oxc-parser`, so you cannot get this wrong quietly.
+
+## Core Concepts
+
+A nanostores store is a plain object. Nothing about it says where it was written, what it is
+called, or what holds it. So the usual ways of watching one are all hand work: a `console.log`
+inside `$store.listen()`, or [`@nanostores/logger`](https://github.com/nanostores/logger), which
+prints changes to the console under names you pass it store by store.
+
+`nanostores-devtools` takes the naming off you. A bundler plugin reads your source while your dev
+server runs, finds every call that makes a store, and wraps it with the name, the line and the kind
+it found there. In the browser those wrapped calls report to a registry, and the package draws one
+state tree and one timeline out of what it learns. You get the whole app's state at once, a diff
+per change, and a stack trace pointing at the line that wrote it.
+
+It fits when:
+
+- you have more than a handful of stores and want to see them together;
+- you want to know **which** line wrote a value, not only that it changed;
+- you want state a route or a code-split chunk added to appear on its own;
+- you already read Redux DevTools for something else on the page.
+
+## Usage
+
+### Step 1: Add the plugin
+
+There is one plugin and one subpath per bundler. Pick the line for yours; everything after it is
 the same. This package is ESM only, so the config file holding it has to be ESM too.
+
+The plugin reads **script files only**: `.js`, `.ts` and the rest of that family. A store written
+inside a `.vue` or a `.svelte` file is untouched, and so is anything under `node_modules`. It
+rewrites each file it does touch with `magic-string`, which keeps your source maps intact.
 
 **Vite.** The plugin loads on the dev server alone, so one config covers both builds.
 
@@ -40,7 +146,7 @@ export default defineConfig({
 });
 ```
 
-**webpack.** Add it under your development config, and see the two notes below.
+**webpack and Rspack.** The same plugin, the same options, a different subpath.
 
 ```js
 // webpack.config.dev.mjs
@@ -52,8 +158,6 @@ export default {
 };
 ```
 
-**Rspack.** The same plugin, the same rules.
-
 ```js
 // rspack.config.dev.mjs
 import { nanostoresDevtools } from "nanostores-devtools/rspack";
@@ -64,24 +168,14 @@ export default {
 };
 ```
 
-Two things are different for webpack and Rspack, because neither one has a dev-only flag, and
-neither ships a parser this plugin can borrow.
+Give webpack and Rspack a **development config of its own**. Neither has a dev-only flag, so both
+load whatever the config lists, and a shared config would carry this plugin into your release build.
+The plugin refuses a build whose `mode` is not `"development"`, transforming nothing and printing one
+line to your terminal saying why, so a shared config costs you a warning rather than a leak. Keeping
+the plugin out of that config is still the thing to do: a dev-only plugin has no business being
+loaded by a release build at all.
 
-- **They load whatever the config lists**, so a shared config would carry the plugin into your
-  release build. Give them a development config of their own. A build whose `mode` is not
-  `"development"` is refused anyway: the plugin transforms nothing and prints one line saying why,
-  so nothing it injects can reach a shipped bundle.
-- **They need `oxc-parser` as a dev dependency**, which is what reads your source. Vite 8 ships a
-  parser this plugin can use and these two do not, so `pnpm add -D oxc-parser` goes with the plugin.
-  Vite 6 and 7 need it too.
-
-**Turbopack cannot run this**, and Next.js dev uses Turbopack by default. Turbopack runs a subset of
-webpack loaders, and every loader option it takes has to be a plain value, so `fileKey`, which is a
-function, cannot cross into it at all. A Next.js app reaches this plugin through its own
-`bundler: "webpack"` escape hatch and no other way. Metro cannot run it either: its transform step
-is Babel, and reading a Babel tree would mean a second copy of everything the plugin does.
-
-### 2. Call `connectDevtools()`
+### Step 2: Call `connectDevtools()`
 
 ```ts
 // src/main.ts
@@ -90,69 +184,31 @@ import { connectDevtools } from "nanostores-devtools";
 connectDevtools({ name: "my-app" });
 ```
 
-That is the whole setup. There is no `import.meta.env.DEV` guard and no dynamic import, because
-[export conditions](#turning-it-off-in-a-production-build) resolve the package to a no-op module in
-a production build. The Vite plugin runs in the dev server only, and the webpack and Rspack ones
-refuse a production build, so a production build also carries no instrumentation.
+No `import.meta.env.DEV` guard and no dynamic import: export conditions already resolve the package
+to an empty module in a production build. See
+[Turning it off in a production build](#turning-it-off-in-a-production-build).
 
-`connectDevtools()` never throws and never needs `await`. Called twice it warns once and returns
-the same handle, which is what makes a hot reload safe.
+`connectDevtools()` never throws and never needs `await`, and a hot reload calling it again is safe.
+It hands back a [`DevtoolsHandle`](#types), so `handle.connected` is how you check whether the
+extension was there:
 
-Open the Redux panel in your browser devtools and pick your app from the dropdown.
+```ts
+const handle = connectDevtools({ name: "my-app" });
 
-## Two ways a store gets in
-
-### The bundler plugin
-
-The plugin reads your source while your dev build runs and makes every store register itself under
-its own variable name. It is the same plugin under Vite, webpack and Rspack, and it finds a store in
-two ways:
-
-- **By callee.** A call whose callee names something the file imported from `"nanostores"`,
-  renamed imports included. This is the way that gives a store its type. It works at any depth:
-  variable declarations, object properties, class fields, array elements, inside factories, loops
-  and methods.
-- **By adoption.** A call standing under a `$`-prefixed name, whatever the call is. This catches a
-  codebase that wraps store creation, such as `const $theme = persistentAtom("theme", "dark")` in
-  a file that never imports `"nanostores"`. Adoption carries a name, never a type. A call written
-  inside another one is adopted as well, because what it hands back is yours either way.
-
-**A store written inside a binding's initializer and assigned to no name of its own takes the
-binding's name and a number.**
-
-```js
-const $pointerEnd = merged([eventAtom(root, "up"), eventAtom(root, "cancel")]);
-const $candidate = filtered(computed([$username, $format], pick), long, "");
+if (!handle.connected) {
+  console.info("No Redux DevTools extension on this page.");
+}
 ```
 
-```
-$pointerEnd [store]                 <- what merged returned
-$pointerEnd unassigned 1 [store]    <- eventAtom(root, "up")
-$pointerEnd unassigned 2 [store]    <- eventAtom(root, "cancel")
-$candidate [store]                  <- what filtered returned
-$candidate unassigned 1 [computed]  <- the computed written inside it
-```
+Call it as early as you like. **The panel does not have to be open first.** The extension sends a
+`START` whenever a panel begins watching, and we answer with every store there is, so you never
+reload the page to catch up on state. What a late panel does lose is history: the rows from before
+it opened were never sent.
 
-The number counts them in source order and is what tells them apart. Without it two stores written
-on one line share a name, a file and a line, which is the whole of a store's identity, and the
-second silently takes the first one's place in the registry.
+### Step 3: Add the stores the plugin cannot reach
 
-An array is the one exception, and only where the array is the value the binding holds:
-
-```js
-const $totals = [atom(0), atom(1)]; // $totals[0], $totals[1]
-```
-
-There `$totals[0]` is something you can type and get that store back. In `merged([…])` the array is
-handed away and `$pointerEnd` is the atom that came out, so an index off it would point at nothing.
-
-A codebase that does not use the `$` prefix still gets normal discovery. It only loses the factory
-and the dependency cases. You can turn adoption off with `adoptFactories: false`.
-
-### `trackStores`
-
-Stores the plugin cannot reach go in by hand. A dependency's stores are the usual case, and so is
-a build with no plugin.
+The plugin never reads a file under `node_modules`, and no option changes that, so a dependency's
+stores are the usual case here. A build with no plugin is the other. List those stores by hand:
 
 ```ts
 // src/stores/cart.ts
@@ -165,324 +221,51 @@ export const $count = computed($items, (items) => items.length);
 trackStores("cart", { $items, $count });
 ```
 
+The first argument is a group name, and it becomes the top-level key those stores sit under.
 `untrack("cart")` removes the group again.
 
-## Where a store sits in the tree
+With the plugin on, a store you also pass to `trackStores` **leaves the file tree** and moves under
+your group, because a name you wrote by hand beats a name the plugin worked out. To keep it where
+the plugin put it, name the group after the file: `trackStores("src/stores/cart.ts", { $items })`.
 
-The top level of the tree is the **home**. Under it, **a store sits beneath whatever built it, at
-any depth**.
+## What you see in the panel
 
-- **Home** is the file path for a store the plugin found, and the group name for a store you
-  listed by hand. A file inside your bundler's root, Vite's `root` or webpack's `context`, keeps its
-  short path, `app/model.ts`. A file outside it, such as a linked package or anything above that
-  root, is measured from the
-  [project root](#nanostoresdevtoolsoptions) instead of climbing out with `../`. Paths always use
-  `/`, so macOS and Windows read the same. A file under `node_modules` is never instrumented, so it
-  never has a home of its own.
-- **Name** is the variable name or the object key, with `$` kept exactly as you wrote it.
-
-Homes sort in three bands: groups first, then your own files, then the files that are somebody
-else's. A home holding at least one store you listed by hand counts as a group. There is no wrapper
-node over the external files: it would cost a click to reach anything inside and say nothing itself.
-
-Inside a home everything sorts too, on **the name your source wrote**, so a type note, a number or
-a group never moves a row. Two rows your source names the same then sort on their whole keys. The
-order is by character code rather than by locale, so the tree reads the same everywhere and a
-capital letter sorts before a small one: `Editor` sits above `byId`.
-
-### The ownership tree
-
-This is the shape our own acceptance fixture draws, trimmed:
+The top level of the tree is the **home**: the file path for a store the plugin found, and the group
+name for a store you listed by hand. Under a home, a store sits beneath whatever built it.
 
 ```
 app/editor.ts
-  Editor: { $opened [store]: 0 }                           <- a static field, keyed by the class
-  byId: Map { ["scratch"]: Editor {…} }                    <- a Map, walked by key
-  drafts: Array { [0]: Editor {…}, [1]: Editor {…} }       <- an array, walked by index
+  Editor: { $opened [store]: 0 }                                <- a static class field
+  drafts: Array { [0]: Editor {…}, [1]: Editor {…} }            <- an array, walked by index
   editorOne: Editor { $count [store]: 0, $value [store]: "" }   <- named by its binding
-  hidden: WeakMap { ref#1: Editor {…}, ref#2: Viewer {…} } <- nothing here can be named
 app/model.ts
   $busy [computed]: false
-  $draft [store]: { (value): "the quick brown fox jumps ", $canRedo [computed],
-                    $canUndo [computed], $history [computed], $position [computed],
-                    $timeline [store] }
-  $entries [computed]: ["", "the ", …]                     <- your own name for a nested store
-  counter [store]: { (value): 0, $doubled [computed] }     <- a store with no $ that owns others
+  $entries [computed]: ["", "the ", …]
+  counter [store]: { (value): 0, $doubled [computed] }          <- a store that owns others
 app/workspace.ts
-  panel: { open [store]: false, width [store]: 320 }       <- what a factory returned
+  panel: { open [store]: false, width [store]: 320 }            <- what a factory returned
 ```
 
-#### `(value)`: a store that owns others
+Two spellings in that sketch need a word.
 
-A store that owns nothing is drawn as v1 drew it: its name, its value. **A store that owns others
-keeps its own value under `(value)`**, so its children can sit beside it. Only a store that owns
-something is wrapped, so a value you can read today stays readable.
+**`(value)` holds a store's own value** wherever that value cannot stand at the store's own key.
+Two things put it there:
 
-Two more keys are spelled with the same parentheses and mean something else: `(valueOf)` and
-`(toString)` name **which method answered** on a class instance that published a reading of itself.
-See [what a platform object shows](#what-a-platform-object-shows).
+- **The store owns other stores.** Its children then sit beside the value instead of inside it.
+- **The store carries a note**, such as `not mounted, may be stale` on a `computed` nobody is
+  listening to. This one is the extension's limit rather than a choice of ours: Redux DevTools hangs
+  a note on the object it draws, so a value it cannot hang one on has to be boxed first. That covers
+  a primitive, a `null`, and anything the extension's own encoder rewrites on the way, a `Date` and
+  a `RegExp` among them. A plain object and an array go in bare, because those can carry the note
+  themselves.
 
-#### What becomes a node
+**`[store]` covers two cases at once: an `atom`, and a store whose kind we could not read.** The
+kind is read from the creator call at build time, so a store you listed by hand, or one a
+third-party factory built, has none to print. Nothing at runtime could tell a `map` from a
+`deepMap`, so a guess is all we could add.
 
-A **node** holds others and has no value of its own. Four things become one:
-
-| what it is                   | its key                                | its type label         |
-| ---------------------------- | -------------------------------------- | ---------------------- |
-| a class instance             | the binding that holds it, `editorOne` | the class, `Editor`    |
-| an object a factory returned | the binding that holds it, `panel`     | none, when it is plain |
-| an array, `Map` or `Set`     | the binding, then one child per member | `Array`, `Map`, …      |
-| a class's static fields      | the class name, `Editor`               | none                   |
-
-A member that is itself an object is keyed by a name you could write to reach it: `[0]` for an array
-or a `Set`, and `["scratch"]` for a `Map`. A node may sit inside a node, which is how an array's
-members nest under the array. **A member that is a store keeps its own name instead**, the one the
-registry gave it, because a store is drawn as a store wherever it sits.
-
-The **type label** is not part of the key. It rides in the extension's own `__serializedType__`
-wrapper, and the panel prints it in front of the node, so it costs no key and no nesting level. A
-plain object carries none, because `Object` says nothing the node does not already say. A store
-carries none either: that place already holds its `not mounted` marker, and its own kind is written
-on its key instead. That is what tells a plain-object node from a store holding a plain object:
-
-```
-panel: { width: 320 }            <- a node
-$panel [store]: { width: 320 }   <- a store holding an object
-```
-
-An instance nothing could name is keyed `ref#1`. The name is ours, so it says so rather than
-borrowing the class name the label already holds. Every unnamed instance shares the base `ref`, and
-they number across the file rather than per class.
-
-#### How a store finds its owner
-
-Three mechanisms, and each covers what the others miss.
-
-- **The binding scan.** The plugin appends one call at the end of each module body listing that
-  module's top-level `const`, `let` and `var` names, and we walk what each one holds. This is what
-  reaches a factory result, a class instance in a binding, `Object.assign($atom, {…})` members, a
-  collection's members, and an alias such as `export const $canUndo = $draft.$canUndo`, which is
-  the one case nothing else reaches.
-- **`this` in a class field.** A field initializer runs with `this` bound to the new instance, so
-  the plugin hands it over. Static fields included, and this is the only way a private field
-  `#hidden = atom()` is reachable at all.
-- **The creation frame.** A frame is opened around a top-level initializer that is a call or a
-  `new`, and closed on the value it returned. A plain store creator needs none, and neither does an
-  initializer holding an `await`, which a frame must never span. It is the only thing that reaches a
-  store one of your own helpers kept in a closure, where no property leads to it.
-
-**A frame places nothing born in somebody else's file.** It catches every store made while your
-expression ran, however many files down, and a store still homed in a library is one that library
-kept rather than handed over: `$inputs` inside `resourceAtom`, `$timeline` inside `withUndo`. What a
-library does hand you is adopted at your call site and takes your file as its home, and whatever the
-returned value carries is reached by the scan through a property — `$value` and `$loading` on a
-resource stay exactly where they were. The frame keeps its full reach inside your own files, where a
-store in a closure is yours whether or not a property leads to it.
-
-**A frame places nothing that already stands at a site of its own.** A store made at module level is
-drawn flat at the file it was written in, because it has no function it could belong to. All the
-frame knows is that it was born while some expression ran, and that says when, not what holds it:
-
-```js
-const $pointerEnd = merged([eventAtom(root, "pointerup"), eventAtom(root, "pointercancel")]);
-```
-
-`merged` keeps its sources in a closure, so nothing on the atom it hands back leads to them. Drawing
-them inside it would say that atom holds them. They are siblings of it, and the tree draws all three
-flat. What is left for the frame is the case it exists for: a store your own code made **inside a
-function**, which nothing else would draw at all.
-
-**All three run on your own files only.** A library binds its working state to its own top-level
-names too, and a `$active` that a ref count inside `history.ts` writes is that library's business,
-not a thing you can act on. What you got out of that library is bound in a file of yours, and that
-binding is what draws it.
-
-**A store none of the three places is drawn nowhere at all.** One made inside a function and kept
-there is that function's own working state: what the function returned is what your app holds, and
-the tree draws that already. A store made at module level always keeps a place, because it has no
-function it could belong to and the file it was written in is its only holding. That last rule is
-what keeps a library's own `export const $route = atom("/")` on the tree, under its own file, even
-though nothing in your code placed it.
-
-A store the tree leaves out stays in the registry and we still watch it, but it draws no timeline
-row of its own either: no register, no mount, no write. A row you cannot trace to anything on
-screen, with a diff showing nothing, teaches you to stop reading the timeline.
-
-**The test for that is "can you see it", not "is it in the tree".** Those differ. A store with no
-place of its own is still drawn wherever a value you can see holds it, and then its own write is the
-only thing that pushes the new tree, so it must keep its row. We note every store the converter draws
-inside a value while it writes a snapshot, and a store in neither the tree nor that note draws
-nothing:
-
-```
-$requested/set          <- you clicked Next
-$currentResource/set    <- the response arrived
-```
-
-rather than the same two with a `$inputs/set` between them, `$inputs` being a store some library
-keeps inside a factory and you have no way to look up.
-
-The note is one snapshot behind, so a store put into a drawn value and written in the same tick
-loses that first row. The write that put it there is a drawn store's own write, which sends a row
-and refreshes the note, so the window is one turn wide.
-
-The scan and a class field both know a property name, so either may correct a frame, which only
-knows that a store was born while some expression ran. Neither corrects the other. A store is never
-drawn under itself: an owner already above it in the chain is refused.
-
-#### Two placements
-
-**A store you bound to a top-level name in one of your own files keeps that name, drawn flat. Its
-owner keeps a second placement of the same store, under the name the owner knows it by.**
-
-For `export const $entries = $draft.$history`:
-
-```
-$entries [computed]: ["a", "b"]                                    <- the name you wrote
-$draft [store]: { (value): "b", $history [computed]: ["a", "b"] }  <- as $draft knows it
-```
-
-One entry, one identity, two keys. With only the first, `$draft` reads as incomplete. With only the
-second, the name you chose is lost: `export const $undoable = $draft2.$canUndo` would be drawn under
-`$draft2` as `$canUndo`, and `$undoable` would appear nowhere at all. The value is sent twice,
-because the extension's encoder writes a repeat again rather than as a pointer. On the tree we
-measured that cost about 11% more bytes.
-
-**A row calls the store whatever the tree calls it.** A home you chose wins, so a store renamed by
-your own binding has its rows renamed too: `$undoable/set`, not `$canUndo/set`. A store only its
-owner holds takes that owner's key, so the row says `username/set` where the tree says `username`.
-The change inside the row still carries `lensed.ts/$lens`, because that says which file the store
-came from and a name its owner chose does not.
-
-**The second key is the property the owner really holds the store at**, not the name the store was
-born with. The two agree wherever a util calls its own field what it hands it out as, which is most
-of the time. Where they part, the key you wrote wins:
-
-```js
-export const fields = {
-  username: focus($values, "username"),
-  password: focus($values, "password"),
-};
-```
-
-```
-fields: { username [store]: "ada", password [store]: "" }
-```
-
-The atom `focus` returns is called `$lens` inside its own file, and two of them side by side would
-read as `$lens [store]` and `$lens [store] #2`. Neither name is one you could look up. A frame and a
-class field hold the store under no property at all, so those still fall back to the name its
-creation site gave.
-
-**A store you passed to `trackStores` is drawn the same way**, at the group you named, with the
-owner keeping the second placement. The group is a home you chose by hand, so it beats any owner
-the walk found.
-
-Two bindings holding one store: the exported one wins, whichever is scanned first. Two of the same
-kind pick one arbitrarily. **A binding inside somebody else's file places nothing**, neither a name
-nor a node, because that is no name you chose.
-
-#### Numbers under an owner
-
-A nested store drops the number its creation site gave it, because the parent already says which
-one this is: `$draft` and `$draft2` read the same way inside, even though the registry knows the
-second set as the second store of its site.
-
-Where the number is all that tells two children apart, both sides take one back:
-`$timeline [store]` next to `$timeline [store] #2`. Where a node holds stores from two different
-files that share a name, both name the file instead:
-`$history [computed] (vendor/withUndo.ts)`.
-
-### The kind of store, after the name
-
-**Every store carries its kind in square brackets**: `$total [computed]`, `$cart [map]`,
-`$settings [deepMap]`, `$slow [batched]`, `$count [store]`.
-
-**An `atom` and a store of an unknown kind both read `store`.** A kind is read from the creator
-call at build time, so a store listed by hand in a project without the plugin, and a store made by
-a third-party factory such as `createRouter`, have no kind to print. Nothing at runtime can tell a
-`map` from a `deepMap`, or a `computed` from a `batched`, so a guess is all we could add.
-
-The two are one word on purpose. `[atom]` would say we read your creation site and `[store]` that
-we did not, which is a fact about how much of your source we reached and not about the store. Both
-are writable and both hold whatever was last set, so there is nothing you would do differently.
-
-**A store that is being held back says so in the same brackets**, `$frame [store, throttled]`, and
-loses the word again when its rate drops. See [`throttle`](#connectdevtoolsoptions).
-
-The brackets are part of the tree key only. Timeline rows keep the bare name (`$total/set`), and
-sorting is on the bare name too, so the kind never moves a store in the tree. A store that gains a
-kind later, which adoption can do, changes its key, and the panel draws that as one key removed
-and one added. Gaining `atom` changes nothing, because `store` was already the word.
-
-### One order for a key
-
-**A tree key always reads the same way**: the name, the kind in square brackets, then at most one
-group in parentheses saying where the store was made, then the number saying which store of that
-place it is.
-
-```
-$count [store]                                        nothing to tell apart
-$counter [store] (line 20)                            two source lines in one file
-$counter [store] (app.ts, line 20)                    two files under one home
-$history [store] (vendor/withUndo.ts, createPanel, line 20)
-$history [store] (vendor/withUndo.ts)                 a home clash with no place to give
-panel [store] #2                                      a clash nothing else told apart
-```
-
-Inside the group the file comes first, because it says where to look before the line says where in
-the file. There is never a second group: where a home clash has a place to show as well, the home
-takes the group and the place steps aside.
-
-A node's number sits tight against its name, `ref#1`, and a store's stays spaced, `panel [store] #2`,
-so the two never read as one thing.
-
-### A store listed by hand leaves the file tree
-
-This surprises people, so it is worth saying plainly. **With the plugin on, a store you also pass
-to `trackStores` leaves the file tree and appears under its group instead.** Writing a store into
-`trackStores` is a deliberate act and the group was chosen by hand, so the hand-written name wins.
-The type still comes from the plugin, because an explicit call has no type to give. A store that
-something else owns leaves that owner a second placement, as [two placements](#two-placements)
-describes.
-
-**To keep the store where the plugin put it, name the group after the file:**
-
-```ts
-// src/stores/cart.ts
-trackStores("src/stores/cart.ts", { $items });
-```
-
-The tree is keyed by the home string, so this lands on the very node the plugin uses for that
-file, and the store gains a hand-written name. A store that nothing owns stays exactly where it
-was. One that something owns rises to the top level of that file, and its owner keeps the second
-placement. **This is the recommended pattern for a project that uses the plugin and `trackStores`
-together.**
-
-### The same name twice
-
-The plugin and `trackStores` behave differently here, and the difference is real.
-
-**The plugin** tells two cases apart. One source line running again (a factory, a loop) makes
-interchangeable stores, so they are numbered: `$items [store]`, `$items [store] #2`. Two different
-source lines wanting one name is a real clash: both keys name the enclosing function and the line,
-such as `$counter [store] (makeCart, line 12)`, and we warn once with both places.
-
-**`trackStores` replaces, quietly.** A second registration for `cart/$counter` drops whatever held
-that label before, with no warning. A clash here is almost always a hot reload, and we cannot tell
-the two apart: both look like "this label again, with a different store object". A warning on
-every edit would teach you to ignore our warnings. The label still shows in the tree, so nothing
-disappears silently.
-
-Two cases do warn, because neither can be a hot reload:
-
-- The same store under two names in one call (`{ $counter, $total: $counter }`) is one store and
-  one entry. The first name wins.
-- The same store in two groups moves to the second group.
-
-## What each row in the timeline means
-
-Every row is named after the store it is about and the kind of change. The name is built by us:
-nanostores has no actions, so there is nothing else to name a row after.
+Every row in the timeline is named after the store it is about and the kind of change. The name is
+built by us: nanostores has no actions, so there is nothing else to name a row after.
 
 | the row                              | what happened                                         |
 | ------------------------------------ | ----------------------------------------------------- |
@@ -491,56 +274,39 @@ nanostores has no actions, so there is nothing else to name a row after.
 | `$settings/setKey:theme.color`       | a `deepMap` path was written                          |
 | `$total/computed`                    | a `computed` recomputed with no write of yours open   |
 | `$counter/mount`, `$counter/unmount` | the store gained its first listener, or lost its last |
-| `$late/register`                     | stores joined the tree                                |
-| `$late/unregister`                   | stores left it                                        |
+| `$late/register`, `$late/unregister` | stores joined the tree, or left it                    |
 | `$count/hotReload`                   | a file ran again and its stores were rebuilt          |
 
 A row carries one write plus every recompute that write caused, which is why a `computed` usually
-has no row of its own. Mount, unmount, register, unregister and hot reload are the lifecycle rows,
-and [`lifecycleEvents`](#connectdevtoolsoptions) turns all five off together.
+has no row of its own.
 
-A [throttled](#connectdevtoolsoptions) store draws at most one row a second, or one per the rate its
-comment names, and the writes it made inside that time fold into the row that closes it, followers
-and all. Its value in the tree stays
-current; the steps between those rows are what you lose.
+[REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) has the rest: how a store finds its owner, what the key format
+means, how two stores with one name are told apart, what a value shows and what it cannot show.
 
-### When stores join and leave
+## When nothing shows up
 
-**A register row never means startup.** Everything registered before the first snapshot is already
-inside it, so a register row is always a late arrival:
+**Two places carry our messages, and they are different places.** The bridge writes to the browser
+console, and every line begins with `[nanostores-devtools]`. The plugin writes to the terminal
+running your build: what it finds in your source goes through the bundler's own warning channel, and
+the one line refusing a build that is not a development build is printed straight to the terminal.
+Both name the plugin in their text. Each message is printed once, not once per save.
 
-- a code-split chunk loaded, and a file of yours ran for the first time;
-- a factory or a loop made another store, `$items [store] #2`;
-- a `$`-named binding adopted a store some other code built;
-- `trackStores` ran after `connectDevtools`, which is the usual shape for a dependency's stores.
+If the tree is empty, walk down this list:
 
-An unregister row is the opposite: stores left the tree for good. `untrack("cart")` does it, and so
-does an edit that deletes the last store in a file. A store dropped by the
-[per-site cap](#nanostoresdevtoolsoptions) says nothing, because the store that pushed it out draws
-a row anyway.
-
-Renaming changes no rows. A store that gains a name from your binding, a kind from adoption or a
-group from `trackStores` keeps its entry, so it neither joins nor leaves.
-
-### A hot reload draws one row, not a pair
-
-A file that both loses stores and gains stores while it runs again was hot reloaded. The two halves
-become one row, `src/stores/cart.ts/hotReload`, or `$count/hotReload` when only one store moved.
-
-Inside the row each store carries its own word: `hotReload` for a store that came back, `register`
-for one your edit added, `unregister` for one it dropped. So the row tells you what the edit did,
-and a pair of registry rows never has to be recognised as your own save.
+| what you see                                      | what it means                                                                                                                                                   |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the dropdown has no entry for your app            | `connectDevtools()` never ran, or ran before the extension put itself on the page. Check `handle.connected`: `false` means we found no extension at that moment |
+| your app is there, the tree is empty              | the plugin is not in your bundler config, or the build is not a dev build                                                                                       |
+| the build failed naming `oxc-parser`              | install it, per [Installation](#installation)                                                                                                                   |
+| the terminal says the plugin did nothing          | the build's `mode` is not `"development"`                                                                                                                       |
+| your own stores are there, a dependency's are not | expected. Name them with [`trackStores`](#trackstoresgroup-stores)                                                                                              |
+| a key reads `ref#1`                               | nothing in your source names that value, so the tree says so instead of inventing a name                                                                        |
 
 ## Turning it off in a production build
 
-The main entry, `nanostores-devtools`, ships a `production` export condition. Under it the package
-resolves to a module that exports the same three names with the same types and does nothing.
-Everything else gets the real module.
-
-The plugin and the runtime need no such condition. The runtime is reached only through code the
-plugin injects, and no production build ever sees that code: under Vite the plugin is not loaded
-outside the dev server, and under webpack and Rspack it is loaded but refuses to transform
-anything.
+The main entry ships a `production` export condition. Under it the package resolves to a module
+that exports the same three names with the same types and does nothing. Everything else gets the
+real module.
 
 | bundler         | behaviour                                                                    |
 | --------------- | ---------------------------------------------------------------------------- |
@@ -550,8 +316,17 @@ anything.
 | Rollup          | needs `exportConditions: ["production"]` on the node-resolve plugin          |
 | plain Node      | gets the real module. Importing it in Node is safe and does nothing          |
 
-**The explicit pattern stays supported** for anyone who wants control instead of automation, and it
-is the answer for a bundler in the bottom half of that table:
+The plugin and the runtime need no such condition. The runtime is reached only through code the
+plugin injects, and no production build ever sees that code: under Vite the plugin is not loaded
+outside the dev server, and under webpack and Rspack it is loaded but refuses to transform anything.
+
+The three bundlers in the top half need nothing from you. For esbuild and Rollup, set the condition
+once in your build config and the rest works the same way.
+
+**The explicit pattern stays supported** for anyone who wants control instead of automation. It
+drops the two calls from the bundle as well, rather than leaving them pointing at empty functions.
+Reach for your own bundler's dev flag: `import.meta.env.DEV` is Vite's, and esbuild, Rollup and Node
+each spell it differently.
 
 ```ts
 if (import.meta.env.DEV) {
@@ -561,17 +336,33 @@ if (import.meta.env.DEV) {
 }
 ```
 
-To keep the bridge in a production build, leave `production` out of the condition list your bundler
-uses. In Vite that is `resolve: { conditions: ["development"] }`. There is no `development` key in
-our exports map, so nothing matches it and the resolver falls back to the real module.
+## API
 
-**`trackStores` calls are a separate case and they stay.** They sit in your store files, where
-neither the condition nor a guard reaches them. Under the production condition they resolve to the
-no-op, so each one costs a single function call.
+Five entry points. The three plugin subpaths run in Node during development only, and each exports
+one function under the same name.
 
-## Options
+| subpath                       | exports                                     | runs in        |
+| ----------------------------- | ------------------------------------------- | -------------- |
+| `nanostores-devtools`         | `connectDevtools`, `trackStores`, `untrack` | browser        |
+| `nanostores-devtools/vite`    | `nanostoresDevtools`                        | Node, dev only |
+| `nanostores-devtools/webpack` | `nanostoresDevtools`                        | Node, dev only |
+| `nanostores-devtools/rspack`  | `nanostoresDevtools`                        | Node, dev only |
+| `nanostores-devtools/runtime` | internal, injected by the plugin            | browser        |
+
+**`nanostores-devtools/runtime` is internal.** The plugin injects an import of it into your modules
+during development, so it appears in your module graph. Never import it yourself.
 
 ### `connectDevtools(options?)`
+
+Opens the bridge and returns a [`DevtoolsHandle`](#types). Never throws, never needs `await`.
+
+Called twice **while connected** it warns once and hands back the first handle, which is what makes
+a hot reload safe. With no extension on the page there is no connection to keep, so each call
+quietly returns a fresh handle whose `connected` is `false`.
+
+**Safe to call during server-side rendering.** It reads `globalThis.__REDUX_DEVTOOLS_EXTENSION__`,
+finds nothing on the server, and hands back a disconnected handle. There is no `window` access to
+guard.
 
 | option                | default        | what it does                                                       |
 | --------------------- | -------------- | ------------------------------------------------------------------ |
@@ -581,791 +372,207 @@ no-op, so each one costs a single function call.
 | `trace`               | `true`         | capture a stack at each direct write                               |
 | `traceLimit`          | `10`           | how many stack frames to capture                                   |
 | `maxAge`              | `500`          | how many rows the extension keeps                                  |
-| `lifecycleEvents`     | `true`         | draw the [lifecycle rows](#what-each-row-in-the-timeline-means)    |
+| `lifecycleEvents`     | `true`         | draw the mount, unmount, register, unregister and hot reload rows  |
 | `throttle`            | `[]`           | hold these stores to one row a second                              |
-| `autoThrottle`        | `true`         | throttle a store writing more than 10 times a second               |
+| `autoThrottle`        | `10`           | writes a second above which a store is throttled                   |
 | `maxValueDepth`       | `5`            | levels drawn below a class instance                                |
 | `maxValueMembers`     | `100`          | members drawn per shape below a class instance                     |
 
-`name` is fixed at the first connect and cannot change later, because the panel builds its record
-for a connection once. It defaults to a fixed word rather than `document.title`, which changes per
-page and per route.
+Four of these are worth reading about before you change them.
+[`maxAge`, `traceLimit` and `lifecycleEvents`](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-connectdevtools-option-costs)
+each trade panel quality for page cost, and `autoThrottle` is the one default that drops rows.
 
-**`maxAge` defaults to 500, not the extension's own 50.** Every row holds a full copy of the state
-tree, and 50 rows is far too short for a debugging session. 500 rows with 1000 stores measured at
-about 50 MB, and the cost is linear, which is why the option exists.
+**`autoThrottle` is a threshold in writes a second.** Pass your own, `autoThrottle: 20`, or `false`
+to keep every row. The number is the count above which a store is caught, not the rate that comes
+out. What comes out is one row a second, and the `// @nanostores-devtools:throttle 100` comment
+below is the only way to hold one store to a different rate. A store it catches stays throttled for
+the rest of the session, and we warn once, naming the store.
 
-**`traceLimit` defaults to 10 and should not be lowered without thought.** The stack is captured
-inside our own hook, so the first frames belong to us and to nanostores. We cut our own five frames
-at capture time. About four nanostores frames are still left, so a limit of 5 leaves you about one
-frame of your own code. Measured cost per write: 0.01 microseconds with the option off, 7.1 at 10,
-13.0 at 25. `Error.stackTraceLimit` and `Error.captureStackTrace` are V8 features, so this is a
-Chrome cost control. Firefox gets a full stack with no limit at all.
-
-**`lifecycleEvents: false` costs correctness, not only a quieter timeline.** Mount state lives in
-the tree, and the extension only ever sees the tree when we send a row. Turn the option off and a
-mount, an unmount or a late registration changes nothing in the panel until the next write, which
-then carries that change in its diff. Turn it off when a route change mounting many stores at once
-is too slow, and know what you are paying for it.
-
-**`autoThrottle` is on, and it is the one default that drops rows.** A store that writes more than
-10 times a second is held to **one row a second** from the write that passes that count. Its first
-write in a second draws a row at once, the writes after it inside that second draw none, and the
-last of them draws the row that closes the second. We warn once, naming the store and the ways to
-say something else.
-
-**A store it picks up stays throttled for the rest of the session.** The rate is a fact about the
-store, not about the moment: a frame loop that pauses, or a countdown between two runs, would
-otherwise be let go and picked up again over and over, and the timeline would flip between full
-rows and thinned ones while you read it. A reload starts every store clean again, and so does a hot
-reload that builds the store again, because that is a new store to us.
-
-**The tree is never behind, only the steps between rows are lost.** Every row carries the whole
-tree, so the value a throttled store shows is its current one. What you cannot do is click your way
-through the writes in between, because they are no rows. A throttled store says so in the panel:
-its key reads `$frame [store, throttled]`, and it keeps the word from the write that trips it.
-
-A frame loop writes about 60 times a second, so it costs about 60 full trees a second without this.
-That is what fills `maxAge` in eight seconds and pushes every row you came to read out of the panel.
-
-Pass a number for your own rate, `autoThrottle: 20`, or `false` to keep every row. What comes out is
-one row a second, and the plugin's comment below is the only way to hold one store to another rate,
-or to keep every row of one store while the rest still gets caught.
-
-**`throttle` says it on purpose, and turns the warning off.** It takes the names as the tree writes
-them, `"home/name"`, or a rule over them:
+`throttle` takes the names as the tree writes them, `"home/name"`, or a rule over them:
 
 ```ts
 connectDevtools({ throttle: ["src/model.ts/$remaining"] });
-connectDevtools({ throttle: (store) => store.home.startsWith("src/animation/") });
+connectDevtools({
+  throttle: (store) => store.home.startsWith("src/animation/"),
+});
 ```
 
-A rule is handed `{ home, name, type }` and runs when a store registers, is renamed or moves, never
-per write. The name is the one you read in the tree, without the file and line a clash adds to it,
-so an edit that moves a line does not break the match.
-
-The plugin reads a comment for the same thing, next to the store, where a rename cannot lose it:
-
-```ts
-// @devtools-throttle
-const $remaining = countdownAtom($delay, { interval: TICK });
-```
-
-The comment marks the whole statement below it, so a call that makes several stores marks all of
-them. Either channel alone is enough, and a store you marked by hand never warns.
-
-**The comment also takes a rate of its own**, in milliseconds:
+The plugin reads a comment for the same thing, next to the store, where a rename cannot lose it.
+`// @nanostores-devtools:throttle` marks the whole statement below it,
+`// @nanostores-devtools:throttle 100` sets its own rate in milliseconds, and
+`// @nanostores-devtools:no-throttle` keeps every row of a store that writes fast on purpose:
 
 ```ts
-// @devtools-throttle 100
+// @nanostores-devtools:throttle 100
 const $frame = atom(0);
 ```
 
-That store draws one row per 100ms, and every other throttled store keeps the default second. Edit
-the number and the reload the edit causes carries the new rate. Anything that is not a positive
-number of milliseconds, `// @devtools-throttle 100ms`, still marks the store, at the default rate:
-the mark is what the comment is for, and a rate nobody can read must not cost you one.
-
-**`// @devtools-no-throttle` keeps every row of one store**, which is the other half of the same
-comment:
+**The plugin reads a third comment, and it is not about rows.** `// @nanostores-devtools:ignore`
+keeps every store the statement below it makes out of the devtools: no key in the tree, no row in
+the timeline, nothing in the panel that says the store is there. It marks the whole statement the
+way the other two do, it wins over them where both stand over one statement, and it changes nothing
+else in the file. A store you keep out this way is **ignored**:
 
 ```ts
-// @devtools-no-throttle
-const $frame = atom(0);
+// @nanostores-devtools:ignore
+const $session = atom(readToken());
 ```
 
-That store writes fast on purpose, so `autoThrottle` never takes it over, however fast it writes,
-and it never warns. It reaches the whole statement below it, the way the mark does, and anything
-written behind the marker leaves the store spared all the same. It says nothing about the other
-two channels: a store you named in `throttle`, or marked with `// @devtools-throttle`, is throttled
-because you asked for it, and a statement carrying both comments follows the mark.
-
-**A follower rides in the row its source opened**, so marking one store quiets the whole chain
-behind it and no computed needs a mark of its own. Lifecycle rows are never throttled;
-`lifecycleEvents: false` is the lever for those.
-
-A custom serializer is `{ match: (value) => boolean, convert: (value) => unknown }`. Serializers
-run in array order, first match wins, ahead of every rule of ours.
-
-**What `convert` returns may hold its own input.** The encoder walks that result too, and none of
-your serializers runs again on a value inside it, so a `convert` returning `{ point: value }` draws
-your wrapper with the `Point` inside it drawn by our rules, and the walk ends. Your rule already ran
-over the whole tree it built, which is also what it costs: a result that a later serializer's
-`match` would match does not reach that serializer either.
-
-**Put the values of a result in plain properties, not behind getters.** Your result is the one thing
-the bridge hands to the encoder as it is, and the encoder reads it with plain reads, so **a getter on
-your result does run**. The bridge tracks the result's values through property descriptors instead,
-which is what keeps them out of your serializers, and a value behind a getter is invisible to that
-tracking. Two things follow: your getter's answer reaches the panel without any rule of yours seeing
-it, and a getter handing back the input converts it over and over, so that one slot shows
-`ConversionError` and the rest of the tree still reaches the panel.
-
-**A `Map` and a `Set` are keyed by the bridge, and no list of ours reaches your rules.** We read
-both into an array on the way, and that array never leaves the bridge, so a rule as wide as
-`match: Array.isArray` leaves a collection as it is. The keys, the values and the members inside one
-are your app's, and every rule you wrote still runs on them.
-
-The one collection the encoder still writes by itself is one **your own `convert` returned**. It
-builds a list out of it there, and neither that list nor a `[key, value]` pair inside it reaches
-your serializers.
-
-**We ship rules of our own, and they run after yours.** Six platform classes say nothing useful
-without one, so the bridge draws them itself:
-
-| class                                   | what it draws                 |
-| --------------------------------------- | ----------------------------- |
-| `Headers`                               | one key per header name       |
-| `FormData`                              | one key per entry             |
-| `URLSearchParams`                       | one key per entry             |
-| `ArrayBuffer`, `SharedArrayBuffer`      | `byteLength`                  |
-| `DataView`                              | `byteLength` and `byteOffset` |
-| a boxed `String`, `Number` or `Boolean` | the primitive under `(value)` |
-
-Each of the first five draws `<Headers> {}` without the rule, because none of them holds own data or
-publishes a reading of itself. A boxed string drew one key per character, so a 10 000-character one
-cost 10 000 keys.
-
-Your own rules are checked first, so a rule you wrote for one of these values wins. Ours are checked
-before every other rule of the bridge.
-
-**A name that repeats takes a number**: a `FormData` or a `URLSearchParams` holding `tag` twice
-draws `tag` and `tag #2`, in the order the entries went in, because one key holds one entry. A field
-really named `tag #2` reads the same way, which is what this costs.
-
-Pass `platformSerializers: false` to leave the whole list out. Those values then draw the way every
-other class instance does.
-
-**`maxValueDepth` and `maxValueMembers` cap only what a class instance holds.** Everything you
-shaped yourself goes out whole, however large: the two counts start where the walk enters a class
-instance, and a plain object, an array or a collection above one is never touched. Raise either
-number, or pass `Infinity` for no cap. Your own
-serializer runs before the caps, because a rule you wrote is the exact tool for shrinking a deep
-value, and a store below the caps keeps its whole value. See
-[values are shortened only under a class instance](#values-are-shortened-only-under-a-class-instance).
-
-### `nanostoresDevtools(options?)`
-
-First, what a **creation site** is, because the cap below only makes sense once this word does.
-**A site is one place in your source where a store is made, not one store.** A site inside a
-factory or a loop makes a new store every time it runs, and all of them share one name. The
-registry holds strong references on purpose, so nothing leaves it on its own.
-
-| option             | default                   | what it does                                                  |
-| ------------------ | ------------------------- | ------------------------------------------------------------- |
-| `fileKey`          | the home unchanged        | rewrites the path shown as a store's home                     |
-| `adoptFactories`   | `true`                    | wrap `$`-named calls the plugin does not recognise            |
-| `maxStoresPerSite` | `50`                      | live stores one creation site may hold, 1 or more             |
-| `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from, Vite only |
-
-`maxStoresPerSite` keeps the last 50 live stores of a site. It evicts unmounted stores first,
-oldest of those first, and never the store just made. So **a table with 200 rows, one store per
-row, all from one factory line, shows 50 of them.** The number 50 is a guess; only the eviction
-order is settled. Stores registered through `trackStores` have no site and no cap, because you
-wrote each one by hand.
-
-**It takes a whole number of 1 or more, or `Infinity` for no cap.** Anything else is refused with
-a warning naming the option and your value, and the plugin holds 50 per site instead: `0`, a
-number below zero, a fraction and `NaN` each say something no count of stores can be made of.
-
-**`fileKey` receives the home as the tree would show it**, so a file inside your bundler's root
-arrives relative to that root and a file outside it arrives relative to the wider one, `projectRoot`
-under Vite and the climb above `context` under webpack and Rspack. It only changes what
-is displayed. A hot reload still clears a module by its real path, so two files sharing one display
-key cannot delete each other's stores.
-
-**Two files mapped to one home keep both stores.** When each of them holds a `$counter`, both keys
-say which file they came from: `$counter [store] (a.ts)` next to `$counter [store] (b.ts)`. Where
-the two files carry the same name, the key takes as much of the path as it takes to tell them
-apart, `$counter [store] (a/store.ts)`. It comes from the file alone, so a hot reload and the other
-load order both give the same two keys, and you are warned once for each name two files write.
-Every other key stays exactly as it is: a name only one of the files writes needs nothing added.
-
-We do not cut the shared start of your file paths for you, because that shared part changes as
-routes load. Cutting it would rename every key in the tree at once, and the extension reads that
-as every key deleted and added again. Write a fixed rule instead, such as
-`fileKey: (path) => path.replace(/^src\/stores\//, "")`. A fixed rule gives the same key on every
-page load.
-
-**`projectRoot` is a Vite option.** Under webpack and Rspack the wider root is always the climb
-above `context`. It stops at the same three markers Vite stops at, `pnpm-workspace.yaml`,
-`lerna.json` and a `workspaces` field in a `package.json`; a Deno workspace stops Vite's own search
-and not the climb.
-
-**`projectRoot` defaults to Vite's own `searchForWorkspaceRoot`**, which climbs until it meets a
-workspace file. That is right for a real app: a linked package then reads as
-`packages/…`. Pin it when that default sits so high above your app that every external home gets
-long. It changes no path inside the Vite root. A file the project root cannot reach either keeps its
-full path, which still opens in an editor.
-
-**Every source file is parsed, and there is no option to stop it.** Parsing costs about 0.02 ms per
-file, paid once per file per dev build, because a bundler caches the transform of a file it has
-already read. That buys the file
-whose own text says nothing about stores, such as `export const panel = createPanel()` in a file
-that imports no nanostores: nothing else says the factory result holds those stores, and a store
-nothing places is drawn nowhere, so skipping that file would lose it rather than move it.
-
-On **Vite 8** the plugin costs you nothing extra: Vite re-exports the parser it needs. **Vite 6 and
-7, webpack and Rspack** all need `oxc-parser` as a dev dependency instead, because none of them
-ships a parser this plugin can borrow. It is declared here as an optional peer, since a peer is
-declared for the package and never for one subpath, so a Vite 8 user is not handed a package they
-never load.
-
-## Subpaths
-
-| subpath                       | runs in        | may depend on                                                                          |
-| ----------------------------- | -------------- | -------------------------------------------------------------------------------------- |
-| `nanostores-devtools`         | browser        | `nanostores` (peer) only                                                               |
-| `nanostores-devtools/vite`    | Node, dev only | `magic-string` and `unplugin` (dependencies), `vite` and `oxc-parser` (optional peers) |
-| `nanostores-devtools/webpack` | Node, dev only | `magic-string` and `unplugin` (dependencies), `oxc-parser` (optional peer, and needed) |
-| `nanostores-devtools/rspack`  | Node, dev only | `magic-string` and `unplugin` (dependencies), `oxc-parser` (optional peer, and needed) |
-| `nanostores-devtools/runtime` | browser        | nothing                                                                                |
-
-**`nanostores-devtools/runtime` is internal.** The plugin injects an import of it into your
-modules during development, so it appears in your module graph. Never import it yourself.
-
-## What v1 does not do
-
-Everything here is written down on purpose, so nothing you find later looks like a bug.
-
-### No time travel
-
-The jump, dispatch, skip, reorder and import buttons are turned off in the panel. Time travel was
-built and measured first. Five things block it:
-
-- The app writes over the values we restore.
-- An unmounted `computed` stays stale, and nothing says so.
-- A partial restore is silent. Code splitting makes a missing store normal, so nothing marks the
-  point where two moments were mixed.
-- Side effects do not go back. An open socket stays open, and a written `localStorage` key stays
-  written.
-- Half the value types cannot be rebuilt at all: a class instance, a function, a Symbol, a DOM
-  node, an object made only of getters.
-
-Pause and export stay on. Both use state the panel already holds. Pause stops both halves: we build
-no tree and send nothing while it is on, so the page pays nothing either. Lifting it changes no row
-already in the panel; the next write brings the current tree.
-
-### An unmounted `computed` shows an old value, or nothing
-
-**The bridge never runs a computed's callback and never works a value out for itself.** An
-unmounted `computed` or `batched` shows whatever its `.value` still holds, under one of two
-markers:
-
-- `not mounted, never computed` when it holds `undefined` and we never saw it mount.
-- `not mounted, may be stale` for everything else.
-
-A store whose type we never learned takes the second marker too, because it could be somebody's
-computed store and we cannot prove otherwise.
-
-The marker prints in front of the value. A plain object and an array are drawn as they are;
-everything else sits under `(value)`, the same key a store that owns others keeps its own value
-under, because the panel loses the marker text otherwise.
-
-```
-$cart [computed]:  not mounted, may be stale { total: 12 }
-$count [computed]: not mounted, may be stale { (value): 12 }
-$empty [computed]: not mounted, never computed {}
-```
-
-An unmounted `atom`, `map` or `deepMap` is **not** marked. `set` writes the value with no check on
-the listener count, so an unmounted one holds a perfectly correct value and there is no
-consequence to state.
-
-**The word on the key does not tell you which rule a row follows.** Two rows can both read
-`[store]` and behave differently: an `atom` we know about is drawn bare while unmounted, and a
-store of an unknown kind carries `not mounted, may be stale`. The marker is what says which one
-you have.
-
-One gap: the hooks attach when you connect, not when a store registers, so a computed that
-mounted and unmounted before you connected looks never-mounted to us. If it ran and returned
-`undefined`, it takes `never computed` and that claim is then wrong.
-
-Mount state itself is read as `lc === 0`. We do not wait out the 1000 ms cleanup window nanostores
-keeps after the last listener leaves, because that would mean running our clock against theirs. So
-a store that unmounts and remounts inside that window reads as unmounted for a moment, and with
-lifecycle rows on it draws an unmount row and a mount row for a teardown that never happened.
-
-**Nothing is ever hidden.** Every registered store is always a key in the tree, mounted or not.
-
-### Values are shortened only under a class instance
-
-**A value you designed is never shortened.** A plain object twenty levels deep, an array of two
-thousand rows, a `Map` of ten thousand entries: all of them go out whole, however large, and no
-option changes that.
-
-**Two counts start where the walk enters a class instance**, and they apply to everything below that
-point:
-
-- `maxValueDepth`, `5` by default, is how many levels are drawn below the instance. A value past it
-  keeps its class name and shows one line: `(value): "past the 5 levels drawn under a class
-instance"`.
-- `maxValueMembers`, `100` by default, is how many members are drawn per shape: an instance's own
-  fields, and a plain object, an array, a `Set`, a `Map` or a typed array below it. The rest are
-  counted under one key: `…: "1901 more members past the 100 drawn under a class instance"`. It is
-  the first 100 in source order, and a store past that point loses this node but keeps its own slot
-  at its home.
-
-Raise either one, or pass `Infinity` to turn it off:
-
-```js
-connectDevtools({ maxValueDepth: 12, maxValueMembers: Infinity });
-```
-
-`maxValueDepth` takes a whole number of 0 or more, where `0` draws an instance's own fields and
-makes every object among them a placeholder. `maxValueMembers` takes a whole number of 1 or more.
-Any other number is refused rather than repaired, with one console warning per option name and the
-default in its place.
-
-**A store below the cap keeps its whole value.** One store must not disagree with itself between two
-placements: a store drawn deep inside a class instance and the same store drawn at its own home have
-to show the same value, and the home slot has no cap above it. It stays bounded, because a class
-instance inside that value starts a fresh count.
-
-**Why a class instance is the line.** A plain object is state you wrote and shaped for yourself. A
-class instance is where a value the panel was never designed for begins: a framework's node, a
-platform interface, a scene graph. Five levels reads a real domain object whole
-(`Editor → doc → blocks → Block → id` is four), and 100 members clears the widest record an app
-writes for itself, a settings object or a row of a table, whole.
-
-Two limits stay as they were. A repeat is still written once per path, not pointed at, and a
-serializer's own result is not width-capped.
-
-Other things values do:
-
-- **A value that refers back to itself is written as a `$.path` pointer.** The extension's own
-  encoder does this to make a loop safe to write. A plain repeat is not: the same object in two
-  places is written out twice, because the option that would collapse it is off in the extension's
-  defaults. This is the price of letting a `Date` and a `RegExp` render as themselves in the panel.
-- **A getter is never read**, whoever wrote it, because it can run app code. The one exception is the
-  `stack` accessor V8 puts on an error itself: refusing it would drop the stack from every error, and
-  a devtools with no stack traces is worth less than the risk. Reading it can run
-  `Error.prepareStackTrace` if the app installed one, and it makes V8 read `name` and `message` off
-  the error.
-- **A method is left out.** An object's own property holding a function does not reach the panel:
-  `{ id, $checked, toggle, add }` arrives as `{ id, $checked }`. The panel draws state, and a
-  method beside the stores it writes says nothing your source does not. A value that is itself a
-  function still arrives, with its body stripped, and so does a function at an array index, because
-  there the position is part of the shape.
-- **`-0` arrives as `0`.**
-- **A custom serializer has no reviver.** The bridge encodes only, and v1 never reads state back.
-- **A labelled value inside a `Map` a `convert` of yours returned keeps its wrapper**, so you read
-  `{ data, __serializedType__ }` there instead of a label in front of the value. The extension's
-  own encoder writes that collection as one string and reads it back without its reviver, so nothing
-  inside it is ever unwrapped. It hits every labelled value: an `Error`, a class instance, a typed
-  array, a `BigInt`, a DOM node, a store, and a slot that failed to convert. A `Map` or a `Set` your
-  app holds is keyed by the bridge instead and has no such problem.
-
-An `Error` keeps its name, message, stack, cause and own fields. A class instance keeps its class
-name. A typed array and a `BigInt` each keep something readable. A value that throws
-while being converted puts `ConversionError` in that one slot and everything else still goes.
-
-**A store held inside another store's value is drawn as a store**, wherever it sits: in an array, in
-a plain object, in a `Map`, in a `Set`, in a class instance field, or on an error. You never see the
-nanostores keys behind it, and `.value` is the whole read, as it is everywhere else, so watching a
-store still never mounts it.
-
-**Where the store sits at a name your source wrote, the kind goes in the key** and the value goes in
-bare beneath it, exactly as the tree spells a store's own slot:
-
-```
-$root [store]
-  id: "node-1"
-  label: "root"
-  $children [store]:      [ … ]
-  $checked [computed]:    false
-  $indeterminate [computed]: false
-```
-
-That covers a property of a plain object, a class instance field and an error's own field. It costs
-no wrapper and no `(value)` box, so a plain `false` reads as `false` instead of a node you have to
-open.
-
-**An array holding at least one store is keyed too**, `[0]`, `[1]`, the same way the tree spells a
-collection member. It goes out as an object rather than a list, labelled `Array` so a collapsed node
-still says what it was:
-
-```
-$rows [store]   Array
-  [0] [store]:  { id: 1, name: "city", value: "Berlin" }
-  [1] [store]:  { id: 2, name: "street", value: "Unter den Linden" }
-```
-
-**An array of plain data stays a list.** Only an array that holds a store pays for the key, so
-`$fields [store]: [ {…}, {…} ]` right beside it is untouched.
-
-This is not a matter of taste. A kind carried in a wrapper is drawn in the panel's **item string**,
-and the State tab sets `display: none` on that string while the node is expanded and leaves it out
-of a collapsed parent's preview. On a member there is no moment you can read it. A key is always
-drawn.
-
-**A `Map` and a `Set` are keyed the same way**, and unconditionally, which is where they part from
-an array. `["scratch"]` for a `Map` key your source could write, `[0]` for a `Set` position:
-
-```
-$columns [store]   Set
-  [0]: "name"
-  [1]: "size"
-
-$editors [store]   Map
-  ["draft"] [store]:  "Berlin"
-```
-
-The reason is not the key, it is the label. The panel draws a `Map`, a `Set` and anything else with
-an iterator with one node kind, and that node writes **`Iterable`** over the name it worked out. A
-collection the encoder renders itself therefore cannot say which of the two it is. Keying it buys
-the name back, and costs the `2 entries` count the panel writes for that node kind alone.
-
-The one wrapper left is the `[key]` half of a `Map` entry whose key is not a string or a number.
-There is no name in your source for such a key, so the entry keeps the encoder's own shape,
-`[entry 0]: { [key]: …, [value]: … }`, and a store sitting in either half is wrapped there.
-
-The word is the kind the bridge knows: `map`, `deepMap`, `computed` or `batched`. An `atom`, and a
-store whose kind the bridge never learned, both say the plain word `store`. An unmounted store keeps
-its note beside the kind, `$total [computed]: not mounted, may be stale { … }`.
-
-One shape is left over. **A store whose value can reach that store again keeps the wrapper**, with
-the kind in front of the value and no kind in the key. That loop is what the extension's encoder
-finds by the path it built, and it only finds it while the wrapper's own key stands in that path.
-
-### What an object's own fields show
-
-**Almost every value the bridge draws starts here: its own fields.** One rule, and it reaches a plain
-object, a class instance and an `Error`. The one thing it does not reach is a result your own
-serializer returned, which goes to the encoder untouched.
-
-**A field counts when it is own, enumerable, named by a string, and holds a plain value.** Each of
-those four is doing work:
-
-| the value holds               | what arrives         | why                                                             |
-| ----------------------------- | -------------------- | --------------------------------------------------------------- |
-| `{ open: true, width: 320 }`  | both                 | ordinary state                                                  |
-| a getter you wrote            | nothing for that key | reading it runs your code                                       |
-| a method, `toggle() {}`       | nothing for that key | the panel draws state, and your source already spells behaviour |
-| a symbol key                  | nothing for that key | there is no name to draw                                        |
-| a key you made non-enumerable | nothing for that key | you already marked it internal                                  |
-
-A function is dropped **wherever it sits at a key**, whether or not you would call it a method. It
-still arrives in the two places where the function is the state itself: as a store's own value, and
-at an array index. Both come with the body stripped.
-
-**Keys arrive in the order the value lists them, and the panel does not sort.** That order is
-JavaScript's own: any key that looks like an array index comes first in numeric order, then the rest
-in the order they were assigned. So a class draws its fields in assignment order, class fields before
-whatever the constructor body added.
-
-```
-class Cart {
-  id = "c1";
-  constructor(total) { this.total = total }
-}
-
-$cart [store]: Cart {
-  id: "c1"
-  total: 12
-}
-```
-
-(The panel has a "Sort Alphabetically" setting, off by default. Turning it on throws this order
-away.)
-
-**A prototype is never walked for fields.** Only what sits on the value itself is read, so a field
-your class declared on its prototype does not arrive. The prototype is still read for two things that
-are not fields: the class name in front of the value, and the `valueOf` or `toString` a value with no
-own fields is asked for. An `Error` is read by name rather than by this rule, and its four names are
-looked up along the chain.
-
-**Own fields win over everything else a value could say.** A class that writes a `toString` is asked
-for it only when it has no own field at all:
-
-```
-class Priced { amount = 500;  toString() { return "$5.00" } }
-class Silent  {               toString() { return "$5.00" } }
-
-$a [store]: Priced { amount: 500 }          <- the method is never called
-$b [store]: Silent { (toString): "$5.00" }
-```
-
-See [what a platform object shows](#what-a-platform-object-shows) for the second half of that rule.
-
-**Where the fields are read from, in one table:**
-
-| value                                    | what it draws                                                       |
-| ---------------------------------------- | ------------------------------------------------------------------- |
-| a plain object, or one with no prototype | its own fields                                                      |
-| a class instance                         | its own fields, then its class name in front                        |
-| an `Error`                               | `name`, `message`, `stack` and `cause`, then its own fields on top  |
-| a result your `convert` returned         | nothing of this rule: the encoder reads it plainly, getters and all |
-| an array                                 | its own **indices**, read one by one, and never its named keys      |
-| a `Map`, a `Set`                         | its entries, read through the built-in `forEach`                    |
-| a typed array                            | its elements                                                        |
-| a DOM node                               | **nothing** — see below                                             |
-| the global object                        | **nothing** — see below                                             |
-
-The last two are the only values whose own fields are skipped on purpose, and each has a reason
-worth knowing:
-
-- **A DOM node.** A framework parks its own state on an element as an ordinary property, React's
-  `__reactFiber$…` above all. Reading those would pull a whole render tree into any row holding an
-  element.
-- **The global object.** Everything you park on `window`, by assignment or by a top-level `var`, is
-  an own enumerable property. Its keys are never even listed.
-
-**An object that refuses to be read gives up all of it, not half.** Listing keys and reading a
-descriptor can both be trapped on a `Proxy`, and a trap of yours may throw. Half an object is worse
-to read than none, so nothing partial is ever drawn. The keys are listed once before any rule runs,
-so in practice such a value fills its one slot with `ConversionError`, and the rest of the tree still
-arrives.
-
-**Nesting keeps the same rule at every level**, and a plain object inside a class instance does not
-escape the caps by being plain:
-
-```
-$editor [store]: Holder {
-  at: Point {
-    x: 1
-    y: 2
-  }
-  label: "one"
-}
-```
-
-The one thing that trims this list is the width cap, and only under a class instance. See
-[values are shortened only under a class instance](#values-are-shortened-only-under-a-class-instance).
-
-### What a platform object shows
-
-**A class instance is drawn by [the own data it holds](#what-an-objects-own-fields-show).** An event,
-a `DOMRect`, a `Blob` and an `AbortSignal` hold none: every field on them is a getter on their
-prototype, and a getter is never read, whoever wrote it. So each of them draws its class name over an
+The colon is the one separator. A `@nanostores-devtools` comment that names none of the three, a
+hyphen written where the colon belongs included, is read as ordinary prose, and the plugin warns
+once, naming the file and the line, so a typo does not quietly leave a store drawn.
+[REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-connectdevtools-option-costs)
+has the full rules for all three.
+
+`handle.disconnect()` closes the bridge: it stops listening, drops the rows it has not sent,
+detaches every nanostores hook, and lets the next `connectDevtools()` open a fresh connection. You
+rarely need it. It is there for a page that tears its app down and builds another one.
+
+A **serializer** is how you draw a value the panel cannot read on its own. Every field of a
+`MouseEvent` sits behind a getter, and a getter is never read, so without a rule it draws as an
 empty object:
 
-```
-$lastMove [store]: <MouseEvent> {}
-$viewport [store]: <DOMRect> {}
-```
-
-**A class that wrote down how it reads gets that reading instead.** Where an instance holds no own
-data, a `valueOf` and a `toString` **the class itself defines** are called, and each answer takes a
-key naming the method that gave it:
-
-```
-$link [store]: <URL> {
-  (toString): "https://a.dev/x?q=1"
-}
-$price [store]: <Money> {
-  (valueOf): 500
-  (toString): "$5.00"
-}
-```
-
-`Object.prototype`'s own two are refused: its `toString` gives `[object MouseEvent]`, which says
-nothing the class name does not, and its `valueOf` hands the object straight back. That one test is
-the whole rule, so no list of classes is kept anywhere. It is also why a `URL` and a `Location` keep
-their address while an event does not: those two write a `toString` and an event does not.
-
-**This is the one place the bridge runs a line of your code**, and every part of the rule is a bound:
-
-- **only where there is no own data**, so every ordinary object of yours runs nothing at all
-- **the method is found through a property descriptor**, so a `toString` sitting behind a getter is
-  refused like every other getter
-- **called by name**, never through `String(value)`, which would run `Symbol.toPrimitive` and a
-  chain of its own
-- **only a primitive answer is kept**; an object, `null` and `undefined` are dropped
-- **a method that throws costs its own key**, and the other key and the class name still arrive
-
-If you wrote a `toString` with a side effect, this is the paragraph you needed: it runs while a
-snapshot is written.
-
-**For every other field, write one rule over the class you hold.** The bridge cannot choose which
-fields of an interface matter, and you can:
-
-```js
+```ts
 connectDevtools({
   serializers: [
     {
       match: (value) => value instanceof MouseEvent,
-      convert: (event) => ({ type: event.type, x: event.clientX, y: event.clientY }),
+      convert: (event) => ({
+        type: event.type,
+        x: event.clientX,
+        y: event.clientY,
+      }),
     },
   ],
 });
 ```
 
-Every platform class works the same way, so a `DOMRect`, a `Blob` and a `File` each take a rule of
-the same shape. [`connectDevtools(options?)`](#connectdevtoolsoptions) has the full contract.
+Rules run in array order, first match wins, ahead of every rule of ours.
 
-**One trap.** A platform object **inside** your result meets no serializer either, ours included, so
-it draws its class name and nothing else. Spell it out in your own rule:
-`{ headers: Object.fromEntries(response.headers) }`, not `{ headers: response.headers }`, which
-draws `<Headers> {}`.
+### `trackStores(group, stores)`
 
-Three things read without a rule of yours, so the loss is bounded to objects that keep everything
-behind getters:
+Registers stores the plugin cannot reach, under a top-level key you name.
 
-- **A DOM node** takes the same rule: a `<div>` draws `HTMLDivElement {}`, and an `<a>` draws its
-  href under `(toString)`, because `HTMLAnchorElement` writes one. What a node never shows is a
-  property the app or a framework parked on it, React's fiber above all, which would otherwise pull
-  a whole render tree into the row.
-- **The window your page runs in is never walked**, wherever the row reaches it from: `self`,
-  `frames`, `currentTarget` on a `window` listener, and `top` or `parent` while the page is not
-  framed. It draws its class name alone, `Window {}`, so whatever you parked on `window` costs no
-  keys at all. A window from another realm, an iframe's or a `window.open` result,
-  is read as an ordinary object of its class, because the test is identity.
-- **A few classes take a rule of ours**: a `Headers`, a `FormData`, a `URLSearchParams`, an
-  `ArrayBuffer`, a `SharedArrayBuffer`, a `DataView` and a boxed `String`, `Number` or `Boolean`.
-  Those run before yours is even asked, and
-  [`connectDevtools(options?)`](#connectdevtoolsoptions) has the list and the option that turns it
-  off.
+- `group` - the home those stores sit under. Name it after a file to land on the node the plugin
+  already uses for that file.
+- `stores` - an object of `name -> store`. The key is the name the tree draws.
 
-### A follower can name the wrong source
+A second registration for the same `group/name` replaces the store held there, with no warning: a
+clash here is almost always a hot reload, and we cannot tell the two apart.
 
-A row is one direct write plus the recomputes it caused. Each follower carries a `from` field
-naming the store it followed. `from` is the previous change in the row, which is right for a chain
-and wrong in three cases:
+### `untrack(group)`
 
-- **Inside `batch(fn)`**, where every direct write arrives first and every follower arrives at the
-  end, so followers attach to the last write of the batch.
-- **When one of your own listeners writes another store mid-cascade**, which closes the open row
-  early, so a follower still queued behind it lands in the new row.
-- **When two computed stores follow the same source**, where the second one names the first
-  instead of the source they share.
+Removes a group and every store in it. Draws one unregister row.
 
-A wrong `from` is never invented, only attached to the wrong store, and the change itself always
-shows.
+### `nanostoresDevtools(options?)`
 
-A **`batched` store always gets its own row.** Its recompute runs in a `setTimeout`, which happens
-in a later task, long after the row that caused it closed. So it never joins that row and always
-draws its own `$total/computed` row.
+The bundler plugin. Exported from `/vite`, `/webpack` and `/rspack`, and the same function behind
+all three.
 
-A store of unknown type is timed wrongly in the same way. The bridge treats it as a direct write.
-So if it really is a computed, its recompute opens a row of its own instead of joining the row that
-caused it. It also closes the open row while the cascade is still running.
+| option             | default                   | what it does                                                  |
+| ------------------ | ------------------------- | ------------------------------------------------------------- |
+| `fileKey`          | the home unchanged        | rewrites the path shown as a store's home                     |
+| `adoptFactories`   | `true`                    | wrap named calls we do not recognise: `true` or `false`       |
+| `storeTypes`       | the packages we ship      | which kind a package's export makes                           |
+| `maxStoresPerSite` | `50`                      | live stores one creation site may hold, 1 or more             |
+| `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from, Vite only |
 
-### A hot reload does not always draw one row
+`adoptFactories` is what catches a codebase that wraps store creation. A call standing under a name
+is registered whatever the call is, so `const theme = persistentAtom("theme", "dark")` reaches the
+tree from a file that never imports `"nanostores"`. It takes two settings:
 
-A reload draws [one row](#a-hot-reload-draws-one-row-not-a-pair) only when both halves happen in
-the same run of the file. Two cases split them:
+- `true`, the default: adopt a call under any name.
+- `false`: adopt nothing, so only the calls the plugin recognises are wrapped.
 
-- **A file with a top-level `await` above its stores.** The old stores go the moment the file
-  starts, the new ones arrive after the `await`, so you get an unregister row and a register row
-  again.
-- **A file whose stores are only made inside a factory.** The reload drops the old stores and
-  registers none, so it draws a lone unregister row. The register row comes later, when the factory
-  runs.
+`storeTypes` is what gives that store its kind. We ship a map of the packages from the Smart Stores
+list in the nanostores README, so `persistentAtom` reads as an atom and `persistentMap` as a map.
+Add your own package, or correct one of ours, and your entry is laid over ours per package and per
+export:
 
-Both draw the truth, only in two rows instead of one.
+```js
+nanostoresDevtools({
+  storeTypes: {
+    "@acme/state": { createDeep: "deepMap" },
+  },
+});
+```
 
-### What the ownership tree cannot reach
+`maxStoresPerSite` caps how many live stores one source line may hold, which matters for a factory
+inside a loop. It evicts unmounted stores first, oldest of those first, and never the store just
+made. `projectRoot` is a Vite option; under webpack and Rspack the wider root is always the climb
+above `context`.
 
-Some of these we refuse, and the rest we cannot do. The difference matters: a refusal will not
-change, and a gap might.
+[REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-plugin-option-costs)
+has what each one costs.
 
-**Refused, by the read-only rule:**
+### Types
 
-- **A value behind a getter is never read**, whoever wrote it. A getter runs code, and running it
-  would change how the app behaves. A store held only behind a getter still reaches the tree; it just
-  sits where it was made rather than under the object that holds it. See
-  [what a platform object shows](#what-a-platform-object-shows) for what an object made only of
-  getters draws instead.
-- **An array is read index by index through its own descriptors**, so a getter sitting at an index
-  never runs and an index only its prototype holds is left out. If that fails, the array
-  contributes nothing.
-- **A `Map` and a `Set` are iterated through the built-in `forEach`**, never through a method of
-  their own, so a subclass that overrides iteration cannot run its code while we scan. If that
-  fails, the collection contributes nothing.
+```ts
+type DevtoolsHandle = {
+  readonly connected: boolean; // false when no extension was on the page
+  disconnect: () => void;
+};
 
-**Cannot be reached at all:**
+type Serializer = {
+  match: (value: unknown) => boolean;
+  convert: (value: unknown) => unknown;
+};
 
-- **A `WeakMap` or `WeakSet` member.** Unenumerable by design. An instance inside one still reaches
-  the tree through the creation frame; only its key is lost, which is what `ref#1` says.
-- **A `Promise`'s value**, which is reachable only through `then`.
-- **A symbol-keyed property, an inherited property, and a non-enumerable own property.** We read own
-  enumerable data properties only.
-- **A `Map` key that is not a string or a number, as a place in the tree.** There is no name for it
-  that exists in your source, so that member gets no node. The entry itself is still drawn inside
-  the value, key and all, as `[entry 0]: { [key]: …, [value]: … }`.
+// the shape a `throttle` rule is handed, once per registration and never per write
+type ThrottleTarget = {
+  home: string;
+  name: string; // the name the tree draws, without the file and line a clash adds
+  type: "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
+};
 
-**Bounded on purpose:**
+type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boolean);
 
-- **25 members of one collection** become nodes. **The tree says what it left out**, as one extra
-  key `…` labelled `5 more members past the 25 walked; their stores are listed here without a node
-of their own`. No store is lost: the ones past the cap sit on the collection itself, keeping the
-  numbers the registry gave them, such as `open #30`.
-- **Three steps into a binding**, counting a property, an index and a key alike. This cut is silent.
+// what `/webpack` and `/rspack` take
+type BundlerPluginOptions = {
+  fileKey?: (path: string) => string;
+  adoptFactories?: boolean;
+  // package name, then export name, then the kind that export makes
+  storeTypes?: Record<string, Record<string, ThrottleTarget["type"]>>;
+  maxStoresPerSite?: number;
+};
 
-**Undetectable:** a `Proxy` can trap a property read and run your code. We cannot see one, so this
-is an accepted risk. It is the same risk the getter rule above is written against, and it matters
-more here than in v1, because the ownership tree reads far more properties.
+// what `/vite` takes: the same four, plus one
+type VitePluginOptions = BundlerPluginOptions & {
+  projectRoot?: string;
+};
 
-**A plain object node and a store that owns others both carry no label**, so they look alike. In
-redux-devtools 3.2.10 a collapsed node previews what is inside it, so the `(value)` key usually
-tells the two apart.
+// what `/webpack` and `/rspack` hand back. `/vite` hands back Vite's own `Plugin`
+type BundlerPlugin = { apply(compiler: unknown): void };
+```
 
-**A binding that names a store built in another file never gives that name up.** Once a top-level
-binding of yours claims a store, we remember the claim for the life of the page. Delete
-`export const $undoable = $draft2.$canUndo` and save: the store was built elsewhere, so the hot
-reload does not replace it, and it keeps both the name and the home the deleted binding gave it
-until you reload the page in full. A store the same file created is unaffected: the reload builds a
-new one, and no binding has claimed that one yet.
+`DevtoolsOptions` is exported too, and holds the eleven keys of the table above.
 
-### What the plugin misses
+## Documentation
 
-- **Reassignment.** `let $late = atom("a"); $late = atom("b")` registers the first store only.
-- **`import * as ns from "nanostores"`** gets no callee matching, and we warn once for that file.
-  A `$`-named store it makes still reaches the tree through adoption, with `type: "unknown"`. A
-  type-only import of `atom` behaves the same way.
-- **`.vue` and `.svelte` files are untouched.** The plugin reads script files only.
-- **A factory-made store bound to a name without `$` is not adopted.**
-- **A store created inside an already instrumented store is not registered.** A store made inside
-  a computed's callback is a temporary that the callback rebuilds on every run.
-- **A store from a dependency shows `type: "unknown"`.** The plugin never reads a file under
-  `node_modules`, and under Vite it could not anyway: Vite pre-bundles dependencies before any
-  plugin runs. Adoption still puts them in the tree under your own name for them, but the type is
-  lost and the marker stays conservative.
-- **A factory defined in module A but called from module B piles up entries under A when B hot
-  reloads**, because A did not run again and so did not clear itself. Measured: one unrelated edit
-  took `$items` from 2 rows to 4. The per-site cap keeps the count bounded, and it drops the
-  unmounted stores first. Adopted stores do not have this problem, because they move to the
-  calling module.
-- **An edit that leaves a file with nothing at all to instrument leaves that file's old entries
-  behind.** A file gets the header that clears its own stores when it imports a store creator by
-  name, holds a `$`-named call to adopt, or declares a top-level `const`, `let` or `var` under a
-  plain name. A file left with none of the three never runs that header, so its old entries stay in
-  the tree until you reload the page.
+- [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) -
+  what the panel draws and why. The tree, the keys, the timeline, the value rules, and everything
+  this package cannot do.
+- [ARCHITECTURE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/ARCHITECTURE.md)
+  - how the code works, end to end. For anyone changing it.
+- [GLOSSARY.md](https://github.com/psd-coder/nanostores-devtools/blob/main/GLOSSARY.md) - the words
+  this project uses in one fixed way: bridge, registry, home, group, tree, direct write, follower,
+  creation site, adoption, node, owner, placement.
 
-### Cost
+## Design Notes
 
-The ordinary case is fast enough. **500 stores at 60 writes a second cost 0.51 ms per write**, and
-the panel keeps working. While no panel is open the bridge costs nothing per write at all: it
-builds no tree and sends nothing. **The panel's pause button reads the same way**, so a paused
-panel costs the page nothing either, rather than only dropping what we send.
-
-Four cases stay slow, and we know about all four:
-
-| case                                               | cost                                                | what you can do today    |
-| -------------------------------------------------- | --------------------------------------------------- | ------------------------ |
-| one store holding a 2000-row array                 | 102 ms per write, 12 MB, 10 writes a second at most | nothing                  |
-| a route change mounting 100 stores, at 5000 stores | 539 ms freeze                                       | `lifecycleEvents: false` |
-| 5000 stores at a high write rate                   | 3 ms per write                                      | `throttle`               |
-| one store on a frame loop, 60 writes a second      | 60 full trees a second, `maxAge` full in 8 s        | `autoThrottle`, on       |
-
-The first one is the worst. Half of those 102 ms is the extension writing out 12 MB. That half is
-inside the extension, so no work on our side can make it smaller. Automatic discovery also means
-you may never have chosen to track that store.
-
-The last one is the wall people actually hit, and it is why `autoThrottle` is on: a rate, not one
-oversized value. Coalescing cannot help the first row of this table, and nothing here shortens a
-value.
-
-There is no cap on how many stores the tree holds. At 2000 entries we warn once, and the choice
-what to do about it stays yours.
-
-## Words this project uses in one fixed way
-
-[glossary.md](./glossary.md) defines the terms above: bridge, registry, home, group, label, tree,
-direct write, follower, creation site, adoption, slot, node, owner, placement, type label, marker
-and the rest.
+- **No UI of our own.** Redux DevTools already draws a state tree, a diff and a timeline, and it is
+  already installed. This package speaks its protocol and ships nothing else. We never fork it or
+  repackage it.
+- **Read-only, with no escape hatch.** Watching an app must not change how it behaves. So `.value`
+  is read through its own property descriptor and never through `get()`, which for a `computed` can
+  mount sources that were unmounted. A getter you wrote is never read either.
+- **A name you wrote beats a name we worked out.** Every key in the tree traces to something in your
+  source: a binding, a property, an index, a `Map` key, a class name. Where none exists we write
+  `ref#1` and say so, rather than inventing a label you cannot look up.
+- **Automatic discovery has a cost, and it is throttling.** Finding stores for you means you never
+  chose which ones to watch, so a frame loop writing 60 times a second lands in the panel whether
+  you wanted it or not. That is why `autoThrottle` is on by default.
 
 ## License
 
-MIT
+[MIT](./LICENSE.md)
