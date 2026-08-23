@@ -131,16 +131,16 @@ A file is skipped when it sits in `node_modules`, when it is a virtual module, w
 script, or when it is this package's own code. A file outside the bundler root is measured from the
 project root instead, so a linked workspace package reads as `packages/…` and not as a long climb of
 `../`. Such a file is marked **external**. Its stores are still registered and drawn flat under an
-external home, which sorts last. What its top-level bindings hold places nothing: a library's own
-working state is not something the app can act on.
+external home, which sorts last. What its top-level bindings hold places nothing in the tree: a
+library's own working state is not something the app can act on.
 
 ### 3.3 The parser
 
 `parser.ts` tries `vite` first, then `oxc-parser`. Both ship oxc, so the AST is the same. Vite 8 and
 later re-export the parser, so a Vite 8 user pays nothing. On webpack, on Rspack and on Vite 6 and 7,
-`oxc-parser` has to be installed. With neither source available `loadParser` throws, and the
-rejection travels out of the transform hook, so the first file the plugin touches fails the build
-with a message naming the package to install.
+`oxc-parser` has to be installed. If neither is available, `loadParser` throws. The error comes out
+of the transform hook, so the first file the plugin touches fails the build with a message naming
+the package to install.
 
 ### 3.4 The transform
 
@@ -164,7 +164,7 @@ export const $count = atom(0);
 const editor = makeEditor();
 ```
 
-the output is, in shape:
+the output looks like this:
 
 ```ts
 import { fileScope as __nsdtFileScope } from "nanostores-devtools/runtime";
@@ -199,18 +199,18 @@ Three details are worth knowing:
 
 - The header is **one line**, and the `own` call sits on its own line at the end. Every original
   line keeps its place in the source map.
-- `clear()` runs at the top of the body on every execution. It is nothing on a first run and the
-  hot-reload wipe on every later one. It sits there rather than in a hot hook, because a bundler runs
-  its dispose hook only for the module that accepted the update.
+- `clear()` runs at the top of the body on every execution. It does nothing on the first run, and it
+  wipes the old stores on every later one. It sits there rather than in a hot hook, because a bundler
+  runs its dispose hook only for the module that accepted the update.
 - A file is left exactly as written only when it imports no store creator, adopts nothing, and binds
   nothing at the top level. A file that imports `atom` but makes no store today is still
   instrumented, because an edit that took the last store out still has to clear what the run before
   it registered.
 
-`adoptFactories` (on by default) adds a second catch. A call standing under a name is wrapped in
-`adopt()` even when it is not a known creator, so `const user = createUserStore()` is registered
-too. `adopt()` hands a value that is no store straight back, so a call that builds anything else
-costs one wrapper and nothing more.
+`adoptFactories` (on by default) adds a second catch. A call whose result is stored under a name is
+wrapped in `adopt()`, even when the function is not a creator we know, so
+`const user = createUserStore()` is registered too. `adopt()` hands back a value that is not a store
+unchanged, so a call that builds anything else costs one wrapper and nothing more.
 
 An adopted store gets its type from the package to kind map in `src/discovery/store-types.ts`, which
 the `storeTypes` option lays entries over. The map answers by the package a call was imported from
@@ -335,7 +335,7 @@ name, so each of them is a reference the developer wrote and every one of them d
 a reference: there is at most one frame edge, and the tree draws it only where the store has no other
 edge at all.
 
-Two refusals matter:
+Two refusals matter, plus one cleanup rule:
 
 - A store still homed in somebody else's file is not drawn under the developer's binding. It is the
   library's own working state, and drawing it would say the app holds something its author never
@@ -367,8 +367,8 @@ placement shows it and stops, or the tree would say the app holds twice as many 
 `repeat` carries the store's value, which is the point of a store; a `holder` drawn again carries
 `expandedAt`, the label of the placement that expands it, which the view spells `(drawn under)`.
 
-Siblings that still want one name are separated in three passes: first by the store's own qualifiers,
-then by its home, then by a number. Both sides always take the marker.
+Siblings that would still share one name are separated in three passes: first by the store's own
+qualifiers, then by its home, then by a number. Both sides always take the qualifier.
 
 `tree/slot.ts` reads what a store holds, always as `.value` through its descriptor and never through
 `get()`. It answers one of three states:
@@ -391,7 +391,7 @@ holds no word the panel prints.
 ### 8.1 Hooks
 
 `hooks.ts` attaches nanostores hooks when `connectDevtools()` finds the extension, and only then.
-Registration records; connect attaches.
+Registration only records the store; the hooks attach at connect.
 
 | store type                              | hooks                             | why                                                                        |
 | --------------------------------------- | --------------------------------- | -------------------------------------------------------------------------- |
@@ -448,7 +448,7 @@ A store is held to one row a second in three ways:
   below it is never wrapped, so there is no store to hold back.
 - The `throttle` option, a list of `home/name` or a rule over them.
 - Automatically, when a store writes more than 10 times in a second. It warns once, and it never
-  trips back: a store that burst once is expected to burst again.
+  releases the store again: a store that wrote in bursts once is expected to do it again.
 
 A parked row costs nothing while it waits. No tree is built and nothing is sent until the timer
 fires. The row keeps the timestamp of the write that made it, and its tree is built at release, so
@@ -470,8 +470,8 @@ the two can never disagree about which stores exist.
 
 `connect.ts` reads the options, builds the config, and opens the connection. Notable choices:
 
-- With no extension, nothing is logged. `handle.connected` is `false`, and that is what a puzzled
-  developer reads.
+- With no extension, nothing is logged. `handle.connected` is `false`, and that is what a developer
+  who wonders why nothing shows up should read.
 - The first tree is sent at the end of the turn, not at once. Registration happens at import time, so
   an early connect would otherwise send a nearly empty tree followed by a burst of joins.
 - `features` is passed in full. The extension turns everything on when the object is missing, which
@@ -505,7 +505,7 @@ it does four jobs:
 1. **Copies what jsan would read directly.** jsan reads members with a plain property read, which
    would run an app getter. A copy taken from the descriptors is the only read we control.
 2. **Keeps one wrapper object per source value.** jsan spots a repeat by identity, so a fresh object
-   every call would let a value that holds itself recurse until the stack ends.
+   on every call would let a value that holds itself repeat until the stack runs out.
 3. **Spells stores the same way everywhere.** A store inside a value gets a key with its type,
    `$checked [computed]`, and its value beneath it, exactly as the tree draws it.
 4. **Caps what a class instance may show.** Five levels down and 100 members wide by default. Both
