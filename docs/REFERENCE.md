@@ -780,6 +780,18 @@ exports a function that returns a store: `@nanostores/query` builds its creators
 `@vp-tw/nanostores-qs` each keep their stores on a property of something else. Write your own entry
 for a package we do not ship, and for one of your own.
 
+**An entry we cannot read is refused, never built.** A kind outside those six is dropped with one
+warning naming the package, the export and the value you wrote, so a capital `"Atom"` never reaches
+the panel key. A package whose value is not an object is dropped the same way, so `{ pkg: null }`
+costs a warning rather than the build, and `{ pkg: "ab" }` is not read as two exports named `0` and
+`1`. Only your own entries are read this way; ours are checked when this package is built.
+
+**A refusal costs one entry.** The rest of that package's exports, and every other package, still
+merge, so one typo never costs you the entries you got right. What it costs is the kind: the call
+still reaches the tree by adoption, exactly as a call from a package we do not name does. The
+warnings reach you once per build, through the same channel `maxStoresPerSite` and `adoptFactories`
+already use.
+
 **`fileKey` receives the home as the tree would show it**, so a file inside your bundler's root
 arrives relative to that root and a file outside it arrives relative to the wider one, `projectRoot`
 under Vite and the climb above `context` under webpack and Rspack. It only changes what

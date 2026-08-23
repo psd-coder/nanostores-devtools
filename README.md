@@ -497,6 +497,11 @@ nanostoresDevtools({
 });
 ```
 
+A kind is one of `atom`, `map`, `deepMap`, `computed`, `batched` or `unknown`. An entry naming any
+other kind is refused with a warning, and so is a package whose value is not an object. A refusal
+costs the kind and nothing else: every other entry still merges, the call still reaches the tree by
+adoption, and your build still runs.
+
 `maxStoresPerSite` caps how many live stores one source line may hold, which matters for a factory
 inside a loop. It evicts unmounted stores first, oldest of those first, and never the store just
 made. `projectRoot` is a Vite option; under webpack and Rspack the wider root is always the climb

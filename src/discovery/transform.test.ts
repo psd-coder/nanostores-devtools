@@ -2,7 +2,7 @@ import { decode } from "@jridgewell/sourcemap-codec";
 import { describe, expect, it } from "vitest";
 
 import { loadParser } from "./parser.ts";
-import { mergeStoreTypes } from "./store-types.ts";
+import { resolveStoreTypes } from "./store-types.ts";
 import type { CreationSite, FileScope, StoreType } from "../runtime.ts";
 import { type StoreTransform, type TransformInput, transformStores } from "./transform.ts";
 
@@ -20,7 +20,7 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     external: false,
     maxStoresPerSite: 50,
     adoptFactories: true,
-    storeTypes: mergeStoreTypes(undefined),
+    storeTypes: resolveStoreTypes(undefined).types,
     parser,
     runtimeModule: "nanostores-devtools/runtime",
     hotReload: (clear) => `if (import.meta.hot) import.meta.hot.prune(() => { ${clear} });`,
@@ -824,7 +824,7 @@ describe("the package map", () => {
     const result = transform(
       `import { persistentAtom } from "@nanostores/persistent";\n` +
         `export const $theme = persistentAtom("theme", "dark");\n`,
-      { storeTypes: mergeStoreTypes({ "@nanostores/persistent": { gone: "map" } }) },
+      { storeTypes: resolveStoreTypes({ "@nanostores/persistent": { gone: "map" } }).types },
     );
 
     expect(metas(result)[0]).toEqual({ name: "$theme", fn: null, line: 2, type: "atom" });
@@ -844,7 +844,7 @@ describe("the package map", () => {
   it("gives no kind to a default import, whatever an entry of that name says", () => {
     expect(
       type(`import stored from "@acme/state";\nexport const $c = stored(0);\n`, {
-        storeTypes: mergeStoreTypes({ "@acme/state": { default: "map" } }),
+        storeTypes: resolveStoreTypes({ "@acme/state": { default: "map" } }).types,
       }),
     ).toBe("unknown");
   });
@@ -890,7 +890,7 @@ describe("the package map", () => {
   it("takes an entry a developer added", () => {
     expect(
       type(`import { deep } from "@acme/state";\nexport const $c = deep({});\n`, {
-        storeTypes: mergeStoreTypes({ "@acme/state": { deep: "deepMap" } }),
+        storeTypes: resolveStoreTypes({ "@acme/state": { deep: "deepMap" } }).types,
       }),
     ).toBe("deepMap");
   });
@@ -902,14 +902,14 @@ describe("the package map", () => {
       type(
         `import { persistentAtom } from "@nanostores/persistent";\n` +
           `export const $theme = persistentAtom("theme", "dark");\n`,
-        { storeTypes: mergeStoreTypes(added) },
+        { storeTypes: resolveStoreTypes(added).types },
       ),
     ).toBe("deepMap");
     expect(
       type(
         `import { persistentMap } from "@nanostores/persistent";\n` +
           `export const $settings = persistentMap("settings:", {});\n`,
-        { storeTypes: mergeStoreTypes(added) },
+        { storeTypes: resolveStoreTypes(added).types },
       ),
     ).toBe("map");
   });

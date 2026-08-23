@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createDiscovery, resolveAdoption, resolveStoreCap } from "./core.ts";
+import {
+  createDiscovery,
+  type DiscoveryOptions,
+  resolveAdoption,
+  resolveStoreCap,
+} from "./core.ts";
 import type { ModuleKeys } from "./module-keys.ts";
 import { loadParser } from "./parser.ts";
 
@@ -59,8 +64,9 @@ describe("resolveAdoption", () => {
 describe("createDiscovery", () => {
   const KEYS: ModuleKeys = { moduleKey: "src/stores/cart.ts", home: "stores", external: false };
 
-  function discovery() {
+  function discovery(options: DiscoveryOptions = {}) {
     return createDiscovery({
+      ...options,
       roots: { root: "/app", projectRoot: "/app" },
       loadParser,
       runtimeModule: "nanostores-devtools/runtime",
@@ -77,6 +83,20 @@ describe("createDiscovery", () => {
 
     expect(first.warnings).toHaveLength(1);
     expect(first.warnings[0]).toContain(`"@nanostores-devtools:ignored"`);
+    expect(second.warnings).toEqual([]);
+  });
+
+  it("raises a refused storeTypes entry on the first file only", async () => {
+    const code = `import { atom } from "nanostores";\nconst $a = atom(0);\n`;
+    const plugin = discovery({
+      // @ts-expect-error the option reaches a JavaScript config with no type to stop this value
+      storeTypes: { "@acme/state": { make: "Atom" } },
+    });
+    const first = await plugin.run(code, KEYS);
+    const second = await plugin.run(code, KEYS);
+
+    expect(first.warnings).toHaveLength(1);
+    expect(first.warnings[0]).toContain("@acme/state");
     expect(second.warnings).toEqual([]);
   });
 });

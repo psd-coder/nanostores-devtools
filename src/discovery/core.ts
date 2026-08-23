@@ -1,7 +1,7 @@
 import type { ModuleKeys, ModuleRoots } from "./module-keys.ts";
 import { moduleKeys } from "./module-keys.ts";
 import type { Parser } from "./parser.ts";
-import { mergeStoreTypes, type StoreTypesOption } from "./store-types.ts";
+import { resolveStoreTypes, type StoreTypesOption } from "./store-types.ts";
 import { type StoreTransform, transformStores } from "./transform.ts";
 
 /** Everything a developer sets that no bundler has an opinion about. */
@@ -100,15 +100,17 @@ export function resolveAdoption(value: unknown): AdoptionSetting {
 export function createDiscovery(input: DiscoveryInput): Discovery {
   const { cap, warning: capWarning } = resolveStoreCap(input.maxStoresPerSite);
   const { adopt, warning: adoptWarning } = resolveAdoption(input.adoptFactories);
-  /** Both are settled before the first file, so every run raises them and the set below dedupes. */
-  const optionWarnings = [capWarning, adoptWarning].filter((warning) => warning !== undefined);
+  /** Merged once for the whole run: the map is the same for every file the plugin is offered. */
+  const { types: storeTypes, warnings: typeWarnings } = resolveStoreTypes(input.storeTypes);
+  /** All are settled before the first file, so every run raises them and the set below dedupes. */
+  const optionWarnings = [capWarning, adoptWarning, ...typeWarnings].filter(
+    (warning) => warning !== undefined,
+  );
   /**
    * Every edit re-transforms the file, and the same warning on every save teaches people to
    * skip our warnings.
    */
   const warned = new Set<string>();
-  /** Merged once for the whole run: the map is the same for every file the plugin is offered. */
-  const storeTypes = mergeStoreTypes(input.storeTypes);
   let parser: Promise<Parser> | undefined;
 
   return {
