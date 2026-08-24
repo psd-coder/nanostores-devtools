@@ -25,8 +25,7 @@ does.
 
 **View** — the half of the bridge that speaks one devtools client's protocol and nothing else: the
 connection, the message shapes, the config, every key string and the jsan replacer. Today there is
-one, in `src/redux/*.ts`. It may import the model, it supplies a session (`src/session.ts`), and
-its value walk must call `noteDrawn` for every store it draws.
+one, in `src/redux/*.ts`. It may import the model, and it supplies a session (`src/session.ts`).
 
 **Registry** — the thing inside the bridge that knows which stores exist and what each
 one is called. Both ways in (the explicit map and automatic discovery) write to the same
@@ -67,8 +66,8 @@ the key carries, and every key pointing at a store takes one, a collection posit
 
 **Timeline entry** — one row in the extension's list of changes. The extension calls these actions.
 Nanostores has no actions, so the bridge invents each entry from a store change, and one entry holds
-exactly one direct write and the followers it caused. It calls a store whatever the tree calls it,
-and the change inside it keeps the store's label, which says which file it came from. The **model**
+exactly one direct write and the followers it caused. It calls a store by its **binding path**, and
+the change inside it keeps the store's label, which says which file it came from. The **model**
 owns the row and holds none of its words; the **view** writes them, in `src/redux/row.ts`.
 
 **Direct write** — a change to an `atom`, `map` or `deepMap`. The app caused it, so it opens
@@ -101,17 +100,21 @@ key in the tree and draws no timeline entry: the bridge is never told it exists.
 throttling over the same statement, because a store nobody draws has no rate. **Explicit
 registration** is the way back in, and it knows nothing about the comment.
 
-**Synthesized name** — the name of a timeline entry, built by the bridge from the store
-name and the kind of change, for example `$counter/set`. Every entry gets one: v1 has no
-way for a developer to name a change by hand. The **model** picks which store the entry points at
-and what happened to it; the **view** writes the name out, the `/` and the op word included.
+**Synthesized name** — the name of a timeline entry, built by the bridge from the store's
+**binding path** and the kind of change, for example `config.theme.$x/set`. A store a top-level
+binding holds itself has a path of one part, so it reads `$counter/set`. Every entry gets one: v1
+has no way for a developer to name a change by hand. The **model** picks which store the entry
+points at and what happened to it; the **view** writes the name out, the `/` and the op word
+included.
 
 **Explicit registration** — the developer hands the bridge a group name and an object of
 stores: `trackStores("cart", { $counter })`. The object key is the store name. Group first
 and required, which is deliberately not the shape `@nanostores/logger` uses.
 
-**Automatic discovery** — finding store creation in the source at build time and making each
-store register itself, carrying its variable name. The finding is one bundler-neutral core in
+**Automatic discovery** — reading the developer's own names out of the source at build time so that
+a store registers itself under one of them. It has two halves: a creator call carries its name where
+**the gate** lets it, and the **binding scan** appended to the end of the module body registers
+whatever the top-level bindings turn out to hold. The finding is one bundler-neutral core in
 `src/discovery/`, and an adapter beside it reaches one bundler with it.
 
 **Adapter** — the one file that turns discovery into a plugin for one bundler, and the only file
@@ -122,18 +125,19 @@ through. The walk, the rewrite, the skip rules and every name in the tree sit be
 and are shared. Today there are three, `discovery/vite.ts`, `discovery/webpack.ts` and
 `discovery/rspack.ts`.
 
-**Creation site** — one place in the source where a store is made, identified by module,
-name, enclosing function and line. The line is the one the developer wrote, which is why the
+**Creation site** — one place in the source where a store is made, identified by module, name and
+line. The line is the one the developer wrote, which is why the
 walk runs before anything rewrites the file. It is not the same as a store: one site makes a
 new store every time it runs, which is how a factory behaves. The unit for numbering repeats.
 
-**Adoption** — the second way the plugin gets a store, for calls whose callee it cannot
-recognise. A call the module body holds under a name is wrapped and carries that name, with or
-without a `$` prefix, and so is a call whose callee the file imported, which carries no name at all.
-At runtime the bridge renames whatever comes back if it is already a registered store, registers it
-as `unknown` if nothing instrumented made it, and ignores it if it is not a store at all. A wrapper
-with no name registers nothing and files the kind alone. It carries a type where the package to kind
-map behind the `storeTypes` option knows the package the call was imported from.
+**Adoption** — the wrapper the plugin puts around a call whose callee it cannot recognise, so that a
+store some factory of the developer's built still reaches the bridge early. It registers nothing on
+its own: **the gate** decides. A call the gate passes carries the name the module body holds it
+under, with or without a `$` prefix, and the bridge renames whatever comes back if it is already a
+registered store, registers it as `unknown` if nothing instrumented made it, and ignores it if it is
+not a store at all. A call the gate refuses carries no name, registers nothing and files the kind
+alone, for the **binding scan** to read back. It carries a type where the package to kind map behind
+the `storeTypes` option knows the package the call was imported from.
 
 **Own fields** — what a value holds itself, and the first reading of every value the bridge draws: a
 property that is own, enumerable, named by a string, and holding a plain value. An inherited field,
@@ -170,9 +174,11 @@ no key of it is even listed, because whatever the app parked on `window` is an o
 property, so it draws its class name alone, `Window {}`. The test is identity, not where the value
 was reached, so a window from another realm is read as an ordinary object of its class.
 
-**Callee matching** — the first way, and the one that reads a type off the call itself: the call
-names something the file imported from `nanostores`, renamed imports included. Adoption only handles
-what this misses, and it has a type of its own from the package to kind map.
+**Callee matching** — the way a store's kind is read off the call itself: the call names something
+the file imported from `nanostores`, renamed imports included. It is the only way the real kind is
+ever learned, and it fires wherever the call is written, so even a store no name holds leaves its
+kind behind. Whether the same call also registers is **the gate**'s answer and nothing else's.
+Adoption covers the calls this misses, with a type from the package to kind map.
 
 **The gate** — the one test both wrappers ask before a call carries a name: the call sits directly
 in the module body, with no function and no block around it, and something the developer wrote names
@@ -180,29 +186,34 @@ its own place. A call that passes registers a store. A call that fails carries n
 nothing, and files its kind alone, for the **binding scan** to read back if a walk ever reaches the
 store.
 
-Three mechanisms decide where a store is drawn. Adoption and callee matching decide whether a
-store reaches the tree at all; these three decide its **owner** once it is in. A store none of them
-places is drawn nowhere.
+Two mechanisms decide a store's **owner**: the **binding scan** and **`this` in a class field**. A
+store neither of them reaches keeps no owner, and it is drawn flat at its own home where something
+registered it anyway, such as a wrapper or **explicit registration**.
 
 **Binding scan** — one call appended at the end of a module body, listing that module's top-level
-`const`, `let` and `var` names. At load the bridge walks each value one holds, and a store found
-under a binding is drawn under that binding. It reaches a factory result, a class instance and a
-collection's members, and it is the only mechanism that reaches an alias such as
-`export const $canUndo = $draft.$canUndo`, where the initializer is a property read and not a call.
+`const`, `let` and `var` names, and its class declarations. At load the bridge walks each value one
+holds, and a store found under a binding is drawn under that binding. **A store it walks to is
+registered there**, under the **binding path** that reached it, so a store no wrapper could name
+still draws. It reaches a factory result, a class instance, a class's own static fields, a
+collection's members, and an alias such as `export const $canUndo = $draft.$canUndo`, where the
+initializer is a property read and not a call.
 
-**Creation frame** — a frame opened around a top-level initializer that is a call or a `new`, and
-closed on the value it returned. Every store born while a frame was open records it, which is the
-only way to reach a store kept in a closure, where no property walk can find it. A plain store
-creator needs none: the wrap around it already names the one store it makes. A frame is not opened
-across an `await`, or it would catch every store made anywhere until it closed.
+**Binding path** — the whole chain the **binding scan** walked to reach a store: the top-level
+binding, then every key under it, `config.theme.$x`, `$all[0]`, `byId["a1"].$status`. A key that
+cannot stand after a dot is bracketed, so every part is something the developer could type in their
+own source. It is what an entry is named after and what heads a timeline row. The tree still draws
+one key per level, so the path and the tree key are built from the same links but are not the same
+string.
 
-A frame places nothing born in somebody else's file, nothing that already stands at a site of its
-own, and nothing a **reference** the developer wrote holds as well. What is left is a store made
-inside a function, which is the case the frame exists for.
+**Member** — one key and one value inside a value the **binding scan** walked. It is not a
+**binding**: a binding is a name the module's own source writes, while a member is a name the value
+carries.
 
 **`this` in a class field** — a field initializer runs with `this` bound to the new instance, so
-the transform hands it over. A static field's `this` is the constructor instead, which is why a
-static store belongs to the class. It is also the only way to reach a private field.
+the transform hands it over and the instance is recorded as what holds the store. A static field's
+`this` is the constructor instead, which is why a static store belongs to the class. A **private**
+field is the one thing this cannot draw: **the gate** names no call inside a class body, so nothing
+registers the store, and no walk can list a private field afterwards.
 
 **Converter** — our code that turns a store value into something that survives the trip to the
 extension. It is a jsan **replacer**, passed to the extension as `serialize: { replacer, options:
@@ -261,14 +272,14 @@ one per container that really holds it, and a node may have several parents the 
 **Reference** — a name the developer wrote for a value: a top-level binding, or a key on a
 container they built. **Every reference draws.** Two bindings for one store are two references, and
 so are two containers holding one store, so dropping any of them says the app holds less than the
-source does. A **creation frame** is not a reference: it knows only that a store was born while an
-expression ran, which is a claim about when, so it places a store only where no reference does.
+source does.
 
 **Placement** — one node in the tree standing for a value, which the view draws as one key. The
 **model** decides how many there are, one per **reference**: a store has one entry and as many
 placements as the source wrote, the home the developer chose for it and the name each owner knows it
-by. An owner's key is the property it really holds the store at. Only where no property holds the
-store, as under a creation frame, does the key fall back to the name the creation site gave.
+by. An owner's key is the property it really holds the store at. **One owner and one key name one
+store**: where a scan finds a second store at the same key on the same owner, the first loses that
+link, because one key holds one value and the scan read it at the end of the module body.
 
 **Repeat** — every placement past the one that expands. The value is expanded under its first
 placement, and every other placement shows it and stops, because drawing its children twice would
@@ -276,28 +287,25 @@ say the app holds twice as many stores as it does. A store repeat carries its va
 of a store; a node has no value, so a node repeat carries `(drawn under)`, the label of the
 placement that expands it.
 
-A store may also have no placement at all. One made inside a function and placed by nothing is that
-function's own working state, and the tree already draws what the function returned. A store made at
-module level always keeps one. And **somebody else's file places nothing**: every mechanism runs on
-the developer's own files, so what the app took out of a library is drawn at the binding that holds
-it.
+A store the developer's own code does not hold is never registered, so it has no placement and no
+row either: one made inside a function and kept there is that function's own working state, and the
+tree already draws what the function returned. And **somebody else's file places nothing**: every
+mechanism runs on the developer's own files, so what the app took out of a library is drawn at the
+binding that holds it.
 
-**Drawn** — whether a developer can see a store at all, which is what decides its timeline rows. Two
-things make it true and **placement** is only one: a key of its own in the tree, or a value the
-panel shows holding it, which the **converter** draws with no placement involved. A store neither
-reaches is one no row can point at, so its rows are dropped rather than sent with a diff showing
-nothing. The second half is one snapshot behind, because the converter fills it while it writes.
-
-**Written name** — a name that exists in the developer's source: a binding, a property key, an
-array index, a `Map` key. It beats any name we derive.
+**Written name** — a name the developer can point at in their own source: a binding, a property
+key, an array index, a `Map` key. Only the binding is a name the source itself writes; the other
+three are names the value carries, and all four are names the developer could type to reach the
+value. Every one of them beats a name we derive.
 
 **Type label** — what built a node, `Editor` or `Map`, carried in `__serializedType__` and drawn
 by the panel in front of the node. `Object` is left off, because a plain object node says that
 much by itself. A store never takes one: that slot already holds its marker.
 
-**Ref name** — `ref#1`, the key for an instance nothing could name, such as one held in a
-`WeakMap`. It says plainly that the name is ours. Every unnamed instance shares the base `ref`
-and they number across the file, not per class.
+**Ref name** — `ref#1`, the key for an instance nothing could name: one a class field handed over
+while the constructor ran, before any binding held it. It says plainly that the name is ours. Every
+unnamed instance shares the base `ref` and they number across the file, not per class. The
+**binding scan** renames the node as soon as it walks to it under a name.
 
 **Name qualifier** — what an entry carries beside its name so two entries never share one label: the
 place it was made, `line 20`, the file it came from, `a.ts`, and the number of the store among the
@@ -311,8 +319,9 @@ place the store was made, so a key carries one group and never two.
 
 **Lifecycle row** — a timeline entry for something other than a value change: a store joining or
 leaving the registry, or mounting and unmounting. All four are on by default, because a tree that
-changes without a row would drift into the next write's diff. A store with no placement gets none of
-them. The **model** decides which of the four a turn produced and which stores it covers, and the
+changes without a row would drift into the next write's diff. Every registered store gets them,
+because a store the bridge was told about is one the developer's own code holds. The **model**
+decides which of the four a turn produced and which stores it covers, and the
 **view** writes the result, `src/stores/cart.ts/hotReload` and all.
 
 **The hard rule** — the bridge must not change how the app behaves. Above all, watching

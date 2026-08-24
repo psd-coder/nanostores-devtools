@@ -20,9 +20,10 @@ never reads a getter you wrote. The only code of yours it runs is code you hande
   value that holds stores and has no name in your source is keyed `ref#1`, instead of getting a
   name we invented.
 - ✅ Read-only. Never calls `store.get()`, never reads a getter you wrote, never mounts a store.
-- ✅ One timeline row per change, named after the store: `$counter/set`, `$user/setKey:name`.
+- ✅ One timeline row per change, headed by the whole path from your binding down:
+  `$counter/set`, `$user/setKey:name`, `config.theme.$x/set`.
 - ✅ Each store's kind sits in its key: `[computed]`, `[map]`, `[deepMap]`, `[batched]`.
-- ✅ A store is drawn under whatever built it: a class instance, an object a factory returned, an
+- ✅ A store is drawn under whatever holds it: a class instance, an object a factory returned, an
   array, a `Map`.
 - ✅ Vite, webpack and Rspack. One plugin, one subpath each, and none of the three runs outside a
   development build.
@@ -111,10 +112,28 @@ called, or what holds it. So the usual ways to watch one are all manual: a `cons
 changes to the console under names you pass it store by store.
 
 `nanostores-devtools` does the naming for you. A bundler plugin reads your source while your dev
-server runs, finds every call that makes a store, and wraps it with the name, the line and the kind
-it found there. In the browser those wrapped calls report to a registry, and the package draws one
-state tree and one timeline out of what it learns. You get the whole app's state at once, a diff
-per change, and a stack trace pointing at the line that wrote it.
+server runs, wraps every call that makes a store, and adds one call at the end of each file listing
+that file's top-level names. In the browser the wrapped calls report to a registry, the added call
+walks each of your bindings and registers whatever it finds under it, and the package draws one
+state tree and one timeline out of both. You get the whole app's state at once, a diff per change,
+and a stack trace pointing at the line that wrote it.
+
+One rule decides what appears: **a store is tracked where your own code holds it, never where it
+only passed through.** Held means bound to a name you wrote, sitting inside a value bound to a name
+you wrote, or handed back out of a call whose result is held. Four things follow from it, and they
+are the ones that surprise people:
+
+- **Your top-level bindings are read once, when the file finishes loading.** A store that lands in
+  one of them later, from a callback or a timer, is not in the panel. Name it with
+  [`trackStores`](#trackstoresgroup-stores) if you need it.
+- **A store made in a nested block, or inside a function, and never handed to a top-level binding
+  is not drawn.** It is that function's own working state, and the tree already draws what the
+  function returned.
+- **A store born inside an optional chain is left alone.** In `a?.b()` we wrap nothing: a wrapper
+  there would take the `undefined` the chain gives and pass it on, and your code would stop meaning
+  what you wrote.
+- **A `throttle` comment over a class field does nothing.** Nothing inside a class body names the
+  call, so the comment has no site to sit on. Use the `throttle` option for those.
 
 It fits when:
 
@@ -276,9 +295,12 @@ that name ourselves: nanostores has no actions, so there is nothing else to name
 | `$counter/mount`, `$counter/unmount` | the store gained its first listener, or lost its last |
 | `$late/register`, `$late/unregister` | stores joined the tree, or left it                    |
 | `$count/hotReload`                   | a file ran again and its stores were rebuilt          |
+| `config.theme.$x/set`                | a nested store was written, headed by its whole path  |
 
 A row holds one write plus every recompute that write caused, which is why a `computed` usually has
-no row of its own.
+no row of its own. A store one of your bindings holds directly is headed by that binding name; one
+that only a container holds is headed by the whole chain that reaches it, so you can paste the
+header back into your own source.
 
 [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) has the rest: how a store finds its owner, what the key format
 means, how two stores with one name are told apart, what a value shows and what it cannot show.
@@ -572,7 +594,7 @@ type BundlerPlugin = { apply(compiler: unknown): void };
   - how the code works, end to end. For anyone changing it.
 - [GLOSSARY.md](https://github.com/psd-coder/nanostores-devtools/blob/main/GLOSSARY.md) - the words
   this project uses in one fixed way: bridge, registry, home, group, tree, direct write, follower,
-  creation site, adoption, node, owner, placement.
+  the gate, binding scan, binding path, node, owner, placement.
 
 ## Design Notes
 

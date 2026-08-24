@@ -16,10 +16,16 @@ it needs names and a shape.
 
 The package fills that gap in two phases:
 
-- **At build time**, a bundler plugin reads the developer's source, finds every call that makes a
-  store, and wraps it. The wrapper carries the name, the line and the type.
-- **In the browser**, the wrapped calls report to a registry. The package builds a tree out of what
+- **At build time**, a bundler plugin reads the developer's source, wraps every call that makes a
+  store, and appends one call listing the module's top-level bindings. A wrapper carries the name,
+  the line and the type only where the developer's own code holds the call; everywhere else it
+  carries the type alone.
+- **In the browser**, the wrapped calls report to a registry, and the appended call walks each
+  binding and registers whatever it finds under it. The package builds a tree out of what
   it learns, listens for writes, and sends both to the Redux DevTools extension.
+
+One rule decides which stores appear: **a store is tracked where the developer's code holds it,
+never where it only passed through.**
 
 Two rules shape almost every decision in the code:
 
@@ -52,7 +58,7 @@ flowchart TB
 
   subgraph browser["Browser"]
     direction TB
-    runtime["runtime.ts<br/>fileScope(): store, adopt, own, begin, end, clear"]
+    runtime["runtime.ts<br/>fileScope(): store, adopt, own, clear"]
 
     subgraph model["The model (everything outside src/redux/)"]
       direction TB
@@ -144,16 +150,17 @@ the package to install.
 
 ### 3.4 The transform
 
-`transform.ts` is the largest file in the package. It walks the AST once and collects six things:
+`transform.ts` is the largest file in the package. It walks the AST once and collects seven things:
 
-| what it collects                            | why                                                                                |
-| ------------------------------------------- | ---------------------------------------------------------------------------------- |
-| which local names came from `nanostores`    | so `atom`, `map`, `deepMap`, `computed` and `batched` can be found under any alias |
-| a name stack                                | so a store knows the binding, property or index that names it                      |
-| top-level bindings, and which are exported  | so a scan at the end of the body can place what each one holds                     |
-| top-level initializers that call something  | so a creation frame can be opened around them                                      |
-| `// @nanostores-devtools:throttle` comments | so a store can be held to one row a second                                         |
-| `// @nanostores-devtools:ignore` comments   | so a store the developer ignored is never wrapped                                  |
+| what it collects                               | why                                                                                |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------- |
+| which local names came from `nanostores`       | so `atom`, `map`, `deepMap`, `computed` and `batched` can be found under any alias |
+| a name stack                                   | so a store knows the binding, property or index that names it                      |
+| a frame per function and per block             | so **the gate** can tell a call in the module body from one inside either          |
+| top-level bindings, and which are exported     | so a scan at the end of the body can register what each one holds                  |
+| `// @nanostores-devtools:throttle` comments    | so a store can be held to one row a second                                         |
+| `// @nanostores-devtools:ignore` comments      | so a store the developer ignored is never wrapped                                  |
+| `// @nanostores-devtools:max-members` comments | so one binding's walk stops at the number the developer wrote                      |
 
 It then rewrites the file with `magic-string`, which keeps a source map. Given this input:
 
@@ -176,24 +183,21 @@ if (import.meta.hot)
   });
 import { atom } from "nanostores";
 
-export const $count = __nsdt.store(atom(0), {
-  name: "$count",
-  fn: null,
-  line: 3,
-  type: "atom",
-});
-const editor = __nsdt.end((__nsdt.begin(), makeEditor()), {
-  name: "editor",
-  fn: null,
-  line: 4,
-  type: "unknown",
-});
+export const $count = __nsdt.store(atom(0), { name: "$count", line: 3, type: "atom" });
+const editor = __nsdt.adopt(makeEditor(), { name: "editor", line: 4, type: "unknown" });
 
 __nsdt.own([
-  ["$count", $count, true],
-  ["editor", editor, false],
+  { name: "$count", value: $count, exported: true },
+  { name: "editor", value: editor, exported: false },
 ]);
 ```
+
+**The gate decides the `name`.** A call passes it when it sits directly in the module body, with no
+function frame and no block frame around it, and something the developer wrote names its place. A
+call that passes carries a real name and registers a store. A call that fails carries `name: null`,
+registers nothing, and files its kind in a `WeakMap` for the binding scan to read back. That one
+test is what keeps a store made in a loop body, a helper, a getter or a class field out of the tree
+until a top-level binding really holds it.
 
 Three details are worth knowing:
 
@@ -210,7 +214,10 @@ Three details are worth knowing:
 `adoptFactories` (on by default) adds a second catch. A call whose result is stored under a name is
 wrapped in `adopt()`, even when the function is not a creator we know, so
 `const user = createUserStore()` is registered too. `adopt()` hands back a value that is not a store
-unchanged, so a call that builds anything else costs one wrapper and nothing more.
+unchanged, so a call that builds anything else costs one wrapper and nothing more. It runs the same
+gate: a call it wraps without a name registers nothing and files its kind alone. It stays on a held
+initializer because it knows the line, the throttle comment and the kind, which the scan cannot get,
+and because it registers early enough to catch the writes in a module loaded after connect.
 
 An adopted store gets its type from the package to kind map in `src/discovery/store-types.ts`, which
 the `storeTypes` option lays entries over. The map answers by the package a call was imported from
@@ -240,7 +247,6 @@ What sits behind it:
 | `owners`                                           | `WeakMap<Store, OwnerLink[]>`, everything each store is drawn under                 |
 | `nodes`                                            | `WeakMap<object, NodeInfo>`, values that hold stores and have no value of their own |
 | `bound`                                            | every top-level binding that names each store, and whether it was exported          |
-| `frames`                                           | the creation frames open right now                                                  |
 | `session`                                          | the one view watching the page, or nothing                                          |
 | `nextId`, `creations`, `changeListeners`, `warned` | the id counter, types waiting for a name, registry listeners, warning dedup         |
 
@@ -252,20 +258,25 @@ Every map that could keep app objects alive is weak. Devtools holds nothing the 
 
 `src/stores/registry.ts` answers one question: which stores exist, and what is each one called.
 
-There are two ways in:
+There are three ways in:
 
-- **The plugin**, through `runtime.ts`. It knows the name, the line, the enclosing function and the
-  type.
+- **A wrapped creator call**, through `runtime.ts`, where the gate let it carry a name. It knows the
+  name, the line and the type.
+- **The binding scan**, at the end of a module body. It knows the whole chain that reached the
+  store, `config.theme.$x`, and it reads the type back out of `creations` where a nameless wrapper
+  filed one.
 - **`trackStores(group, stores)`**, called by hand. It knows a group name and a name per store, and
   nothing else.
 
 A store has one entry for its whole life. A second registration for the same store renames or moves
-that entry rather than making another one. The name a developer wrote by hand always beats the name a
+that entry rather than making another one, which is what lets the scan rename a store a wrapper
+already registered. The name a developer wrote by hand always beats the name a
 creation site derived.
 
 `isStore` tests shape, not `instanceof`: a store is a plain object, and two copies of nanostores make
-two different classes. It reads `listen` and `lc` through their descriptors, so an app getter never
-runs.
+two different classes. It checks five fields, `lc` a number and `listen`, `off`, `set` and `notify`
+functions, all read through their descriptors, so an app getter never runs. `lc` is tested first,
+because it is a rare key name and turns almost every value away before a second key is read.
 
 ### 5.1 Telling two stores apart
 
@@ -273,14 +284,14 @@ An entry carries a `label` for a reader and a `nameKey` for identity. Where two 
 qualifiers are added, in one fixed order:
 
 ```
-$counter (a.ts, makeCart, line 12) #2
-   ^        ^         ^        ^     ^
-   name    file      fn      line   which store of that site
+$counter (a.ts, line 12) #2
+   ^        ^        ^     ^
+   name    file     line  which store of that site
 ```
 
 - The **file** appears when two modules share one display home. This can only happen through
   `fileKey`.
-- The **place** (`fn, line`) appears when two lines in one module make a store with the same name.
+- The **line** appears when two lines in one module make a store with the same name.
 - The **number** appears when one creation site makes several stores, such as a factory in a loop.
 
 Both sides of a clash take the qualifier. One bare `$counter` next to `$counter (line 20)` would not
@@ -291,46 +302,43 @@ say which line the bare one came from. `names.ts` also warns once per clash.
 ## 6. Ownership: what each store is drawn under
 
 The registry knows which stores exist. It does not know what holds them. That is
-`src/stores/ownership.ts`, and it registers nothing.
+`src/stores/ownership.ts`, and it is also where a store the plugin could not name is registered, at
+the moment the walk reaches it.
 
-Three mechanisms record an owner, and each one knows a different amount:
+Two mechanisms record an owner:
 
 ```mermaid
 flowchart LR
-  subgraph mech["Three ways to place a store"]
+  subgraph mech["Two ways to place a store"]
     direction TB
-    scan["own([...])<br/><b>scan</b><br/>walks top-level bindings<br/>up to 10 levels"]
+    scan["own([...])<br/><b>scan</b><br/>walks top-level bindings<br/>up to 10 levels, and registers"]
     field["store(x, site, this)<br/><b>field</b><br/>a class field initializer"]
-    frame["begin() / end()<br/><b>frame</b><br/>stores born while a top-level<br/>initializer ran"]
   end
 
   scan --> owners["owners: WeakMap&lt;Store, OwnerLink[]&gt;<br/>nodes: WeakMap&lt;object, NodeInfo&gt;"]
   field --> owners
-  frame --> owners
   owners --> tree["tree/tree.ts"]
 
-  note["A scan and a field edge both accumulate: each is a reference.<br/>There is one frame edge, drawn only where no other exists."]
+  note["Both edges accumulate: each one is a reference the developer wrote."]
   owners -.- note
 ```
 
 **The scan** runs at the end of the module body, where every top-level binding holds its value. It
-walks each binding up to ten levels deep, and every member of a collection it meets. It reads only
+walks each binding up to ten levels deep, and every member of a collection it meets, and **a store it
+reaches with no entry yet is registered there**, under the whole chain that reached it. A class
+declaration is a binding too, so a class's own static fields are walked. It reads only
 own data properties, so an app getter never runs. An array is named by index, a `Map` by key, a `Set` by
 insertion order. Every name it produces is one the developer could type to reach that member.
 
+It claims in two passes and not one: every binding that holds a store claims its name first, and
+only then is any binding walked. A top-level binding beats the key of an object holding the same
+store, so one pass would let the order the developer wrote their bindings in decide the name.
+
 **The field mechanism** catches a store made in a class field initializer, where `this` is the new
 instance (or the class itself, for a static field). The instance has no name yet, so it becomes
-`ref#1` until a binding renames it.
-
-**The frame** is the only one that reaches a store kept in a closure. `begin()` opens before a
-top-level initializer runs, `end()` closes on the value it returned. Everything born in between is
-placed under that value. A frame around an `await` is dropped: it must close in the same tick, or it
-would catch every store made anywhere until it did.
-
-A frame only knows _when_ a store was born, so it is the weakest claim. The other two know a real
-name, so each of them is a reference the developer wrote and every one of them draws. A frame is not
-a reference: there is at most one frame edge, and the tree draws it only where the store has no other
-edge at all.
+`ref#1` until a binding renames it. It records the holder and registers nothing, so a field's store
+is drawn once the scan walks to it under a name, and a private field, which no walk can list, is
+drawn nowhere.
 
 Two refusals matter, plus one cleanup rule:
 
@@ -339,6 +347,9 @@ Two refusals matter, plus one cleanup rule:
   handed out.
 - An edge that would close a loop is refused, searching every owner and every parent. That is also
   why the tree build needs no depth bound.
+- **One owner and one key name one store.** Recording a store at an owner and a key drops any other
+  store's edge to that same owner and key. One key holds one value, and the scan read it at the end
+  of the module body, so the last scan to walk that object read the value that is there now.
 - A hot reload drops the edges and binding names the module wrote and no other module's. Every record
   carries the module key, and the module scope keeps a weak set of what it linked, because a
   `WeakMap` cannot be listed.
@@ -374,9 +385,9 @@ qualifiers, then by its home, then by a number. Both sides always take the quali
 - `stale` — the store is unmounted and its value may be out of date.
 - `never-computed` — a derived store that was never mounted and holds `undefined`.
 
-`tree/drawn.ts` holds the other half of visibility. A view must call `noteDrawn` for every store its
-value walk draws. Without it, the model would drop timeline rows for stores the developer can plainly
-see inside another store's value.
+`tree/placement.ts` answers what a row calls a store. `rowName` hands back `entry.name`, which is
+the whole binding path the scan walked, and `otherPaths` hands back every other chain that reaches
+the same store, for the `also` list a change carries.
 
 ---
 
@@ -451,11 +462,17 @@ A parked row costs nothing while it waits. No tree is built and nothing is sent 
 fires. The row keeps the timestamp of the write that made it, and its tree is built at release, so
 it carries the current value with the whole cascade that rode inside it.
 
-### 8.4 A row needs a store somebody can see
+### 8.4 Every registered store draws rows
 
-A row is drawn only for a store the developer can find: one at a key of its own, or one drawn inside
-another store's value. `tree/placement.ts` answers that for the tree and for the timeline both, so
-the two can never disagree about which stores exist.
+There is no visibility test in front of a row any more. Nothing registers a store the developer's
+own code does not hold, so every store the registry knows has a place the reader can find, and a row
+that points at nothing can no longer happen.
+
+A row is headed by the store's whole **binding path**, `config.theme.$x/set`, because the last key
+alone would not say which of two objects holding an `$open` moved. Where the developer holds one
+store in more than one chain, the entry keeps the first path the scan recorded and the change
+carries the rest in `also`. The row and the tree are built from the same links, not from the same
+string: the tree still draws one key per level.
 
 ---
 
@@ -524,17 +541,13 @@ every relative import under `src/` and fails on a crossing. There is no exceptio
 `src/values/` has a second, stricter wall: nothing in it imports outside the folder, apart from
 `limits.ts` reaching for `warnOnce`. Reading a value is a question about the value alone.
 
-A view supplies four things through `Session`:
+A view supplies three things through `Session`:
 
-| the view provides                                       | called when                                                      |
-| ------------------------------------------------------- | ---------------------------------------------------------------- |
-| `active()`                                              | before anything is built, because the tree is the expensive half |
-| `emit(row)`                                             | at the end of a turn, and when a parked row's period ends        |
-| `emitAll()`                                             | on connect, and when a panel starts watching again               |
-| `noteDrawn(store)` for every store its value walk draws | never called by the model; it reads the record back              |
-
-The fourth is the one that gets forgotten. Nothing fails loudly when a view skips it. It quietly
-stops drawing rows for every store that is only reachable inside another store's value.
+| the view provides | called when                                                      |
+| ----------------- | ---------------------------------------------------------------- |
+| `active()`        | before anything is built, because the tree is the expensive half |
+| `emit(row)`       | at the end of a turn, and when a parked row's period ends        |
+| `emitAll()`       | on connect, and when a panel starts watching again               |
 
 ---
 

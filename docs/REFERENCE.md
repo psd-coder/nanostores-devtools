@@ -19,6 +19,7 @@ project uses in one fixed way are in [GLOSSARY.md](../GLOSSARY.md).
   - [How a tree key is built](#how-a-tree-key-is-built)
   - [A store listed by hand leaves the file tree](#a-store-listed-by-hand-leaves-the-file-tree)
   - [The same name twice](#the-same-name-twice)
+  - [Why spreading a store is wrong](#why-spreading-a-store-is-wrong)
 - [What each row in the timeline means](#what-each-row-in-the-timeline-means)
   - [When stores join and leave](#when-stores-join-and-leave)
   - [A hot reload draws one row, not a pair](#a-hot-reload-draws-one-row-not-a-pair)
@@ -41,23 +42,37 @@ project uses in one fixed way are in [GLOSSARY.md](../GLOSSARY.md).
 ### The bundler plugin
 
 The plugin reads your source while your dev build runs, and makes every store register itself under
-its own variable name. It is the same plugin under Vite, webpack and Rspack, and it finds a store
-in two ways:
+a name you wrote. It is the same plugin under Vite, webpack and Rspack, and one rule decides
+everything it does:
 
-- **By callee.** The plugin sees a call whose function came from an import of `"nanostores"`,
-  including renamed imports. This is the way that gives a store its kind. It sees the call wherever
-  it is written, a factory, a loop or a class field included, and the store is drawn where your own
-  code holds it.
-- **By adoption.** The plugin also adopts a call your module body holds under a name, no matter
-  which function made the call. This catches a codebase that wraps store creation, such as
-  `const theme = persistentAtom("theme", "dark")` in a file that never imports `"nanostores"`.
-  Adoption gives the store a name, and a kind only when the call names an export that the
-  [package map](#what-each-plugin-option-costs) knows. A call whose function your file imported is
-  wrapped even where no name holds it, and that wrapper only records the kind, so the panel can
-  still read it if the store lands somewhere you do hold.
+> **A store is tracked where your own code holds it, never where it only passed through.**
 
-**A store is named where your own code holds it, and nowhere else.** A call handed straight to
-another call is nobody's, and so is one written inside a function, a loop body or a block:
+Held means: bound to a name you wrote, sitting inside a value bound to a name you wrote, or handed
+back out of a call whose result is held. An argument to another call is not held. A step inside a
+function body is not held.
+
+The plugin carries that rule out in two halves:
+
+- **The wrappers.** A call whose function came from an import of `"nanostores"` is wrapped, renamed
+  imports included, and so is any call your file holds under a name when `adoptFactories` is on.
+  This is the only way a store's kind is ever read, so a wrapper fires wherever the call is written,
+  a factory, a loop or a class field included. It **registers** a store only where the call sits
+  directly in your module body with something of yours naming its place. Everywhere else it files
+  the kind and nothing more.
+- **The binding scan.** The plugin adds one call at the end of every module body listing that
+  module's top-level `const`, `let` and `var` names, and its class declarations. In the browser we
+  walk what each name holds, and **every store we walk to is registered there**, under the whole
+  chain that reached it. This is what draws a store on what a factory returned, a rebound package
+  store, a destructured pair, a `new` expression and a class instance's fields, and it reads the
+  kind back out of what a nameless wrapper filed.
+
+**The plugin reads your top-level bindings once, when the file finishes loading.** A store that
+lands in one of them later, from a callback or a timer, is not in the panel. Register it by hand
+with [`trackStores`](#trackstores) when you need it.
+
+**A store made in a nested block, or inside a function, and never handed to a top-level binding is
+not drawn.** It is that function's own working state, and what the function returned is what your
+app holds. So a call handed straight to another call is nobody's:
 
 ```js
 const $pointerEnd = merged([eventAtom(root, "up"), eventAtom(root, "cancel")]);
@@ -89,6 +104,15 @@ call stands under, and the prefix is no part of that name.
 **A setting we cannot read is refused.** We warn, naming the option, your value and the two settings
 above, and the plugin adopts the default way instead. Only a plain JavaScript config can pass a
 wrong value in; TypeScript refuses it where you wrote it.
+
+**A `throttle` comment over a class field does nothing.** A field initializer is inside the class
+body, so nothing there names the call and the wrapper carries no site for the comment to sit on. The
+store is still drawn, through the binding that holds the instance, but it takes no rate of its own.
+Name it in the [`throttle`](#what-each-connectdevtools-option-costs) option instead, which reads the
+name the tree gives it.
+
+**A store born inside an optional chain is left alone**, and this one is deliberate. See
+[what the plugin misses](#what-the-plugin-misses).
 
 ### `trackStores`
 
@@ -141,7 +165,6 @@ app/editor.ts
   byId: Map { ["scratch"]: Editor {…} }                    <- a Map, walked by key
   drafts: Array { [0]: Editor {…}, [1]: Editor {…} }       <- an array, walked by index
   editorOne: Editor { $count [store]: 0, $value [store]: "" }   <- named by its binding
-  hidden: WeakMap { ref#1: Editor {…}, ref#2: Viewer {…} } <- nothing here can be named
 app/model.ts
   $busy [computed]: false
   $draft [store]: { (value): "the quick brown fox jumps ", $canRedo [computed],
@@ -184,8 +207,10 @@ A **node** holds other things and has no value of its own. Four things become on
 A member that is itself an object is keyed by a name you could write to reach it: `[0]` for an
 array or a `Set`, and `["scratch"]` for a `Map`. A node may sit inside a node, which is how the
 members of an array nest under the array. **A member that is a store is keyed by its position too**,
-`[0] [store]`, and it keeps its own flat slot at its home as well. Only a store that a frame or a
-class field placed, where no property leads to it, falls back to the name its creation site gave.
+`[0] [store]`, and it keeps its own flat slot at its home as well where a binding of yours holds it.
+Only a store past a
+[`max-members` number](#what-each-connectdevtools-option-costs) falls back to the name its creation
+site gave, because the scan stopped before it reached that key.
 
 The **type label** is not part of the key. It travels in the extension's own `__serializedType__`
 wrapper, and the panel prints it in front of the node, so it costs no key and no nesting level. A
@@ -205,81 +230,42 @@ borrowing the class name that the label already holds. Every unnamed instance sh
 
 #### How a store finds its owner
 
-There are three mechanisms, and each one covers what the others miss.
+There are two mechanisms, and the first one does almost all of it.
 
 - **The binding scan.** The plugin adds one call at the end of each module body that lists the
-  module's top-level `const`, `let` and `var` names, and we walk what each name holds. This is what
-  reaches a factory result, a class instance in a binding, members added by
-  `Object.assign($atom, {…})`, the members of a collection, and an alias such as
-  `export const $canUndo = $draft.$canUndo`, which nothing else reaches.
+  module's top-level `const`, `let` and `var` names, and its class declarations, and we walk what
+  each name holds. This is what reaches a factory result, a class instance in a binding, a class's
+  own static fields, members added by `Object.assign($atom, {…})`, the members of a collection, and
+  an alias such as `export const $canUndo = $draft.$canUndo`, which nothing else reaches. **Every
+  store it walks to is registered**, so this is how a store gets into the panel as well as how it
+  finds its owner.
 - **`this` in a class field.** A field initializer runs with `this` bound to the new instance, so
-  the plugin hands it over. Static fields are included, and this is the only way a private field
-  such as `#hidden = atom()` is reachable at all.
-- **The creation frame.** We open a frame around a top-level initializer that is a call or a `new`,
-  and we close it on the value it returned. A plain store creator needs no frame, and neither does
-  an initializer that holds an `await`, which a frame must never span. The frame is the only thing
-  that reaches a store one of your own helpers kept in a closure, where no property leads to it.
+  the plugin hands it over and the instance is recorded as what holds the store. It records the
+  holder and registers nothing, so what draws the store is still the scan walking to the instance
+  under a name of yours.
 
-**A frame places nothing that was born in somebody else's file.** It catches every store made while
-your expression ran, however many files down. A store that is still homed in a library is one that
-the library kept rather than handed over: `$inputs` inside `resourceAtom`, `$timeline` inside
-`withUndo`. What a library does hand you is adopted at your call site and takes your file as its
-home, and the scan reaches whatever the returned value carries through a property. So `$value` and
-`$loading` on a resource stay exactly where they were. The frame keeps its full reach inside your
-own files, where a store in a closure is yours whether or not a property leads to it.
+**A private field is drawn nowhere.** Nothing inside a class body names its call, so no wrapper
+registers `#hidden = atom(0)`, and a private field is not something any walk can list afterwards.
+Every other field of that instance still draws.
 
-**A frame places nothing that already stands at a site of its own.** A store made at module level
-is drawn flat at the file it was written in, because there is no function it could belong to. All
-the frame knows is that the store was born while some expression ran, and that says when, not what
-holds it:
+**A store a helper of yours keeps in a closure is drawn nowhere.** `merged` in
+`const $pointerEnd = merged([eventAtom(root, "up"), eventAtom(root, "cancel")])` keeps its two
+sources where nothing on the atom it hands back leads to them, so `$pointerEnd` draws and the two
+sources do not. What the function returned is what your app holds, and the tree draws that already.
 
-```js
-const $pointerEnd = merged([eventAtom(root, "pointerup"), eventAtom(root, "pointercancel")]);
-```
+**Both run on your own files only.** A library binds its working state to its own top-level names
+too, and a `$active` that a reference count inside `history.ts` writes is that library's business,
+not something you can act on. What you got out of that library is bound in a file of yours, and that
+binding is what draws it. A store the library made at module level and exported is still drawn flat
+at its own file, which is what keeps a library's own `export const $route = atom("/")` on the tree.
 
-`merged` keeps its sources in a closure, so nothing on the atom it hands back leads to them.
-Drawing them inside it would say that this atom holds them. They are its siblings, and the tree
-draws all three flat. What is left for the frame is the case it exists for: a store your own code
-made **inside a function**, which nothing else would draw at all.
+**A store nothing holds is never registered at all**, so the question of drawing it never comes up.
+Nothing subscribes to it, no timeline row is ever checked for it, and the bridge is not told it
+exists. Every store that is in the registry has a place you can find, and every one of them draws
+its rows: register, mount, unmount and each write.
 
-**All three run on your own files only.** A library binds its working state to its own top-level
-names too, and a `$active` that a reference count inside `history.ts` writes is that library's
-business, not something you can act on. What you got out of that library is bound in a file of
-yours, and that binding is what draws it.
-
-**A store that none of the three places is drawn nowhere at all.** One made inside a function and
-kept there is that function's own working state: what the function returned is what your app holds,
-and the tree draws that already. A store made at module level always keeps a place, because there
-is no function it could belong to, and the file it was written in is the only thing holding it.
-That last rule is what keeps a library's own `export const $route = atom("/")` on the tree, under
-its own file, even though nothing in your code placed it.
-
-A store that the tree leaves out stays in the registry and we still watch it, but it draws no
-timeline row of its own either: no register, no mount, no write. A row you cannot trace to anything
-on screen, with a diff showing nothing, teaches you to stop reading the timeline.
-
-**The test is "can you see it", not "is it in the tree".** Those two differ. A store with no place
-of its own is still drawn wherever a value you can see holds it, and then its own write is the only
-thing that pushes the new tree, so it must keep its row. While we write a snapshot, we note every
-store the converter draws inside a value, and a store in neither the tree nor that note draws
-nothing:
-
-```
-$requested/set          <- you clicked Next
-$currentResource/set    <- the response arrived
-```
-
-instead of the same two rows with a `$inputs/set` between them, where `$inputs` is a store that
-some library keeps inside a factory and you have no way to look up.
-
-The note is one snapshot behind, so a store that is put into a drawn value and written in the same
-tick loses that first row. The write that put it there is a drawn store's own write, which sends a
-row and refreshes the note, so the window is one turn wide.
-
-The scan and a class field both know a property name, so each of them is a reference you wrote and
-each one draws. A frame only knows that a store was born while some expression ran, so it places a
-store only where no reference does. A store is never drawn under itself: we refuse an edge that
-would close a loop, and we search every owner and every parent for one.
+A store is never drawn under itself: we refuse an edge that would close a loop, and we search every
+owner and every parent for one.
 
 #### Every reference you wrote is drawn
 
@@ -315,11 +301,23 @@ left: { pinned: Viewer {…} }
 right: { pinned: Viewer { (drawn under): "app/editor.ts/left" } }
 ```
 
-**A row calls the store whatever the tree calls it.** A home you chose wins, so a store renamed by
-your own binding has its rows renamed too: `$undoable/set`, not `$canUndo/set`. A store that only
-its owner holds takes that owner's key, so the row says `username/set` where the tree says
-`username`. The change inside the row still carries `lensed.ts/$lens`, because that says which file
-the store came from, and a name its owner chose does not.
+**A row is headed by the whole path from your binding down.** A store a top-level binding of yours
+holds keeps that binding name, so a store you renamed has its rows renamed too: `$undoable/set`, not
+`$canUndo/set`. A store that only a container holds is headed by the chain that reaches it, so the
+row reads `fields.username/set` where the tree draws `username` under `fields`. The last key alone
+would not say which of two objects holding a `username` moved, and a path is something you can paste
+back into your own source. A key that cannot stand after a dot is bracketed: `config["my-key"].$x`,
+`$all[0]`, `byId["a1"].$status`. The path is printed whole however long it is.
+
+**Where two chains reach one store, the row heads with the first and lists the rest.** The entry
+keeps the first path the scan recorded, across modules too, so import order never changes a row
+header. The other chains are listed in the change under `also`, which the panel shows in the Action
+tab. The change itself still carries `lensed.ts/$lens`, because that says which file the store came
+from, and a name its owner chose does not.
+
+**The tree still draws one key per level.** A path in a tree key would say twice what the nesting
+already says once, so the row and the tree are built from the same links but are not the same
+string.
 
 **The second key is the property that the owner really holds the store at**, not the name the store
 was born with. The two agree wherever a util calls its own field what it hands it out as, which is
@@ -337,9 +335,12 @@ fields: { username [store]: "ada", password [store]: "" }
 ```
 
 The atom that `focus` returns is called `$lens` inside its own file, and two of them side by side
-would read as `$lens [store]` and `$lens [store] #2`. Neither name is one you could look up. A
-frame and a class field hold the store under no property at all, so those still fall back to the
-name its creation site gave.
+would read as `$lens [store]` and `$lens [store] #2`. Neither name is one you could look up.
+
+**One owner and one key name one store.** Where a second store is put at the same key on the same
+object, the first loses its link there and draws flat at its own file instead. One key holds one
+value, and the scan reads it at the end of the module body, so the last scan to walk that object
+read the value that is there now.
 
 **A store you passed to `trackStores` is drawn the same way**, at the group you named, with every
 owner keeping a repeat. The group is a home you chose by hand, so it beats any owner the walk
@@ -385,7 +386,7 @@ are writable and both hold whatever was last set, so there is nothing you would 
 **A store that is being held back says so in the same brackets**, `$frame [store, throttled]`, and
 loses the word again when its rate drops. See [`throttle`](../README.md#connectdevtoolsoptions).
 
-The brackets are part of the tree key only. Timeline rows keep the bare name (`$total/set`), and we
+The brackets are part of the tree key only. Timeline rows carry no kind (`$total/set`), and we
 sort on the bare name too, so the kind never moves a store in the tree. A store that gains a kind
 later, which adoption can do, changes its key, and the panel draws that as one key removed and one
 added. Gaining `atom` changes nothing, because `store` was already the word.
@@ -400,14 +401,13 @@ that place it is.
 $count [store]                                        nothing to tell apart
 $counter [store] (line 20)                            two source lines in one file
 $counter [store] (app.ts, line 20)                    two files under one home
-$history [store] (vendor/withUndo.ts, createPanel, line 20)
-$history [store] (vendor/withUndo.ts)                 a home clash with no place to give
+$history [store] (vendor/withUndo.ts)                 a home clash with no line to give
 panel [store] #2                                      a clash that nothing else told apart
 ```
 
 Inside the group the file comes first, because it says where to look before the line says where in
-the file. There is never a second group: when a home clash also has a place to show, the home takes
-the group and the place steps out.
+the file. There is never a second group: when a home clash also has a line to show, the home takes
+the group and the line steps out.
 
 A node's number sits tight against its name, `ref#1`, and a store's number stays spaced,
 `panel [store] #2`, so the two never read as one thing.
@@ -440,8 +440,7 @@ The plugin and `trackStores` behave differently here, and the difference is real
 **The plugin** tells two cases apart. One source line that runs again (a factory, a loop) makes
 stores you can exchange for each other, so they are numbered: `$items [store]`,
 `$items [store] #2`. Two different source lines that want one name is a real clash: both keys name
-the enclosing function and the line, such as `$counter [store] (makeCart, line 12)`, and we warn
-once with both places.
+the line, such as `$counter [store] (line 12)`, and we warn once with both places.
 
 **`trackStores` replaces, quietly.** A second registration for `cart/$counter` drops whatever held
 that label before, with no warning. A clash here is almost always a hot reload, and we cannot tell
@@ -454,6 +453,43 @@ Two cases do warn, because neither can be a hot reload:
 - The same store under two names in one call (`{ $counter, $total: $counter }`) is one store and
   one entry. The first name wins.
 - The same store in two groups moves to the second group.
+
+### Why spreading a store is wrong
+
+`{ ...$store }` is not a store, and the panel does not hide that. Spreading copies a store's own
+data properties, `lc`, `listen`, `set` and the rest among them, so the plain object that comes out
+passes every shape test there is. If a binding of yours holds one, the scan registers it and it
+takes a row of its own beside the store it came from.
+
+The copy is broken in exactly the places the panel reads. Measured:
+
+```
+same set fn?     true
+same listen fn?  true
+$a.value         2      <- copy.set(2) wrote here
+copy.value       1      <- frozen at spread time
+copy.get()       2      <- reads the original, so it is live
+$a.lc            1
+copy.lc          0      <- frozen
+hook on copy     0      <- onNotify(copy, ...) never fired
+```
+
+Every method in `atom` closes over its own variable and never reads `this`. So the copy works
+correctly through every method and gives a wrong answer at every data property, and the three it gets wrong
+are the three the bridge uses: the panel reads `.value` and never `get()`, the mount check reads
+`.lc`, and a hook placed on the copy never fires. The copy therefore draws as unmounted for ever,
+holding whatever value the spread took:
+
+```
+$a [store]: 2
+copy [store]: { (value): 1 }   <- not mounted, may be stale
+```
+
+We cannot tell the two apart, and we will not guess. Nothing in an object's shape separates a copy
+from the store it came from; only function identity does, and building a rule on that would need a
+`WeakMap` plus an answer to which object is the real one, for a shape almost nobody writes on
+purpose. The row shows exactly what the code does, and the code is already wrong. What you wanted is one of two
+other things: the value is `$store.get()`, and a separate store is `atom($store.get())`.
 
 ## What each row in the timeline means
 
@@ -470,6 +506,8 @@ ourselves: nanostores has no actions, so there is nothing else to name a row aft
 | `$late/register`                     | stores joined the tree                                |
 | `$late/unregister`                   | stores left it                                        |
 | `$count/hotReload`                   | a file ran again and its stores were rebuilt          |
+| `config.theme.$x/set`                | a nested store was written, headed by its whole path  |
+| `$all[0]/set`                        | a store in an array was written                       |
 
 A row holds one write plus every recompute that write caused, which is why a `computed` store
 usually has no row of its own. Mount, unmount, register, unregister and hot reload are the
@@ -1336,9 +1374,9 @@ not change, and a gap might.
 
 **Cannot be reached at all:**
 
-- **A member of a `WeakMap` or a `WeakSet`.** You cannot list them, by design. An instance inside
-  one still reaches the tree through the creation frame. Only its key is lost, and `ref#1` is how
-  the tree says that.
+- **A member of a `WeakMap` or a `WeakSet`.** You cannot list them, by design, so a store that only
+  one of those holds is not drawn at all. Nothing else can reach it: the walk is the only way in,
+  and no walk can enumerate a weak collection.
 - **The value inside a `Promise`**, which you can only get through `then`.
 - **A property under a symbol key, an inherited property and a non-enumerable own property.** We
   read own enumerable data properties only.
@@ -1352,7 +1390,8 @@ not change, and a gap might.
   cut is silent, and `maxDepth` moves it.
 
 Nothing bounds how many members of one collection become nodes. A binding holding 5000 stores draws
-5000 rows.
+5000 rows, unless a [`max-members` comment](#what-each-connectdevtools-option-costs) over that
+binding names a number.
 
 **Impossible to detect:** a `Proxy` can catch a property read and run your code. We cannot see one,
 so this is a risk we accept. It is the same risk the getter rule above is written against, and it
@@ -1371,7 +1410,9 @@ reload builds a new one, and no binding has claimed that one yet.
 
 ### What the plugin misses
 
-- **Reassignment.** `let $late = atom("a"); $late = atom("b")` registers the first store only.
+- **Reassignment.** `let $late = atom("a"); $late = atom("b")` draws the second store only,
+  measured. The scan reads the binding at the end of the module body, so what it holds then is what
+  the panel shows, and the store the first line made is drawn nowhere.
 - **`import * as ns from "nanostores"`** hides which export a call means, so the plugin cannot
   match the callee, and we warn once for that file. A store made this way still reaches the tree
   through adoption, with `type: "unknown"`.
@@ -1398,9 +1439,9 @@ reload builds a new one, and no binding has claimed that one yet.
   module that calls the factory.
 - **An edit that leaves a file with nothing to instrument leaves that file's old entries behind.**
   A file gets the header that clears its own stores when it imports a store creator by name, holds
-  a call to adopt, or declares a top-level `const`, `let` or `var` under a plain name. A file with
-  none of the three never runs that header, so its old entries stay in the tree until you reload
-  the page.
+  a call to adopt, or declares a top-level `const`, `let`, `var` or `class` under a plain name. A
+  file with none of the three never runs that header, so its old entries stay in the tree until you
+  reload the page.
 
 ### Cost
 
