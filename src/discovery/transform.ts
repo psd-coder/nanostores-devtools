@@ -30,7 +30,6 @@ export type TransformInput = {
   home: string;
   /** Whether the file is somebody else's. Handed in, because no path spelling settles it. */
   external: boolean;
-  maxStoresPerSite: number;
   /**
    * How many steps into a binding the scan walks, or nothing at all where the developer named no
    * number and the walk keeps its own.
@@ -688,7 +687,6 @@ function header(input: TransformInput): string {
   const args = [
     JSON.stringify(input.moduleKey),
     JSON.stringify(input.home),
-    input.maxStoresPerSite,
     input.external,
     ...(input.maxDepth === undefined ? [] : [input.maxDepth]),
   ].join(", ");

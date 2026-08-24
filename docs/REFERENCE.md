@@ -492,9 +492,7 @@ inside it, so a register row is always a late arrival:
 - `trackStores` ran after `connectDevtools`, which is the usual shape for a dependency's stores.
 
 An unregister row is the opposite: stores left the tree for good. `untrack("cart")` does it, and so
-does an edit that deletes the last store in a file. A store dropped by the
-[per-site cap](../README.md#nanostoresdevtoolsoptions) says nothing, because the store that
-pushed it out draws a row anyway.
+does an edit that deletes the last store in a file.
 
 Renaming changes no rows. A store that gains a name from your binding, a kind from adoption or a
 group from `trackStores` keeps its entry, so it neither joins nor leaves.
@@ -722,20 +720,10 @@ whole value. See
 
 Every option's name, type and default is in the [README](../README.md#nanostoresdevtoolsoptions).
 
-First, what a **creation site** is, because the cap below only makes sense once this word does.
-**A site is one place in your source where a store is made, not one store.** A site inside a
-factory or a loop makes a new store every time it runs, and all of those stores share one name. The
-registry holds strong references on purpose, so nothing leaves it on its own.
-
-`maxStoresPerSite` keeps the last 50 live stores of a site. It drops unmounted stores first, the
-oldest of those first, and never the store just made. So **a table with 200 rows, one store per
-row, all from one factory line, shows 50 of them.** The number 50 is a guess; only the order in
-which stores are dropped is settled. Stores registered through `trackStores` have no site and no
-cap, because you wrote each one by hand.
-
-**It takes a whole number of 1 or more, or `Infinity` for no cap.** Anything else is refused with
-a warning that names the option and your value, and the plugin keeps 50 per site instead. `0`, a
-number below zero, a fraction and `NaN` each say something that no count of stores can be made of.
+First, what a **creation site** is. **A site is one place in your source where a store is made, not
+one store.** A site inside a factory makes a new store every time it runs, and all of those stores
+share one name. The registry holds strong references on purpose, so nothing leaves it on its own,
+and nothing caps how many stores one site may hold.
 
 **`maxDepth` bounds the binding scan.** The scan runs at the end of every module body, starts at
 each top-level binding the module makes, and walks into what that binding holds, counting a
@@ -784,8 +772,8 @@ package is built.
 **A refusal costs one entry.** The rest of that package's exports, and every other package, still
 merge, so one typo never costs you the entries you got right. What it costs is the kind: the call
 still reaches the tree by adoption, exactly as a call from a package we do not name does. The
-warnings reach you once per build, through the same channel that `maxStoresPerSite` and
-`adoptFactories` already use.
+warnings reach you once per build, through the same channel that `maxDepth` and `adoptFactories`
+already use.
 
 **`fileKey` receives the home as the tree would show it**, so a file inside your bundler's root
 arrives relative to that root, and a file outside it arrives relative to the wider root:
@@ -1322,12 +1310,11 @@ not change, and a gap might.
 
 **Bounded on purpose:**
 
-- **25 members of one collection** become nodes. **The tree says what it left out**, as one extra
-  key `…` labelled `5 more members past the 25 walked; their stores are listed here without a node
-of their own`. No store is lost: the ones past the cap sit on the collection itself, keeping the
-  numbers the registry gave them, such as `open [store] #30`.
-- **Three steps into a binding**, where a property, an index and a key each count as one step. This
-  cut is silent.
+- **Ten steps into a binding**, where a property, an index and a key each count as one step. This
+  cut is silent, and `maxDepth` moves it.
+
+Nothing bounds how many members of one collection become nodes. A binding holding 5000 stores draws
+5000 rows.
 
 **Impossible to detect:** a `Proxy` can catch a property read and run your code. We cannot see one,
 so this is a risk we accept. It is the same risk the getter rule above is written against, and it
@@ -1369,9 +1356,8 @@ reload builds a new one, and no binding has claimed that one yet.
   careful.
 - **A factory declared in module A but called from module B collects entries under A when B hot
   reloads**, because A did not run again and so did not clear itself. Measured: one unrelated edit
-  took `$items` from 2 rows to 4. The per-site cap keeps the count bounded, and it drops the
-  unmounted stores first. Adopted stores do not have this problem, because they move to the module
-  that calls the factory.
+  took `$items` from 2 rows to 4. Adopted stores do not have this problem, because they move to the
+  module that calls the factory.
 - **An edit that leaves a file with nothing to instrument leaves that file's old entries behind.**
   A file gets the header that clears its own stores when it imports a store creator by name, holds
   a call to adopt, or declares a top-level `const`, `let` or `var` under a plain name. A file with

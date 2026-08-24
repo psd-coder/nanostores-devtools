@@ -6,7 +6,6 @@ import {
   peekDevtoolsGlobal,
   scopeOf,
   type SiteState,
-  type SiteStore,
 } from "./global.ts";
 import { claimSiteName, releaseSiteNames, siteParts } from "./stores/names.ts";
 import {
@@ -17,7 +16,6 @@ import {
   releaseLinks,
 } from "./stores/ownership.ts";
 import {
-  evictStore,
   getEntry,
   isStore,
   registerStore,
@@ -50,7 +48,6 @@ export type FileScope = {
 export function fileScope(
   moduleKey: string,
   home: string,
-  maxStoresPerSite: number,
   external: boolean,
   maxDepth?: number,
 ): FileScope {
@@ -90,7 +87,6 @@ export function fileScope(
 
     state.stores.push({ store, number: state.made });
     scope.owned.add(store);
-    enforceCap(scope, state, maxStoresPerSite);
   }
 
   return {
@@ -178,41 +174,6 @@ function adoptedType(store: Store, site: CreationSite): StoreType {
   }
 
   return peekDevtoolsGlobal()?.creations.get(store) ?? site.type;
-}
-
-/**
- * Unmounted first and oldest of those first, but never the store just taken: the cap keeps the
- * last stores of a site, and a factory that makes the app's real store early and then makes many
- * short-lived ones would otherwise lose the one store the developer came to look at.
- */
-function enforceCap(scope: ModuleScope, state: SiteState, cap: number): void {
-  /**
-   * An empty list is still longer than a cap below zero, so the loop would take from nothing for
-   * ever. A floor of zero holds no store at all, the one just taken included.
-   */
-  const limit = Math.max(cap, 0);
-
-  if (state.stores.length <= limit) {
-    return;
-  }
-
-  /** A store the registry lost to somebody else's label holds no slot here either. */
-  state.stores = state.stores.filter((held) => getEntry(held.store) !== undefined);
-
-  while (state.stores.length > limit) {
-    const [doomed] = state.stores.splice(doomedIndex(state.stores), 1);
-
-    if (doomed) {
-      scope.owned.delete(doomed.store);
-      evictStore(doomed.store);
-    }
-  }
-}
-
-function doomedIndex(stores: SiteStore[]): number {
-  const unmounted = stores.slice(0, -1).findIndex((held) => held.store.lc === 0);
-
-  return unmounted === -1 ? 0 : unmounted;
 }
 
 function siteState(scope: ModuleScope, site: CreationSite, name: string): SiteState {

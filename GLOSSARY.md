@@ -125,8 +125,7 @@ and are shared. Today there are three, `discovery/vite.ts`, `discovery/webpack.t
 **Creation site** — one place in the source where a store is made, identified by module,
 name, enclosing function and line. The line is the one the developer wrote, which is why the
 walk runs before anything rewrites the file. It is not the same as a store: one site makes a
-new store every time it runs, which is how a factory or a loop behaves. The unit for numbering
-repeats and for the per-site bound.
+new store every time it runs, which is how a factory behaves. The unit for numbering repeats.
 
 **Adoption** — the second way the plugin gets a store, for calls whose callee it cannot
 recognise. A call the module body holds under a name is wrapped and carries that name, with or

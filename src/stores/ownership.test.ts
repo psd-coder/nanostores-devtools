@@ -2,7 +2,7 @@ import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDevtoolsGlobal, peekDevtoolsGlobal, resetDevtoolsGlobal } from "../global.ts";
-import { MAX_MEMBERS, ownBindings, ownField } from "./ownership.ts";
+import { ownBindings, ownField } from "./ownership.ts";
 import {
   boundNames,
   drawnParents,
@@ -651,15 +651,26 @@ describe("a node", () => {
     expect(ownerOf($open)).toBeUndefined();
   });
 
-  it("gives a member past the cap no node, and hangs the stores it holds on the collection", () => {
+  it("gives a member past the cap no node and no owner, so the walk stops at the number", () => {
     const past = panel();
-    const many = [...Array.from({ length: MAX_MEMBERS + 1 }, panel), past];
+    const many = [panel(), panel(), past];
 
-    ownBindings(FROM, [{ name: "many", value: many, exported: false, maxMembers: MAX_MEMBERS }]);
+    ownBindings(FROM, [{ name: "many", value: many, exported: false, maxMembers: 2 }]);
 
-    expect(nodeInfoOf(many)?.skipped).toBe(2);
+    expect(nodeInfoOf(many)?.skipped).toBe(1);
     expect(nodeInfoOf(past)).toBeUndefined();
-    expect(ownerOf(past.$open)).toBe(many);
+    expect(ownerOf(past.$open)).toBeUndefined();
+  });
+
+  it("walks every member of a binding that named no number", () => {
+    const last = panel();
+    const many = [...Array.from({ length: 4999 }, panel), last];
+
+    ownBindings(FROM, [{ name: "many", value: many, exported: false }]);
+
+    expect(nodeInfoOf(many)?.skipped).toBe(0);
+    expect(nodeInfoOf(last)?.name).toBe("[4999]");
+    expect(ownerOf(last.$open)).toBe(last);
   });
 
   it("keeps the first name a binding gave a value, whichever binding holds it later", () => {

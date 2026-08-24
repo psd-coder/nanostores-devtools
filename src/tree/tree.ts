@@ -62,6 +62,8 @@ export type HolderNode = {
    */
   ours: boolean;
   ordinal: number | null;
+  /** Members the ownership walk drew, so the note about the rest can name that number. */
+  walked: number;
   /** Members the ownership walk left out, `0` when it walked them all. */
   skipped: number;
   /**
@@ -313,7 +315,7 @@ function rootNodes(pass: Pass, held: readonly Held[]): TreeNode[] {
 }
 
 /**
- * The children of one owner. `inside` is the node they sit in, or nothing when a store holds them.
+ * The children of one owner.
  *
  * A clash is settled twice over: the store's own name and place first, and its home second. The
  * home is for the one clash a file level made impossible, where ownership draws stores from two
@@ -321,8 +323,8 @@ function rootNodes(pass: Pass, held: readonly Held[]): TreeNode[] {
  * `$history` beside a `$history` from `vendor/withUndo.ts` does not say where the bare one came
  * from.
  */
-function childNodes(pass: Pass, held: readonly Held[], inside: HolderNode | undefined): TreeNode[] {
-  const placements = held.map((one) => childPlacement(pass, one, inside));
+function childNodes(pass: Pass, held: readonly Held[]): TreeNode[] {
+  const placements = held.map((one) => childPlacement(pass, one));
 
   keepApart(placements, ownNaming);
   keepApart(placements, homedNaming);
@@ -355,13 +357,13 @@ function fill(pass: Pass, node: TreeNode): void {
   }
 
   if (node.kind === "store") {
-    node.children = childNodes(pass, pass.tree.children.get(node.entry.store) ?? [], undefined);
+    node.children = childNodes(pass, pass.tree.children.get(node.entry.store) ?? []);
 
     return;
   }
 
   if (node.expandedAt === null) {
-    node.children = childNodes(pass, pass.tree.children.get(node.value) ?? [], node);
+    node.children = childNodes(pass, pass.tree.children.get(node.value) ?? []);
   }
 }
 
@@ -401,29 +403,15 @@ function boundParts(bound: BoundName): NameParts | null {
  * A class field carries no such name: nothing there holds the store under a key. Those keep the
  * name the creation site gave, and a store no site ever named keeps its registered one.
  */
-function childPlacement(pass: Pass, held: Held, inside: HolderNode | undefined): Placement {
+function childPlacement(pass: Pass, held: Held): Placement {
   if (held.kind === "node") {
     return holderPlacement(pass, held);
   }
 
   const key = held.at.under === "owner" ? held.at.key : undefined;
-  const named =
-    key !== undefined
-      ? { name: key, qualifier: null }
-      : ownedName(held.entry, inside !== undefined && inside.skipped > 0);
+  const name = key ?? nameForOwner(held.entry);
 
-  return { node: storeNode(held, named.name, named.qualifier), sortName: sortName(held) };
-}
-
-/**
- * A store a capped collection left no member node for takes the name it is registered under, and
- * everything that tells that name from another: the member it came from has no node here to say
- * which one it was.
- */
-function ownedName(entry: StoreEntry, capped: boolean): Naming {
-  return capped
-    ? { name: entry.name, qualifier: ownParts(entry) }
-    : { name: nameForOwner(entry), qualifier: null };
+  return { node: storeNode(held, name, null), sortName: sortName(held) };
 }
 
 /**
@@ -446,6 +434,7 @@ function holderPlacement(pass: Pass, held: Extract<Held, { kind: "node" }>): Pla
       type: info.type,
       ours: info.numbered,
       ordinal: info.numbered ? pass.named : null,
+      walked: info.walked,
       skipped: info.skipped,
       expandedAt: held.expandedAt,
       children: [],

@@ -41,13 +41,6 @@ const STORE_KEYS: ReadonlySet<string> = new Set([
 const MAX_DEPTH = 10;
 
 /**
- * How many members of one collection become nodes of their own, where a binding asks for a number
- * at all. A binding that asks for none is walked whole: how many stores it holds is the
- * developer's business, and drawing 25 of 5000 says the panel found 25.
- */
-export const MAX_MEMBERS = 25;
-
-/**
  * What a node no name in the source reaches is keyed by. It says plainly that the name is ours,
  * rather than borrowing the class name, which the type label already holds.
  */
@@ -175,6 +168,7 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
     ours: written === undefined,
     numbered: written === undefined,
     type: statics ? undefined : typeNameOf(owner),
+    walked: 0,
     skipped: 0,
   });
 
@@ -318,6 +312,7 @@ function walk(
       ours: false,
       numbered: false,
       type: typeNameOf(value),
+      walked: members.drawn.length,
       skipped: members.past.length,
     });
   }
@@ -333,10 +328,6 @@ function walk(
     if (canHold(member)) {
       walk(scan, member, key, reached, value, depth + 1);
     }
-  }
-
-  for (const [, member] of members.past) {
-    placeStores(scan, member, value, depth + 1);
   }
 }
 
@@ -354,35 +345,6 @@ function warnRefused(scan: Scan, name: string, reason: string): void {
     `${place} in "${scan.module.home}" refused to be read, so nothing it holds is in the tree. ` +
       `${reason}`,
   );
-}
-
-/**
- * A member past the cap gets no node of its own, so the stores it holds sit on the collection
- * itself, keeping the names the registry gave them. Dropping them would read as "this is all of
- * it", which is worse than a long list, because the developer stops looking.
- */
-function placeStores(scan: Scan, value: unknown, owner: object, depth: number): void {
-  if (isStore(value)) {
-    recordOwner(scan.module, value, owner, "scan");
-
-    return;
-  }
-
-  if (depth >= scan.maxDepth || !canHold(value)) {
-    return;
-  }
-
-  const members = membersOf(value, scan.maxMembers);
-
-  if (!members.read) {
-    return;
-  }
-
-  for (const [, member] of members.drawn) {
-    if (isStore(member)) {
-      recordOwner(scan.module, member, owner, "scan");
-    }
-  }
 }
 
 /** Everything a node draws apart from what holds it, which is the one thing a walk never replaces. */

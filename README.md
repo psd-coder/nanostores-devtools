@@ -469,14 +469,13 @@ Removes a group and every store in it. Draws one unregister row.
 The bundler plugin. Exported from `/vite`, `/webpack` and `/rspack`, and the same function behind
 all three.
 
-| option             | default                   | what it does                                                  |
-| ------------------ | ------------------------- | ------------------------------------------------------------- |
-| `fileKey`          | the home unchanged        | rewrites the path shown as a store's home                     |
-| `adoptFactories`   | `true`                    | wrap named calls we do not recognise: `true` or `false`       |
-| `storeTypes`       | the packages we ship      | which kind a package's export makes                           |
-| `maxStoresPerSite` | `50`                      | live stores one creation site may hold, 1 or more             |
-| `maxDepth`         | `10`                      | steps into a top-level binding the scan walks, 1 or more      |
-| `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from, Vite only |
+| option           | default                   | what it does                                                  |
+| ---------------- | ------------------------- | ------------------------------------------------------------- |
+| `fileKey`        | the home unchanged        | rewrites the path shown as a store's home                     |
+| `adoptFactories` | `true`                    | wrap named calls we do not recognise: `true` or `false`       |
+| `storeTypes`     | the packages we ship      | which kind a package's export makes                           |
+| `maxDepth`       | `10`                      | steps into a top-level binding the scan walks, 1 or more      |
+| `projectRoot`    | Vite's own workspace root | what a file outside the Vite root is measured from, Vite only |
 
 `adoptFactories` is what catches a codebase that wraps store creation. A call whose result is
 stored under a name is registered, no matter which function it names, so
@@ -503,10 +502,6 @@ A kind is one of `atom`, `map`, `deepMap`, `computed`, `batched` or `unknown`. A
 other kind is refused with a warning, and so is a package whose value is not an object. A refusal
 costs the kind and nothing else: every other entry still merges, the call still reaches the tree by
 adoption, and your build still runs.
-
-`maxStoresPerSite` caps how many live stores one source line may hold, which matters for a factory
-inside a loop. It drops unmounted stores first, the oldest of those first, and never the store just
-made.
 
 `maxDepth` is how far the scan walks into a top-level binding to find the stores under it, counting
 a property, an index and a `Map` key alike. Ten steps by default, which is deeper than state is
@@ -544,11 +539,10 @@ type BundlerPluginOptions = {
   adoptFactories?: boolean;
   // package name, then export name, then the kind that export makes
   storeTypes?: Record<string, Record<string, ThrottleTarget["type"]>>;
-  maxStoresPerSite?: number;
   maxDepth?: number;
 };
 
-// what `/vite` takes: the same five, plus one
+// what `/vite` takes: the same four, plus one
 type VitePluginOptions = BundlerPluginOptions & {
   projectRoot?: string;
 };

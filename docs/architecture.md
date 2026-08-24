@@ -38,7 +38,7 @@ flowchart TB
     direction TB
     src["Your source file"]
     adapter["Adapter<br/>vite.ts / webpack.ts / rspack.ts"]
-    core["core.ts<br/>options, cap, warning dedup"]
+    core["core.ts<br/>options, warning dedup"]
     keys["module-keys.ts<br/>module key + display home"]
     parser["parser.ts<br/>oxc, from vite or oxc-parser"]
     transform["transform.ts<br/>walk the AST, inject calls"]
@@ -115,8 +115,8 @@ An adapter answers only five questions. Everything else is shared:
 - What is the hot-reload line?
 - Where do warnings go?
 
-`core.ts` decides the rest: it reads the options, resolves `maxStoresPerSite`, loads the parser once
-on the first file, and remembers every warning it has already printed so a save does not repeat it.
+`core.ts` decides the rest: it reads the options, loads the parser once on the first file, and
+remembers every warning it has already printed so a save does not repeat it.
 
 ### 3.2 Naming a file
 
@@ -168,7 +168,7 @@ the output looks like this:
 
 ```ts
 import { fileScope as __nsdtFileScope } from "nanostores-devtools/runtime";
-const __nsdt = __nsdtFileScope("src/cart.ts", "src/cart.ts", 50, false);
+const __nsdt = __nsdtFileScope("src/cart.ts", "src/cart.ts", false);
 __nsdt.clear();
 if (import.meta.hot)
   import.meta.hot.prune(() => {
@@ -286,9 +286,6 @@ $counter (a.ts, makeCart, line 12) #2
 Both sides of a clash take the qualifier. One bare `$counter` next to `$counter (line 20)` would not
 say which line the bare one came from. `names.ts` also warns once per clash.
 
-`maxStoresPerSite` (50 by default) caps how many stores one creation site keeps. Unmounted stores go
-first, oldest first, and never the store just made.
-
 ---
 
 ## 6. Ownership: what each store is drawn under
@@ -302,7 +299,7 @@ Three mechanisms record an owner, and each one knows a different amount:
 flowchart LR
   subgraph mech["Three ways to place a store"]
     direction TB
-    scan["own([...])<br/><b>scan</b><br/>walks top-level bindings<br/>up to 3 levels, 25 members"]
+    scan["own([...])<br/><b>scan</b><br/>walks top-level bindings<br/>up to 10 levels"]
     field["store(x, site, this)<br/><b>field</b><br/>a class field initializer"]
     frame["begin() / end()<br/><b>frame</b><br/>stores born while a top-level<br/>initializer ran"]
   end
@@ -317,8 +314,8 @@ flowchart LR
 ```
 
 **The scan** runs at the end of the module body, where every top-level binding holds its value. It
-walks each binding up to three levels deep and up to 25 members per collection. It reads only own
-data properties, so an app getter never runs. An array is named by index, a `Map` by key, a `Set` by
+walks each binding up to ten levels deep, and every member of a collection it meets. It reads only
+own data properties, so an app getter never runs. An array is named by index, a `Map` by key, a `Set` by
 insertion order. Every name it produces is one the developer could type to reach that member.
 
 **The field mechanism** catches a store made in a class field initializer, where `this` is the new

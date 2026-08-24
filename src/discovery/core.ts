@@ -9,7 +9,6 @@ export type DiscoveryOptions = {
   fileKey?: ((path: string) => string) | undefined;
   /** How far adoption reaches: `true` for every named call, `false` for none. */
   adoptFactories?: boolean | undefined;
-  maxStoresPerSite?: number | undefined;
   /**
    * How many steps into a top-level binding the scan walks, counting a property, an index and a
    * key alike. Left out, the walk keeps its own depth, which is deeper than state is usually
@@ -40,34 +39,6 @@ export type Discovery = {
   /** The transform, and the warnings nobody has been told yet. */
   run: (code: string, keys: ModuleKeys) => Promise<{ result: StoreTransform; warnings: string[] }>;
 };
-
-const DEFAULT_MAX_STORES_PER_SITE = 50;
-
-/** The cap the runtime is handed, and what the developer is told when their number is refused. */
-export type StoreCap = { cap: number; warning: string | undefined };
-
-/**
- * `Infinity` is an answer: it says no cap. Every other number a site cannot be held to is refused
- * instead of being changed into a usable one, because a silent 50 for a typed `0` is the opposite
- * of what was asked and says nothing.
- */
-export function resolveStoreCap(value: number | undefined): StoreCap {
-  if (value === undefined) {
-    return { cap: DEFAULT_MAX_STORES_PER_SITE, warning: undefined };
-  }
-
-  if (value === Number.POSITIVE_INFINITY || (Number.isSafeInteger(value) && value >= 1)) {
-    return { cap: value, warning: undefined };
-  }
-
-  return {
-    cap: DEFAULT_MAX_STORES_PER_SITE,
-    warning:
-      `maxStoresPerSite is ${value} in your devtools options, which is no number of stores, so ` +
-      `the plugin holds ${DEFAULT_MAX_STORES_PER_SITE} per site instead. Pass a whole number of 1 ` +
-      `or more, or Infinity for no cap.`,
-  };
-}
 
 /** How deep the scan walks, and what the developer is told when their number is refused. */
 export type WalkDepth = { depth: number | undefined; warning: string | undefined };
@@ -130,13 +101,12 @@ export function resolveAdoption(value: unknown): AdoptionSetting {
  * The ids reaching `keysFor` are already normalised. See `moduleKeys`.
  */
 export function createDiscovery(input: DiscoveryInput): Discovery {
-  const { cap, warning: capWarning } = resolveStoreCap(input.maxStoresPerSite);
   const { depth, warning: depthWarning } = resolveMaxDepth(input.maxDepth);
   const { adopt, warning: adoptWarning } = resolveAdoption(input.adoptFactories);
   /** Merged once for the whole run: the map is the same for every file the plugin is offered. */
   const { types: storeTypes, warnings: typeWarnings } = resolveStoreTypes(input.storeTypes);
   /** All are settled before the first file, so every run raises them and the set below dedupes. */
-  const optionWarnings = [capWarning, depthWarning, adoptWarning, ...typeWarnings].filter(
+  const optionWarnings = [depthWarning, adoptWarning, ...typeWarnings].filter(
     (warning) => warning !== undefined,
   );
   /**
@@ -157,7 +127,6 @@ export function createDiscovery(input: DiscoveryInput): Discovery {
         moduleKey: keys.moduleKey,
         home: keys.home,
         external: keys.external,
-        maxStoresPerSite: cap,
         maxDepth: depth,
         adoptFactories: adopt,
         storeTypes,

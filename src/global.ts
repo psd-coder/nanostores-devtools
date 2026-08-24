@@ -17,6 +17,11 @@ export type SiteState = {
   /** Whether the name says the place it was made, once a second site here claims `name`. */
   placed: boolean;
   made: number;
+  /**
+   * Every store this site registered. A name that turns ambiguous later renames all of them, and
+   * the runtime reads the list to spot one store handed back twice. A factory called twice from one
+   * module body registers twice at one site, so it is a list and not one slot.
+   */
   stores: SiteStore[];
 };
 
@@ -136,7 +141,9 @@ export type NodeInfo = {
    * reference the developer wrote: two containers holding one node both draw it.
    */
   parents: ParentLink[];
-  /** How many members of a collection the walk left out past its cap. */
+  /** How many members of a collection the walk drew, so the `skipped` note can name that number. */
+  walked: number;
+  /** How many members of a collection the walk left out, past the number the binding named. */
   skipped: number;
 };
 

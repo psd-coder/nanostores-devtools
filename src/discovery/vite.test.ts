@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { build, createLogger, createServer, type Plugin, type ViteDevServer } from "vite";
+import { build, createServer, type Plugin, type ViteDevServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
@@ -300,49 +300,6 @@ describe("a file that says nothing about stores in its own text", () => {
       },
     });
     expect(listEntries()).toHaveLength(4);
-  });
-});
-
-describe("a maxStoresPerSite the developer typed wrong", () => {
-  let server: ViteDevServer;
-  const warnings: string[] = [];
-
-  beforeEach(async () => {
-    resetDevtoolsGlobal();
-    warnings.length = 0;
-    server = await createServer({
-      configFile: false,
-      logLevel: "silent",
-      customLogger: {
-        ...createLogger("silent"),
-        warn: (message) => {
-          warnings.push(message);
-        },
-      },
-      root: PROJECT_ROOT,
-      plugins: [nanostoresDevtools({ maxStoresPerSite: -1 }), memoryFixture(FILES)],
-      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
-    });
-
-    await server.ssrLoadModule(APP);
-  });
-
-  afterEach(async () => {
-    await server.close();
-    resetDevtoolsGlobal();
-  });
-
-  /** The fixture is two files, so a warning per transform would land here twice. */
-  it("warns once, naming the option and the number", () => {
-    const named = warnings.filter((line) => line.includes("maxStoresPerSite"));
-
-    expect(named).toHaveLength(1);
-    expect(named[0]).toContain("-1");
-  });
-
-  it("registers the stores under the default cap instead of hanging on the first one", () => {
-    expect(entryNamed("$theme")).toMatchObject({ home: APP_HOME });
-    expect(entryNamed("$router")).toMatchObject({ home: APP_HOME });
   });
 });
 

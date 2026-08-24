@@ -3,7 +3,7 @@ import { atom, computed, deepMap, map, type Store, type WritableAtom } from "nan
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
-import { MAX_MEMBERS, ownBindings, ownField } from "../stores/ownership.ts";
+import { ownBindings, ownField } from "../stores/ownership.ts";
 import {
   listEntries,
   registerStore,
@@ -1296,44 +1296,65 @@ describe("buildSnapshot", () => {
         });
       });
 
-      it("says what a capped collection left out, and loses none of its stores", () => {
-        const members = Array.from({ length: MAX_MEMBERS + 2 }, () => ({ $open: atom(false) }));
+      it("says what a capped collection left out, naming the number the binding carried", () => {
+        const members = Array.from({ length: 4 }, () => ({ $open: atom(false) }));
 
         members.forEach((member, index) => {
           track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
         });
-        ownBindings(FROM, [
-          { name: "many", value: members, exported: false, maxMembers: MAX_MEMBERS },
-        ]);
+        ownBindings(FROM, [{ name: "many", value: members, exported: false, maxMembers: 2 }]);
 
         const held = heldBy("many");
 
-        expect(Object.keys(held)).toHaveLength(MAX_MEMBERS + 3);
+        expect(Object.keys(held)).toEqual(["[0]", "[1]", "…"]);
         expect(held["[0]"]).toEqual({ "$open [store]": false });
-        expect(held["$open #26 [store]"]).toBe(false);
-        expect(held["$open #27 [store]"]).toBe(false);
         expect(held["…"]).toEqual({
           data: {},
-          __serializedType__:
-            "2 more members past the 25 walked; their stores are listed here without a node of " +
-            "their own",
+          __serializedType__: "2 more members past the 2 walked",
         });
       });
 
-      it("keeps the registry ordinal of the one store a single skipped member hung there", () => {
-        const members = Array.from({ length: MAX_MEMBERS + 1 }, () => ({ $open: atom(false) }));
+      /** The scan stops at the number, so a store a wrapper already named keeps its own file row. */
+      it("draws a store past the cap at its file, not under the collection", () => {
+        const members = Array.from({ length: 3 }, () => ({ $open: atom(false) }));
 
         members.forEach((member, index) => {
           track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
         });
-        ownBindings(FROM, [
-          { name: "many", value: members, exported: false, maxMembers: MAX_MEMBERS },
-        ]);
+        ownBindings(FROM, [{ name: "many", value: members, exported: false, maxMembers: 2 }]);
+
+        expect(heldBy("many")["$open #3 [store]"]).toBeUndefined();
+        expect(slot(buildSnapshot(), HOME, "$open #3 [store]")).toBe(false);
+      });
+
+      it("draws every member of a binding that named no number", () => {
+        const members = Array.from({ length: 5000 }, () => ({ $open: atom(false) }));
+
+        members.forEach((member, index) => {
+          track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
+        });
+        ownBindings(FROM, [{ name: "many", value: members, exported: false }]);
 
         const held = heldBy("many");
 
-        expect(held["$open #26 [store]"]).toBe(false);
-        expect(held["$open [store]"]).toBeUndefined();
+        expect(Object.keys(held)).toHaveLength(5000);
+        expect(held["[4999]"]).toEqual({ "$open [store]": false });
+      });
+
+      it("draws every key of a plain object built at run time", () => {
+        const members = Object.fromEntries(
+          Array.from({ length: 5000 }, (_, index) => [`$key${index}`, atom(index)]),
+        );
+
+        Object.values(members).forEach((store, index) => {
+          track(store, `$made #${index + 1}`);
+        });
+        ownBindings(FROM, [{ name: "made", value: members, exported: false }]);
+
+        const held = heldBy("made");
+
+        expect(Object.keys(held)).toHaveLength(5000);
+        expect(held["$key4999 [store]"]).toBe(4999);
       });
 
       it("numbers a name two nodes of one home both want", () => {

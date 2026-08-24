@@ -18,7 +18,6 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     moduleKey: MODULE_KEY,
     home: MODULE_KEY,
     external: false,
-    maxStoresPerSite: 50,
     maxDepth: undefined,
     adoptFactories: true,
     storeTypes: resolveStoreTypes(undefined).types,
@@ -1460,10 +1459,10 @@ describe("the injected header", () => {
     );
   });
 
-  it("carries the module key, the home, the per-site cap and where the file sits", () => {
-    const result = transform(source, { home: "stores", maxStoresPerSite: 25 });
+  it("carries the module key, the home and where the file sits", () => {
+    const result = transform(source, { home: "stores" });
 
-    expect(output(result)).toContain(`__nsdtFileScope("src/stores/cart.ts", "stores", 25, false)`);
+    expect(output(result)).toContain(`__nsdtFileScope("src/stores/cart.ts", "stores", false)`);
   });
 
   it("carries the external flag the plugin passed, because no path spelling says it", () => {
@@ -1472,13 +1471,7 @@ describe("the injected header", () => {
       external: true,
     });
 
-    expect(output(result)).toContain(`"node_modules/nanobots/dist/index.js", 50, true)`);
-  });
-
-  it("writes Infinity as a number the runtime reads back as no cap", () => {
-    const result = transform(source, { maxStoresPerSite: Number.POSITIVE_INFINITY });
-
-    expect(output(result)).toContain(`"src/stores/cart.ts", Infinity, false)`);
+    expect(output(result)).toContain(`"node_modules/nanobots/dist/index.js", true)`);
   });
 
   it("leaves the module body on the next line, so nothing before it moves", () => {
@@ -1494,7 +1487,7 @@ describe("the injected header", () => {
 
     expect(output(result).split("\n")[0]).toBe(
       `import { fileScope as __nsdtFileScope } from "@acme/devtools/runtime"; ` +
-        `const __nsdt = __nsdtFileScope("src/stores/cart.ts", "src/stores/cart.ts", 50, false); ` +
+        `const __nsdt = __nsdtFileScope("src/stores/cart.ts", "src/stores/cart.ts", false); ` +
         `__nsdt.clear(); ` +
         `if (import.meta.webpackHot) import.meta.webpackHot.dispose(() => { __nsdt.clear(); });`,
     );

@@ -1,7 +1,6 @@
 import { DRAWN_UNDER_KEY, MORE_KEY, noted, VALUE_KEY } from "./keys.ts";
 import { noteFor } from "./boxing.ts";
 import { keepBuilt, mark } from "./marker.ts";
-import { MAX_MEMBERS } from "../stores/ownership.ts";
 import { qualify } from "../stores/labels.ts";
 import { isThrottled } from "../timeline/throttle.ts";
 import {
@@ -91,11 +90,7 @@ function renderHeld(node: HolderNode): Record<string, unknown> {
   const drawn = renderNodes(node.children);
 
   if (node.skipped > 0) {
-    drawn[MORE_KEY] = mark(
-      `${node.skipped} more members past the ${MAX_MEMBERS} walked; their stores are ` +
-        `listed here without a node of their own`,
-      {},
-    );
+    drawn[MORE_KEY] = mark(`${node.skipped} more members past the ${node.walked} walked`, {});
   }
 
   return drawn;
