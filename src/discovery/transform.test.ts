@@ -613,6 +613,52 @@ describe("adoption", () => {
   });
 });
 
+describe("an awaited call", () => {
+  const AWAITED = `const $x = await load();\n`;
+
+  it("gives the call the name the binding wrote, not a numbered one", () => {
+    const result = transform(AWAITED);
+
+    expect(metas(result)).toEqual([{ name: "$x", fn: null, line: 1, type: "unknown" }]);
+  });
+
+  it("names one standing under a key by that key", () => {
+    const result = transform(`const holder = { $u: await load() };\n`);
+
+    expect(metas(result)).toEqual([{ name: "$u", fn: null, line: 1, type: "unknown" }]);
+  });
+
+  it("names one standing in an array by its index off the binding", () => {
+    const result = transform(`const $all = [await load(), await load()];\n`);
+
+    expect(metas(result).map((site) => site.name)).toEqual(["$all[0]", "$all[1]"]);
+  });
+
+  it("keeps the kind the package map gives the call", () => {
+    const result = transform(
+      `import { persistentAtom } from "@nanostores/persistent";\n` +
+        `export const $theme = await persistentAtom("theme", "dark");\n`,
+    );
+
+    expect(metas(result)).toEqual([{ name: "$theme", fn: null, line: 2, type: "atom" }]);
+  });
+
+  it("keeps a throttle comment standing over the declaration", () => {
+    const result = transform(`// @nanostores-devtools:throttle 100\nconst $x = await load();\n`);
+
+    expect(metas(result)).toEqual([
+      { name: "$x", fn: null, line: 2, type: "unknown", throttle: 100 },
+    ]);
+  });
+
+  /** A frame must close in the same tick, so one an await stands under would never close. */
+  it("opens no frame around the initializer", () => {
+    const result = transform(AWAITED);
+
+    expect(output(result)).not.toContain("__nsdt.begin(");
+  });
+});
+
 describe("a call no name reaches", () => {
   const IMPORTED = `import { userStore } from "./stores.ts";\n`;
   const IN_A_COMPONENT = `${IMPORTED}export function Row(id) {\n  return userStore(id);\n}\n`;

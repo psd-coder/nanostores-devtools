@@ -753,7 +753,7 @@ function header(input: TransformInput): string {
 }
 
 /**
- * The call an initializer holds, or nothing when it holds none. A TypeScript-only expression is
+ * The call an initializer holds, or nothing when it holds none. A wrapper around the call is
  * looked through first: `pipe(...) as Draft` is a `TSAsExpression`, so a test on the node type
  * alone sees no call at all, and parentheses hide one the same way.
  */
@@ -791,6 +791,9 @@ function bared(node: Written): Written {
     case "TSInstantiationExpression":
     case "ParenthesizedExpression":
       return bared(node.expression);
+    /** An await hands back what the call made, so a name written over the await names the call. */
+    case "AwaitExpression":
+      return bared(node.argument);
     default:
       return node;
   }
