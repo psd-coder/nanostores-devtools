@@ -2,14 +2,7 @@ import { atom, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDevtoolsGlobal, peekDevtoolsGlobal, resetDevtoolsGlobal } from "../global.ts";
-import {
-  beginFrame,
-  endFrame,
-  MAX_MEMBERS,
-  noteBirth,
-  ownBindings,
-  ownField,
-} from "./ownership.ts";
+import { MAX_MEMBERS, ownBindings, ownField } from "./ownership.ts";
 import {
   boundNames,
   drawnParents,
@@ -24,7 +17,6 @@ const HOME = "src/model.ts";
 
 /** The module the bindings come from, which is where a node one of them makes is drawn. */
 const FROM = { home: HOME, external: false, moduleKey: HOME };
-const VENDOR = { home: "vendor/history.ts", external: true, moduleKey: "vendor/history.ts" };
 
 /** A store holding other stores beside its own value, which is what `Object.assign` builds. */
 function holder(value: unknown, held: Record<string, Store>): Store {
@@ -43,17 +35,8 @@ function parentsOf(value: object): object[] {
   return info === undefined ? [] : drawnParents(info);
 }
 
-/** `fn` is the function the store was made inside, and `null` for a site at module level. */
-function track(store: Store, name: string, fn: string | null = null): void {
-  registerStore({
-    store,
-    name,
-    home: HOME,
-    type: "atom",
-    origin: "plugin",
-    external: false,
-    fn,
-  });
+function track(store: Store, name: string): void {
+  registerStore({ store, name, home: HOME, type: "atom", origin: "plugin", external: false });
 }
 
 describe("ownBindings", () => {
@@ -299,11 +282,11 @@ describe("ownBindings", () => {
   it("leaves the entry a wrapper already made alone, and only renames it", () => {
     const $canUndo = atom(false);
 
-    track($canUndo, "$canUndo", "makeDraft");
+    track($canUndo, "$canUndo");
     ownBindings(FROM, [{ name: "$undoable", value: $canUndo, exported: false }]);
 
     expect(listEntries()).toHaveLength(1);
-    expect(listEntries()[0]).toMatchObject({ name: "$undoable", type: "atom", fn: "makeDraft" });
+    expect(listEntries()[0]).toMatchObject({ name: "$undoable", type: "atom" });
   });
 
   describe("the name a binding gives a store", () => {
@@ -1027,280 +1010,6 @@ describe("ownField", () => {
     ownBindings(FROM, [{ name: "shared", value: { $value: editorOne.$value }, exported: false }]);
 
     expect(ownerOf(editorOne.$value)).toBe(editorOne);
-  });
-});
-
-describe("the creation frame", () => {
-  class Editor {
-    $value = atom("");
-  }
-
-  /** A store born while the frame is open, and the `this` of the field it was made in, if any. */
-  function born(store: Store, owner?: object): void {
-    noteBirth(store);
-
-    if (owner !== undefined) {
-      ownField(FROM, store, owner);
-    }
-  }
-
-  beforeEach(() => {
-    resetDevtoolsGlobal();
-  });
-
-  afterEach(() => {
-    resetDevtoolsGlobal();
-  });
-
-  it("stands aside where a container the developer wrote holds the store as well", () => {
-    const $loose = atom(0);
-    const inner = { $loose };
-    const outer = { inner };
-
-    track($loose, "$loose", "makeOuter");
-    beginFrame();
-    born($loose);
-    endFrame(FROM, outer, "outer");
-    ownBindings(FROM, [{ name: "outer", value: outer, exported: true }]);
-
-    /** Both links are recorded, and only the one the developer wrote is drawn. */
-    expect(peekDevtoolsGlobal()?.owners.get($loose)).toHaveLength(2);
-    expect(ownerLinksOf($loose).map((link) => link.owner)).toEqual([inner]);
-  });
-
-  it("draws a store held in a closure under the store the expression returned", () => {
-    const $timeline = atom<string[]>([]);
-    const $draft = atom("");
-
-    beginFrame();
-    born($draft);
-    born($timeline);
-    endFrame(FROM, $draft, "$draft");
-
-    expect(ownerOf($timeline)).toBe($draft);
-    expect(ownerOf($draft)).toBeUndefined();
-  });
-
-  it("keeps placing a store its own file made inside a function", () => {
-    const $timeline = atom<string[]>([]);
-    const $draft = atom("");
-
-    track($timeline, "$timeline", "withUndo");
-    beginFrame();
-    born($timeline);
-    endFrame(FROM, $draft, "$draft");
-
-    expect(ownerOf($timeline)).toBe($draft);
-  });
-
-  /**
-   * `merged([eventAtom(root, "pointerup"), …])`: the argument is its own site, and the atom `merged`
-   * hands back keeps its sources in a closure, so nothing on it leads to them.
-   */
-  it("leaves a store standing at a module-level site of its own where it is", () => {
-    const $source = atom<unknown>(undefined);
-    const $merged = atom<unknown>(undefined);
-
-    track($source, "$merged[0]");
-    beginFrame();
-    born($source);
-    endFrame(FROM, $merged, "$merged");
-
-    expect(ownerOf($source)).toBeUndefined();
-  });
-
-  it("names a node after the binding when the expression returned anything else", () => {
-    const $timeline = atom<string[]>([]);
-    const model = { title: "" };
-
-    beginFrame();
-    born($timeline);
-    endFrame(FROM, model, "model");
-
-    expect(ownerOf($timeline)).toBe(model);
-    expect(nodeInfoOf(model)).toMatchObject({ name: "model", ours: false, type: undefined });
-  });
-
-  it("places nothing when the frame ran in somebody else's file", () => {
-    const $active = atom(false);
-    const resource = { acquire: () => {} };
-
-    beginFrame();
-    born($active);
-    endFrame(VENDOR, resource, "resource");
-
-    expect(ownerLinksOf($active)).toEqual([]);
-    expect(nodeInfoOf(resource)).toBeUndefined();
-  });
-
-  it("still hands its stores up to an outer frame from somebody else's file", () => {
-    const $active = atom(false);
-    const model = { title: "" };
-    const resource = { acquire: () => {} };
-
-    beginFrame();
-    beginFrame();
-    born($active);
-    endFrame(VENDOR, resource, "resource");
-    endFrame(FROM, model, "model");
-
-    expect(ownerOf($active)).toBe(model);
-  });
-
-  it("keys the node with ours when the binding gave it no name", () => {
-    const model = { title: "" };
-
-    beginFrame();
-    born(atom(0));
-    endFrame(FROM, model, null);
-
-    expect(nodeInfoOf(model)).toMatchObject({ name: "ref", ours: true });
-  });
-
-  it("hangs the node a store already sits in under the binding, holding its own fields", () => {
-    beginFrame();
-
-    const editor = new Editor();
-
-    born(editor.$value, editor);
-
-    const hidden = new WeakMap([[{}, editor]]);
-
-    endFrame(FROM, hidden, "hidden");
-
-    expect(nodeInfoOf(hidden)).toMatchObject({ name: "hidden", type: "WeakMap", ours: false });
-    expect(parentsOf(editor)).toEqual([hidden]);
-    expect(ownerOf(editor.$value)).toBe(editor);
-  });
-
-  it("reaches a store a factory made in a class field, which adoption places nowhere", () => {
-    const $made = atom(0);
-
-    beginFrame();
-
-    const editor = new Editor();
-
-    born($made);
-    endFrame(FROM, editor, "editorOne");
-
-    expect(ownerOf($made)).toBe(editor);
-    expect(nodeInfoOf(editor)).toMatchObject({ name: "editorOne", type: "Editor", ours: false });
-  });
-
-  it("hands the stores of a frame inside a frame up to the outer one", () => {
-    const $inner = atom(0);
-    const $part = atom("");
-    const model = { title: "" };
-
-    beginFrame();
-    beginFrame();
-    born($part);
-    born($inner);
-    endFrame(FROM, $part, "$part");
-    endFrame(FROM, model, "model");
-
-    expect(ownerOf($inner)).toBe(model);
-    expect(ownerOf($part)).toBe(model);
-  });
-
-  it("lets the binding scan correct it, so a Map member keeps the key it sits at", () => {
-    const scratch = { $open: atom(false) };
-    const byId = new Map([["scratch", scratch]]);
-
-    beginFrame();
-    born(scratch.$open);
-    endFrame(FROM, byId, "byId");
-
-    expect(ownerOf(scratch.$open)).toBe(byId);
-
-    ownBindings(FROM, [{ name: "byId", value: byId, exported: false }]);
-
-    expect(ownerOf(scratch.$open)).toBe(scratch);
-    expect(nodeInfoOf(scratch)?.name).toBe(`["scratch"]`);
-  });
-
-  it("lets a class field correct it, because a field knows a name and a frame does not", () => {
-    const $made = atom(0);
-
-    beginFrame();
-    born($made);
-    endFrame(FROM, { title: "" }, "model");
-
-    const editor = new Editor();
-
-    ownField(FROM, $made, editor);
-
-    expect(ownerOf($made)).toBe(editor);
-  });
-
-  it("leaves nothing out of a long collection, as the walk over it does", () => {
-    const many = Array.from({ length: MAX_MEMBERS + 2 }, () => ({ $open: atom(false) }));
-
-    beginFrame();
-    endFrame(FROM, many, "many");
-
-    expect(nodeInfoOf(many)?.skipped).toBe(0);
-  });
-
-  it("refuses a node edge that would loop, whatever the expression returned", () => {
-    beginFrame();
-
-    const editor = new Editor();
-
-    born(editor.$value, editor);
-    endFrame(FROM, editor.$value, "$value");
-
-    expect(parentsOf(editor)).toEqual([]);
-    expect(ownerOf(editor.$value)).toBe(editor);
-  });
-
-  it("draws no node for an initializer that returned no object at all", () => {
-    const $timeline = atom<string[]>([]);
-
-    beginFrame();
-    born($timeline);
-    endFrame(FROM, 3, "count");
-
-    expect(ownerOf($timeline)).toBeUndefined();
-  });
-
-  it("places nothing while no frame is open, and brings no registry into being", () => {
-    const $stray = atom(0);
-
-    born($stray);
-    endFrame(FROM, { title: "" }, "model");
-
-    expect(ownerOf($stray)).toBeUndefined();
-    expect(peekDevtoolsGlobal()).toBeUndefined();
-  });
-
-  it("drops a frame the expression threw out of, one microtask later", async () => {
-    const $stray = atom(0);
-
-    expect(() => {
-      beginFrame();
-
-      throw new Error("the initializer threw");
-    }).toThrow();
-
-    await Promise.resolve();
-
-    born($stray);
-    endFrame(FROM, { title: "" }, "model");
-
-    expect(peekDevtoolsGlobal()?.frames).toEqual([]);
-    expect(ownerOf($stray)).toBeUndefined();
-  });
-
-  it("books one drop for the outermost frame, not one for every frame it holds", () => {
-    const book = vi.spyOn(globalThis, "queueMicrotask");
-
-    beginFrame();
-    beginFrame();
-
-    expect(book).toHaveBeenCalledTimes(1);
-
-    book.mockRestore();
   });
 });
 

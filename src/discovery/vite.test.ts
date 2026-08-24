@@ -416,15 +416,23 @@ const HELD_FILES: Record<string, string> = {
     `export const $s = atom("deep");\n` +
     `export function createClient() {\n  return { $value: atom("v") };\n}\n` +
     `export function makeThings() {\n  return { $user: atom("u"), $cart: atom("c") };\n}\n` +
-    `export class Thing {\n  constructor(value) {\n    Object.assign(this, atom(value));\n  }\n}\n`,
+    `export class Thing {\n  constructor(value) {\n    Object.assign(this, atom(value));\n  }\n}\n` +
+    `export class Widget {\n  constructor(value) {\n    this.$value = atom(value);\n  }\n}\n` +
+    `export function merged(left, right) {\n` +
+    `  const $left = atom(left);\n` +
+    `  const $right = atom(right);\n` +
+    `  return atom($left.get() + $right.get());\n}\n`,
   [HELD]:
-    `import { $ready, $a, $b, $s, createClient, makeThings, Thing } from "${PKG}";\n` +
+    `import { $ready, $a, $b, $s, createClient, makeThings, Thing, Widget, merged } ` +
+    `from "${PKG}";\n` +
     `export const $d = $ready;\n` +
     `export const client = createClient();\n` +
     `export const group = { $a, $b };\n` +
     `const { $user, $cart } = makeThings();\n` +
     `export { $user, $cart };\n` +
     `export const $x = new Thing("t");\n` +
+    `export const widget = new Widget("w");\n` +
+    `export const $pointer = merged("up", "move");\n` +
     `export const app = { a: { b: { c: $s } } };\n`,
 };
 
@@ -493,12 +501,22 @@ describe("a store nothing but a binding of the developer's own reaches", () => {
     expect(held()["$x [store]"]).toEqual(unknownStore("t"));
   });
 
+  it("draws a store a `new` expression put on its instance, under that instance", () => {
+    expect(held()["widget"]).toEqual(labelled("Widget", { "$value [store]": unknownStore("w") }));
+  });
+
+  it("draws the binding a call handed back, and nothing the call kept in a closure", () => {
+    expect(held()["$pointer [store]"]).toEqual(unknownStore("upmove"));
+    /** The two atoms `merged` kept are registered by nothing, so ten entries stand here, not twelve. */
+    expect(listEntries()).toHaveLength(10);
+  });
+
   it("draws a store nested deeper than the three levels the walk used to stop at", () => {
     expect(held()["app"]).toEqual({ a: { b: { "c [store]": unknownStore("deep") } } });
   });
 
   it("gives every store it found one entry, at the file that holds it", () => {
-    expect(listEntries().map((entry) => entry.home)).toEqual(Array(8).fill(HELD_HOME));
+    expect(listEntries().map((entry) => entry.home)).toEqual(Array(10).fill(HELD_HOME));
   });
 });
 
@@ -855,7 +873,10 @@ describe("the rows the gate reaches by another route", () => {
           `function makeLocal() {\n  return atom("local");\n}\n` +
           `export const $local = makeLocal();\n` +
           `class Box {\n  $v = atom("v");\n}\n` +
-          `export const box = new Box();\n`,
+          `export const box = new Box();\n` +
+          `// @nanostores-devtools:throttle\n` +
+          `class Timer {\n  $tick = atom(0);\n}\n` +
+          `export const timer = new Timer();\n`,
       },
       SAME,
     );
@@ -872,6 +893,7 @@ describe("the rows the gate reaches by another route", () => {
       "$ternary [store]": 1,
       "$local [store]": "local",
       box: labelled("Box", { "$v [store]": "v" }),
+      timer: labelled("Timer", { "$tick [store]": 0 }),
     });
   });
 });

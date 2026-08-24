@@ -290,7 +290,7 @@ describe("the fixture drawn by the shipped code", () => {
     );
   });
 
-  it("walks a Map by key, and lets the scan correct the frame's own name for the instance", () => {
+  it("walks a Map by key, and lets the scan name the instance the class field left as ours", () => {
     expect(homeOf(EDITOR_HOME)["byId"]).toEqual(
       labelled("Map", { '["scratch"]': labelled("Editor", EDITOR_NODE) }),
     );
@@ -526,13 +526,10 @@ describe("an await, a helper and two functions of one name", () => {
 
   it("places a store made inside an awaited call by the binding that took the result", () => {
     expect(homeOf(REMOTE_HOME)).toEqual({ remote: { "$ready [store]": true } });
-    /** The call is inside a function, so the scan is what named it: the path, and no function. */
-    expect(entryNamed("remote.$ready").fn).toBeNull();
   });
 
   it("draws a store a helper made and a binding adopted flat, not under the helper", () => {
     expect(homeOf(HELPERS_HOME)["$flag [store]"]).toBe(false);
-    expect(entryNamed("$flag").fn).toBeNull();
   });
 
   /**

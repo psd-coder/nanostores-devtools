@@ -120,7 +120,6 @@ function register(store: Store, type: StoreType, name = "$s"): void {
     type,
     origin: "plugin",
     external: false,
-    fn: null,
   });
 }
 

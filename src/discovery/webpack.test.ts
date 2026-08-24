@@ -218,11 +218,11 @@ describe.each(BUNDLERS)("a $name dev build", ({ build }) => {
   });
 
   it("records the line the developer wrote, under a blank line and a type argument", () => {
-    expect(bundle).toMatch(/"name":"\$count","fn":null,"line":4,"type":"atom"/);
+    expect(bundle).toMatch(/"name":"\$count","line":4,"type":"atom"/);
   });
 
   it("keeps the rate a throttle comment named", () => {
-    expect(bundle).toMatch(/"name":"\$ticks","fn":null,"line":7,"type":"atom","throttle":250/);
+    expect(bundle).toMatch(/"name":"\$ticks","line":7,"type":"atom","throttle":250/);
   });
 
   it("puts every store under the file that made it, with its own name and type", () => {

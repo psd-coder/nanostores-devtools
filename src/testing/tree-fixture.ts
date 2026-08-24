@@ -110,7 +110,7 @@ type Timeline<Value> = { entries: Value[]; index: number };
 
 /**
  * \`$timeline\` is a closure variable, so nothing at the end of the module body reaches it and the
- * binding scan cannot see it. Only a creation frame can place it under the store it belongs to.
+ * binding scan cannot see it. It is drawn nowhere.
  */
 function applyUndo<Atom extends WritableAtom>(
   $atom: Atom,
@@ -176,10 +176,9 @@ export const $lastError = atom<string | null>(null);
 import { atom } from "nanostores";
 
 /**
- * The one store the tree draws nowhere. \`$hits\` lives in a closure and \`track\` hands back a
- * function rather than a store, so the frame has nothing to make a parent out of and the binding
- * scan has nothing to walk. What the function returned holds no state, so there is nothing to read
- * \`$hits\` by and the file is no home at all.
+ * \`$hits\` lives in a closure and \`track\` hands back a function rather than a store, so the
+ * binding scan has nothing to walk. What the function returned holds no state, so there is nothing
+ * to read \`$hits\` by and the file is no home at all.
  */
 export function track() {
   const $hits = atom(0);
@@ -214,10 +213,7 @@ import {
   withUndo,
 } from "${VENDOR_DIR}/index.ts";
 
-/**
- * The frame opens without an adopt call, so a store the decorator kept in a closure is placed. The
- * \`!\` is here so the initializer both the frame and adoption look through is a TypeScript node.
- */
+/** The \`!\` is here so the initializer adoption looks through is a TypeScript node. */
 export const $draft = pipe(atom(""), withLocalStorage("editor-draft"), withUndo({ limit: 100 }))!;
 
 /** The second instance, whose nested stores drop the ordinal their creation site gave them. */
@@ -385,7 +381,6 @@ export const many = Array.from({ length: 30 }, () => createPanel());
   [REMOTE]: `
 import { atom } from "nanostores";
 
-/** A frame must not span an \`await\`: it would stay open across every other module's stores. */
 export async function loadRemote() {
   return { $ready: atom(true) };
 }
@@ -409,9 +404,9 @@ function makeFlag() {
 export const $flag = makeFlag();
 
 /**
- * A store this file keeps in a closure, which nothing at the end of the module body reaches. It is
- * the developer's own, so the creation frame still places it under what the call handed back. Its
- * value is a plain object, which draws exactly like a node until you read the key.
+ * A store this file keeps in a closure, which nothing at the end of the module body reaches, so it
+ * is drawn nowhere. What the call handed back holds a plain object, which draws exactly like a node
+ * until you read the key.
  */
 function makeBoard() {
   const $layout = atom({ columns: 2, gap: 8 });
@@ -422,9 +417,8 @@ function makeBoard() {
 export const $board = makeBoard();
 
 /**
- * Two closures a binding holds and no walk can open. \`readOne\` is a function, so the frame around
- * it has nothing to make a parent out of and the scan has nothing to walk, which leaves both stores
- * placed by nothing at all and drawn nowhere.
+ * Two closures a binding holds and no walk can open. \`readOne\` is a function, so the scan has
+ * nothing to walk, which leaves both stores placed by nothing at all and drawn nowhere.
  */
 export function firstRound(): () => number {
   function build() {

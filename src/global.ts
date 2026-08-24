@@ -1,6 +1,5 @@
 import type { Store } from "nanostores";
 
-import { forgetDrawn } from "./tree/drawn.ts";
 import type { RegistryChange, StoreEntry, StoreType } from "./stores/registry.ts";
 import type { Session } from "./session.ts";
 
@@ -12,7 +11,6 @@ export type SiteStore = { store: Store; number: number };
 /** One place in the source where a store is made, plus the live ones it holds, oldest first. */
 export type SiteState = {
   name: string;
-  fn: string | null;
   line: number;
   /** The file the name says it came from, once a second module sharing the home claims `name`. */
   file: string | null;
@@ -60,11 +58,8 @@ export type ModuleScope = {
   linked: Set<WeakRef<object>>;
 };
 
-/**
- * Which mechanism drew an owner edge, which is what decides whether another one may replace it: a
- * frame only knows that a store was born while an expression ran, and the other two know a name.
- */
-export type OwnerSource = "frame" | "scan" | "field";
+/** Which mechanism drew an owner edge: the binding scan, or a class field initializer. */
+export type OwnerSource = "scan" | "field";
 
 /**
  * One top-level binding that holds a store: where it is written, and what it calls the store. The
@@ -101,20 +96,12 @@ export type OwnerLink = {
  * developer wrote. Weak on both sides: the map holds no store held, and the reference to an owner
  * holds none either, so devtools keeps nothing alive that the app has let go.
  *
- * A `scan` link and a `field` link both know a property name, so both are references and every one
- * of them draws. A `frame` knows only that a store was born while an expression ran, which is a
- * claim about when: there is at most one, and it draws only where no other link exists.
+ * Every link is a reference the developer wrote, and every one of them draws.
  */
 export type Owners = WeakMap<Store, OwnerLink[]>;
 
 /** What holds a node, on the same terms an `OwnerLink` holds a store. */
 export type ParentLink = { parent: WeakRef<object>; source: OwnerSource; moduleKey: string };
-
-/**
- * One creation frame, open while a top-level initializer runs, holding the stores born while it
- * was. A store kept in a closure is reachable from nothing, so this is all that places it.
- */
-export type OpenFrame = { stores: Store[] };
 
 /**
  * A thing in the tree that holds others and has no value of its own: a class instance, an object a
@@ -183,8 +170,6 @@ export type DevtoolsGlobal = {
   bound: WeakMap<Store, BoundName[]>;
   /** The nodes drawing has made, which hold stores the registry keeps no place for. */
   nodes: Nodes;
-  /** The creation frames open right now, the innermost last. Empty between two ticks. */
-  frames: OpenFrame[];
   session?: Session | undefined;
 };
 
@@ -224,7 +209,6 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     owners: new WeakMap(),
     bound: new WeakMap(),
     nodes: new WeakMap(),
-    frames: [],
   };
 
   holder()[GLOBAL_KEY] = created;
@@ -260,12 +244,6 @@ export function peekDevtoolsGlobal(): DevtoolsGlobal | undefined {
   return holder()[GLOBAL_KEY];
 }
 
-/**
- * The drawn set lives in its own module rather than behind the shared key, because it is one
- * connection's own record and not a shape two copies of the package have to agree on. It is dropped
- * here even so, or a store the last run drew would still count as drawn for the next one.
- */
 export function resetDevtoolsGlobal(): void {
   delete holder()[GLOBAL_KEY];
-  forgetDrawn();
 }

@@ -1,18 +1,8 @@
 import type { Store } from "nanostores";
 
-import { type BoundName, type NodeInfo, type OwnerSource, peekDevtoolsGlobal } from "../global.ts";
-import { drawnLately } from "./drawn.ts";
+import { type BoundName, type NodeInfo, peekDevtoolsGlobal } from "../global.ts";
 import { getEntry, isStore, type StoreEntry } from "../stores/registry.ts";
 import { primaryName } from "../stores/ownership.ts";
-
-/**
- * Whether a developer can see this store at all: at a key of its own, or inside the value of a
- * store that has one. A store neither of those reaches is one no row can point at, so a row about
- * it names something nobody can look up and its diff shows nothing.
- */
-export function isDrawn(entry: StoreEntry): boolean {
-  return isPlaced(entry) || drawnLately(entry.store);
-}
 
 /**
  * What a row calls the store, which is the key the tree draws it under. A row names something the
@@ -33,21 +23,6 @@ export function rowName(entry: StoreEntry): string {
   }
 
   return drawnOwners(entry.store)[0]?.key ?? entry.name;
-}
-
-/**
- * Whether the tree draws the store anywhere at all.
- *
- * A store made inside a function and placed by nothing is that function's own working state: what
- * the function returned is what the app holds, and the tree draws that already. One made at module
- * level has no function it could belong to, and the file it was written in is already its only
- * holding, so it stays flat there.
- *
- * One test for the tree and for the timeline both, or the two would disagree about which stores
- * exist and a row would announce a store the developer cannot find.
- */
-export function isPlaced(entry: StoreEntry): boolean {
-  return entry.fn === null || placedByDeveloper(entry) || drawnOwners(entry.store).length > 0;
 }
 
 /**
@@ -102,36 +77,18 @@ export type LiveOwnerLink = { owner: object; key: string | undefined };
 /**
  * Every live owner of a store, and the key each one knows it by. An owner the app has let go reads
  * as none, and a store nothing else holds is drawn flat again.
- *
- * **A frame link draws only where nothing else does.** A scan and a field both know a property
- * name, so each is a reference the developer wrote; a frame knows only that the store was born
- * while an expression ran, and letting that stand beside a real reference draws the store twice.
  */
 export function ownerLinksOf(store: Store): LiveOwnerLink[] {
-  return drawnLinks(peekDevtoolsGlobal()?.owners.get(store) ?? []).flatMap((link) => {
+  return (peekDevtoolsGlobal()?.owners.get(store) ?? []).flatMap((link) => {
     const owner = link.owner.deref();
 
     return owner === undefined ? [] : [{ owner, key: link.key }];
   });
 }
 
-/**
- * The links the tree draws: every one the developer wrote, or the one frame link where they wrote
- * none. Shared by a store's owners and a node's parents, because the rule is about what a link
- * knows and not about what it holds.
- */
-function drawnLinks<TLink extends { source: OwnerSource }>(links: readonly TLink[]): TLink[] {
-  const written = links.filter((link) => link.source !== "frame");
-
-  return written.length > 0 ? written : [...links];
-}
-
-/**
- * Every parent the tree can draw a node under, in the order the links were recorded, on the same
- * terms an owner link is read: a frame parent stands only where no written reference does.
- */
+/** Every parent the tree can draw a node under, in the order the links were recorded. */
 export function drawnParents(info: NodeInfo): object[] {
-  return drawnLinks(info.parents).flatMap((link) => {
+  return info.parents.flatMap((link) => {
     const parent = link.parent.deref();
 
     return parent === undefined || !drawable(parent) ? [] : [parent];

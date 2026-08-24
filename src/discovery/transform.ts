@@ -12,7 +12,6 @@ import type {
   Expression,
   ImportDeclaration,
   ModuleExportName,
-  NewExpression,
   ObjectExpression,
   PropertyKey as NodePropertyKey,
   Program,
@@ -74,12 +73,11 @@ const CREATORS: ReadonlyMap<string, StoreType> = new Map<string, StoreType>([
 ]);
 
 /**
- * A name frame carries what a store born under it is called. A function frame and a block frame
- * both say the call under them is not held: a binding made there dies where it was made, so no
- * name outside can reach the store. `self` is whether `this` here is still the class a field
- * initializer runs for.
+ * One scope the walk stands in. A function frame and a block frame both say the call under them is
+ * not held: a binding made there dies where it was made, so no name outside can reach the store.
+ * `self` is whether `this` here is still the class a field initializer runs for.
  */
-type Frame = { fn: boolean; block: boolean; name: string | null; self: boolean };
+type Frame = { fn: boolean; block: boolean; self: boolean };
 
 /**
  * One call the transform wraps, the runtime function it hands the call to, and whether it hands
@@ -92,12 +90,6 @@ type Injection = {
   site: CreationSite;
   self: boolean;
 };
-
-/**
- * One top-level initializer a creation frame is opened around: where it starts and ends, the name
- * of the function it calls, if that is an identifier at all, and the binding the frame closes on.
- */
-type FramedInit = { start: number; end: number; callee: string | null; site: CreationSite };
 
 /**
  * One name the file brings in: the module it came from, and the export it reads there. A default
@@ -186,9 +178,6 @@ export function transformStores(input: TransformInput): StoreTransform {
   const bound: string[] = [];
   /** Which of them the developer exported, which is the name the app knows a store by. */
   const exported = new Set<string>();
-  const initializers: FramedInit[] = [];
-  /** Where an `await` stands, which drops the frame around it once the walk has been through. */
-  const awaits: number[] = [];
   /** The statements a throttle comment stands over, so every site inside one carries the flag. */
   const throttled: Mark[] = [];
   /** The statements an ignore comment stands over, which the transform leaves as they were. */
@@ -204,28 +193,19 @@ export function transformStores(input: TransformInput): StoreTransform {
     return ignored.some((span) => start >= span.start && start < span.end);
   }
 
-  function currentName(): string | null {
-    const top = stack.at(-1);
-
-    return top === undefined || top.fn ? null : top.name;
-  }
-
-  function currentFn(): string | null {
-    return stack.findLast((frame) => frame.fn)?.name ?? null;
-  }
-
   /** A field initializer's `this` reaches through everything but a function of its own. */
   function currentSelf(): boolean {
     return stack.at(-1)?.self ?? false;
   }
 
-  function pushName(name: string | null, self = currentSelf()): void {
-    stack.push({ fn: false, block: false, name, self });
+  /** A scope that binds no `this` of its own: a declarator, a property key, a method key. */
+  function pushScope(): void {
+    stack.push({ fn: false, block: false, self: currentSelf() });
   }
 
   /** A function of its own binds `this` again, which only an arrow leaves alone. */
-  function pushFn(name: string | null, self = false): void {
-    stack.push({ fn: true, block: false, name: name ?? currentName(), self });
+  function pushFn(self = false): void {
+    stack.push({ fn: true, block: false, self });
   }
 
   /**
@@ -234,7 +214,7 @@ export function transformStores(input: TransformInput): StoreTransform {
    * a call there made.
    */
   function pushBlock(): void {
-    stack.push({ fn: false, block: true, name: null, self: currentSelf() });
+    stack.push({ fn: false, block: true, self: currentSelf() });
   }
 
   /**
@@ -243,7 +223,7 @@ export function transformStores(input: TransformInput): StoreTransform {
    * store born deeper inside it is not named after the field either.
    */
   function pushField(node: Keyed): void {
-    stack.push({ fn: true, block: false, name: null, self: !node.computed });
+    stack.push({ fn: true, block: false, self: !node.computed });
   }
 
   function pop(): void {
@@ -363,7 +343,7 @@ export function transformStores(input: TransformInput): StoreTransform {
    * makes. That is the same reach the statement itself has, and the name a mark is read back under.
    */
   function siteAt(start: number, name: string | null, type: StoreType): CreationSite {
-    const site: CreationSite = { name, fn: currentFn(), line: lineOf(lines, start), type };
+    const site: CreationSite = { name, line: lineOf(lines, start), type };
 
     const span = throttled.find((held) => start >= held.start && start < held.end);
 
@@ -479,8 +459,7 @@ export function transformStores(input: TransformInput): StoreTransform {
    * and take the module down.
    *
    * Every name a pattern binds is listed, so `const { $user, $cart } = makeThings()` reaches the
-   * scan as two bindings. A frame is opened for a plain identifier alone: it closes on the one
-   * value the initializer returned, and a pattern takes that value apart into several.
+   * scan as two bindings.
    */
   function readBindings(statement: TopLevel): void {
     const exportedHere = statement.type === "ExportNamedDeclaration";
@@ -502,10 +481,6 @@ export function transformStores(input: TransformInput): StoreTransform {
           exported.add(name);
         }
       }
-
-      if (declarator.id.type === "Identifier" && declarator.init !== null) {
-        readFrame(declarator.id.name, declarator.init);
-      }
     }
   }
 
@@ -524,29 +499,6 @@ export function transformStores(input: TransformInput): StoreTransform {
         exported.add(exportName(specifier.local));
       }
     }
-  }
-
-  /**
-   * A frame is opened around a top-level initializer that calls something, `new Thing()` included.
-   * Whether the call is a plain creator is settled after the walk, because an import may stand
-   * below the binding that uses it.
-   */
-  function readFrame(name: string, init: Expression): void {
-    const call = calledIn(init);
-
-    if (call === undefined) {
-      return;
-    }
-
-    initializers.push({
-      start: init.start,
-      end: init.end,
-      callee:
-        call.type === "CallExpression" && call.callee.type === "Identifier"
-          ? call.callee.name
-          : null,
-      site: siteAt(init.start, name, "unknown"),
-    });
   }
 
   for (const comment of parsed.comments) {
@@ -604,20 +556,9 @@ export function transformStores(input: TransformInput): StoreTransform {
     }
   }
 
-  function pushKey(node: Keyed): void {
-    pushName(keyName(node.key, node.computed));
-  }
-
-  function pushDeclared(node: { id: { name: string } | null }): void {
-    pushFn(node.id?.name ?? null);
-  }
-
   new input.parser.Visitor({
     ArrayExpression: readArray,
     ObjectExpression: readObject,
-    AwaitExpression(node) {
-      awaits.push(node.start);
-    },
     BlockStatement: pushBlock,
     "BlockStatement:exit": pop,
     StaticBlock: pushBlock,
@@ -640,16 +581,16 @@ export function transformStores(input: TransformInput): StoreTransform {
     },
     ChainExpression: readChain,
     VariableDeclarator(node) {
-      const name = node.id.type === "Identifier" ? node.id.name : null;
-
-      pushName(name);
+      pushScope();
 
       if (node.init !== null) {
+        const name = node.id.type === "Identifier" ? node.id.name : null;
+
         namedValues.set(bared(node.init).start, name);
       }
     },
     "VariableDeclarator:exit": pop,
-    Property: pushKey,
+    Property: pushScope,
     "Property:exit": pop,
     /**
      * A field initializer runs with `this` bound to the new instance, and a static one with `this`
@@ -659,14 +600,18 @@ export function transformStores(input: TransformInput): StoreTransform {
      */
     PropertyDefinition: pushField,
     "PropertyDefinition:exit": pop,
-    MethodDefinition: pushKey,
+    MethodDefinition: pushScope,
     "MethodDefinition:exit": pop,
-    FunctionDeclaration: pushDeclared,
+    FunctionDeclaration() {
+      pushFn();
+    },
     "FunctionDeclaration:exit": pop,
-    FunctionExpression: pushDeclared,
+    FunctionExpression() {
+      pushFn();
+    },
     "FunctionExpression:exit": pop,
     ArrowFunctionExpression() {
-      pushFn(null, currentSelf());
+      pushFn(currentSelf());
     },
     "ArrowFunctionExpression:exit": pop,
   } satisfies VisitorObject).visit(parsed.program);
@@ -699,18 +644,6 @@ export function transformStores(input: TransformInput): StoreTransform {
     return { changed: false, warnings: [...warnings] };
   }
 
-  /**
-   * A plain creator needs no frame: it makes the one store the wrap around it already names. A
-   * frame around an `await` is dropped instead, because one must close in the same tick or it
-   * catches every store made anywhere until it does, and the `await` beneath a frame is only known
-   * once the walk has been through it.
-   */
-  const framed = initializers.filter(
-    (init) =>
-      (init.callee === null || !creators.has(init.callee)) &&
-      !awaits.some((at) => at >= init.start && at < init.end),
-  );
-
   const edited = new MagicString(input.code);
 
   for (const injection of [...wraps, ...adopted]) {
@@ -718,12 +651,6 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     edited.prependRight(injection.start, `${SCOPE}.${injection.call}(`);
     edited.appendLeft(injection.end, `, ${JSON.stringify(injection.site)}${owner})`);
-  }
-
-  /** Last, so a frame sharing an initializer's bounds with an adopt call stands outside it. */
-  for (const init of framed) {
-    edited.prependRight(init.start, `${SCOPE}.end((${SCOPE}.begin(), `);
-    edited.appendLeft(init.end, `), ${JSON.stringify(init.site)})`);
   }
 
   edited.prepend(header(input));
@@ -771,17 +698,6 @@ function header(input: TransformInput): string {
     `const ${SCOPE} = ${FACTORY}(${args}); ${SCOPE}.clear(); ` +
     `${input.hotReload(`${SCOPE}.clear();`)}\n`
   );
-}
-
-/**
- * The call an initializer holds, or nothing when it holds none. A wrapper around the call is
- * looked through first: `pipe(...) as Draft` is a `TSAsExpression`, so a test on the node type
- * alone sees no call at all, and parentheses hide one the same way.
- */
-function calledIn(node: Expression): CallExpression | NewExpression | undefined {
-  const bare = bared(node);
-
-  return bare.type === "CallExpression" || bare.type === "NewExpression" ? bare : undefined;
 }
 
 /**

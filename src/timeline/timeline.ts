@@ -1,6 +1,5 @@
 import { catchAndWarn } from "../utils/catch-and-warn.ts";
 import { peekDevtoolsGlobal } from "../global.ts";
-import { isDrawn } from "../tree/placement.ts";
 import { getEntry, listEntries, type StoreEntry } from "../stores/registry.ts";
 import { activeSession, type Session } from "../session.ts";
 import { captureStack, type StackBoundary } from "./stack.ts";
@@ -84,7 +83,7 @@ export function openDirectRow(
 ): void {
   const session = activeSession();
 
-  if (!session || !isDrawn(entry)) {
+  if (!session) {
     return;
   }
 
@@ -149,7 +148,7 @@ export function sendLifecycleRow(
 export function appendFollower(entry: StoreEntry): void {
   const session = activeSession();
 
-  if (!session || !isDrawn(entry)) {
+  if (!session) {
     return;
   }
 

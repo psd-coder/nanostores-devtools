@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "./connect.ts";
 import { resetDevtoolsGlobal } from "../global.ts";
-import { getEntry, listEntries, registerStore, trackStores } from "../stores/registry.ts";
+import { getEntry, listEntries, trackStores } from "../stores/registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import { EXTENSION_OPTIONS } from "../testing/panel.ts";
 import { hasHooks, keepHooks } from "../stores/unhook.ts";
@@ -380,55 +380,6 @@ describe("connectDevtools", () => {
       fake.start();
 
       expect(fake.inits).toHaveLength(2);
-    });
-  });
-
-  /**
-   * The obligation `src/drawn.ts` states, over the walk that carries it. `isDrawn` gates every
-   * timeline row on that set, and a store the tree draws only inside another store's value has no
-   * key of its own, so until the value walk has noted it the model believes nobody can see it. A
-   * view whose walk skipped the note would drop the rows of a store plainly on screen.
-   */
-  describe("the note a value walk owes the model", () => {
-    /** The plugin's shape for a store made inside a function, which no key of the tree reaches. */
-    function registerUnplaced(name: string, store: Store): void {
-      registerStore({
-        store,
-        name,
-        home: "src/stores/panel.ts",
-        type: "atom",
-        origin: "plugin",
-        external: false,
-        fn: "makePanel",
-      });
-    }
-
-    it("draws a held store's rows only after a tree drew it, and none before", async () => {
-      const $held = atom(0);
-      const $panel = atom<unknown>(null);
-
-      registerUnplaced("$held", $held);
-      trackStores("panel", { $panel });
-      connectDevtools();
-
-      await endOfTurn();
-      fake.start();
-
-      $held.set(1);
-
-      await endOfTurn();
-
-      expect(fake.sends).toHaveLength(0);
-
-      $panel.set({ held: $held });
-
-      await endOfTurn();
-
-      $held.set(2);
-
-      await endOfTurn();
-
-      expect(fake.sends.map((call) => call.action.type)).toEqual(["$panel/set", "$held/set"]);
     });
   });
 });

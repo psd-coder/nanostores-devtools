@@ -1,4 +1,3 @@
-import { isPlaced } from "../tree/placement.ts";
 import { nameKey, type RegistryChange, type StoreEntry } from "../stores/registry.ts";
 import { activeSession, type Session } from "../session.ts";
 import {
@@ -83,18 +82,11 @@ export function noteUnmount(entry: StoreEntry): void {
   drawRow(entry, "unmount");
 }
 
-/**
- * One row each, because a mount and an unmount are real app events and happen far apart.
- *
- * A store the tree draws nowhere gets none. A lifecycle row is there to explain a tree that changed
- * shape, and a store with no place in it changes no shape, so the row would be a line the developer
- * cannot follow to anything. Read at the moment the row would go out, which is late enough for every
- * store made at runtime and one beat early for a store that mounts inside its own module body.
- */
+/** One row each, because a mount and an unmount are real app events and happen far apart. */
 function drawRow(entry: StoreEntry, op: "mount" | "unmount"): void {
   const session = drawingSession();
 
-  if (session && isPlaced(entry)) {
+  if (session) {
     openLifecycleRow(session, { kind: "store", entry }, op, [{ entry, op }]);
   }
 }
@@ -106,9 +98,8 @@ function drawingSession(): Session | undefined {
 }
 
 /**
- * Placement is read here and not where the change was noted: the binding scan runs at the end of a
- * module body, so a store noted while that body was still running has not been placed yet. This
- * flush is a microtask later, by which time every mechanism has had its turn.
+ * A microtask after the change was noted, so a whole module body's worth of registers and
+ * unregisters meet here and leave as one row rather than a line each.
  */
 function flushPending(session: Session): void {
   const pending = session.lifecycle.pending.splice(0);
@@ -117,7 +108,7 @@ function flushPending(session: Session): void {
     return;
   }
 
-  for (const group of groupPending(pending.filter(({ entry }) => isPlaced(entry)))) {
+  for (const group of groupPending(pending)) {
     sendLifecycleRow(session, group.subject, group.op, group.changes);
   }
 }

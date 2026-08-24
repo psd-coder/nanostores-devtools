@@ -116,7 +116,7 @@ function claimInModule(scope: ModuleScope, state: SiteState, home: string): void
 
 /** Source order, which a run can reach a site in and a message should still read in. */
 function bySource(one: SiteState, other: SiteState): number {
-  return one.line - other.line || (one.fn ?? "").localeCompare(other.fn ?? "");
+  return one.line - other.line;
 }
 
 /**
@@ -282,7 +282,6 @@ function redisplay(state: SiteState, home: string): void {
         type: entry.type,
         origin: "plugin",
         external: entry.external,
-        fn: state.fn,
         ...siteParts(state, held.number),
       });
     }
@@ -290,7 +289,7 @@ function redisplay(state: SiteState, home: string): void {
 }
 
 function placeOf(state: SiteState): string {
-  return state.fn === null ? `line ${state.line}` : `${state.fn}, line ${state.line}`;
+  return `line ${state.line}`;
 }
 
 /**

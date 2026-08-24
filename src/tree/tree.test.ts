@@ -2,7 +2,7 @@ import { atom, computed, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
-import { beginFrame, endFrame, noteBirth, ownBindings } from "../stores/ownership.ts";
+import { ownBindings } from "../stores/ownership.ts";
 import { registerStore, type StoreType, trackStores } from "../stores/registry.ts";
 import { buildTree, type HolderNode, type StoreNode, type TreeNode } from "./tree.ts";
 
@@ -14,9 +14,8 @@ function track(
   name: string,
   type: StoreType = "atom",
   place: string | null = null,
-  fn: string | null = null,
 ): void {
-  registerStore({ store, name, home: HOME, type, place, origin: "plugin", external: false, fn });
+  registerStore({ store, name, home: HOME, type, place, origin: "plugin", external: false });
 }
 
 function homeAt(home: string): TreeNode[] {
@@ -57,7 +56,6 @@ describe("buildTree", () => {
       type: "atom",
       origin: "plugin",
       external: true,
-      fn: null,
     });
 
     expect(buildTree().homes.map((group) => [group.home, group.kind])).toEqual([
@@ -70,19 +68,11 @@ describe("buildTree", () => {
   it("keeps the name, what qualifies it and its number in fields of their own", () => {
     const $first = atom(1);
     const $second = computed(atom(1), (count) => count + 1);
-    const $draft = atom("");
 
-    track($draft, "$draft");
-    track($first, "$sum", "atom", "line 20", "makeCart");
-    track($second, "$sum", "computed", "line 30", "makeCart");
-    beginFrame();
-    noteBirth($first);
-    noteBirth($second);
-    endFrame(FROM, $draft, "$draft");
-    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
+    track($first, "$sum", "atom", "line 20");
+    track($second, "$sum", "computed", "line 30");
 
-    const [drawn] = storesIn(homeAt(HOME));
-    const held = storesIn(drawn?.children ?? []);
+    const held = storesIn(homeAt(HOME));
 
     expect(held.map((node) => node.name)).toEqual(["$sum", "$sum"]);
     expect(held.map((node) => node.qualifier?.place)).toEqual(["line 20", "line 30"]);

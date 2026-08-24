@@ -16,7 +16,6 @@ import {
   ownFields,
   ownIndexes,
 } from "../values/descriptor.ts";
-import { noteDrawn } from "../tree/drawn.ts";
 import { DEFAULT_VALUE_LIMITS, type ValueLimits } from "../values/limits.ts";
 import { MORE_KEY, noted, TO_STRING_KEY, VALUE_OF_KEY } from "./keys.ts";
 import { dataForMark, noteFor, reachesStore } from "./boxing.ts";
@@ -800,8 +799,6 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
   const slot = staleNote(store, entry);
   const named = noted(key, entry?.type ?? "unknown", entry !== undefined && isThrottled(entry));
 
-  noteDrawn(store);
-
   if (slot.state !== "live") {
     const note = noteFor(store, slot);
 
@@ -833,8 +830,6 @@ function storeSlot(kept: Kept, key: string, store: Store): [string, unknown] {
 function markStore(kept: Kept, store: Store): Marked {
   const entry = getEntry(store);
   const slot = staleNote(store, entry);
-
-  noteDrawn(store);
 
   if (slot.state === "live") {
     return markAt(kept, store, storeWord(entry?.type), dataForMark(store, slot.value), FREE);

@@ -18,7 +18,7 @@ const CAP = 50;
 let fake: FakeExtension;
 
 function site(overrides: Partial<CreationSite> = {}): CreationSite {
-  return { name: "$items", fn: null, line: 3, type: "atom", ...overrides };
+  return { name: "$items", line: 3, type: "atom", ...overrides };
 }
 
 /** The owner the tree expands the store under, which is the first link recorded. */
@@ -99,18 +99,6 @@ describe("store", () => {
     });
   });
 
-  it("carries the enclosing function of the site, which drawing falls back to", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP, false);
-    const $hits = atom(0);
-    const $items = atom<string[]>([]);
-
-    scope.store($hits, site({ name: "$hits", fn: "track" }));
-    scope.store($items, site());
-
-    expect(getEntry($hits)?.fn).toBe("track");
-    expect(getEntry($items)?.fn).toBeNull();
-  });
-
   it("carries the throttle comment the site read, which marks the store on its own", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $frame = atom(0);
@@ -123,14 +111,14 @@ describe("store", () => {
     expect(getEntry($other)?.throttle).toMatchObject({ commented: false, marked: false });
   });
 
-  it("keeps the enclosing function through the rename a name clash forces", () => {
+  it("shows the line the store was made at once a name clash forces it", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $hits = atom(0);
 
-    scope.store($hits, site({ name: "$hits", fn: "track", line: 3 }));
-    scope.store(atom(0), site({ name: "$hits", fn: "sample", line: 9 }));
+    scope.store($hits, site({ name: "$hits", line: 3 }));
+    scope.store(atom(0), site({ name: "$hits", line: 9 }));
 
-    expect(getEntry($hits)).toMatchObject({ name: "$hits", place: "track, line 3", fn: "track" });
+    expect(getEntry($hits)).toMatchObject({ name: "$hits", place: "line 3" });
   });
 
   it("carries where the file sits, so a store from somebody else's file says so", () => {
@@ -227,18 +215,18 @@ describe("store", () => {
 describe("a name two source lines claim", () => {
   const TWO_PLACES =
     `[nanostores-devtools] "$counter" is made in 2 places in "src/stores/cart.ts": ` +
-    `makeCart, line 12 and line 20. Each entry shows its place.`;
+    `line 12 and line 20. Each entry shows its place.`;
   const THREE_PLACES =
     `[nanostores-devtools] "$counter" is made in 3 places in "src/stores/cart.ts": ` +
-    `makeCart, line 12, line 20 and line 31. Each entry shows its place.`;
+    `line 12, line 20 and line 31. Each entry shows its place.`;
 
-  it("qualifies both entries with the enclosing function and the line", () => {
+  it("qualifies both entries with the line they were made at", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
-    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
 
-    expect(names()).toEqual(["$counter (makeCart, line 12)", "$counter (line 20)"]);
+    expect(names()).toEqual(["$counter (line 12)", "$counter (line 20)"]);
   });
 
   it("keeps the plain name on both, so the two share the row name the timeline writes", async () => {
@@ -262,7 +250,7 @@ describe("a name two source lines claim", () => {
   it("warns once and names both places", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
-    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
 
     expect(warnings()).toEqual([TWO_PLACES]);
@@ -271,29 +259,25 @@ describe("a name two source lines claim", () => {
   it("warns again for the third place and names all three", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
-    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
     scope.store(atom(0), site({ name: "$counter", line: 31 }));
 
-    expect(names()).toEqual([
-      "$counter (makeCart, line 12)",
-      "$counter (line 20)",
-      "$counter (line 31)",
-    ]);
+    expect(names()).toEqual(["$counter (line 12)", "$counter (line 20)", "$counter (line 31)"]);
     expect(warnings()).toEqual([TWO_PLACES, THREE_PLACES]);
   });
 
   it("says nothing again when a reload reaches the same two places", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
 
-    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
 
     const reloaded = fileScope(MODULE_ID, HOME, CAP, false);
 
     reloaded.clear();
     reloaded.store(atom(0), site({ name: "$counter", line: 20 }));
-    reloaded.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    reloaded.store(atom(0), site({ name: "$counter", line: 12 }));
 
     expect(warnings()).toEqual([TWO_PLACES]);
   });
@@ -303,7 +287,7 @@ describe("a name two source lines claim", () => {
 
     scope.store(atom(0), site({ name: "$counter", line: 31 }));
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
-    scope.store(atom(0), site({ name: "$counter", fn: "makeCart", line: 12 }));
+    scope.store(atom(0), site({ name: "$counter", line: 12 }));
 
     expect(warnings().at(-1)).toBe(THREE_PLACES);
   });
@@ -898,83 +882,6 @@ describe("own", () => {
   });
 });
 
-describe("begin and end", () => {
-  it("returns exactly what it was given", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP, false);
-    const $draft = atom("");
-
-    scope.begin();
-
-    expect(scope.end($draft, site({ name: "$draft" }))).toBe($draft);
-  });
-
-  /**
-   * The frame catches every store born while the expression ran, however many files down. One
-   * still homed in somebody else's file is one that file kept: what it handed over is adopted at
-   * the call site and takes the caller's home, and the binding scan reaches whatever that value
-   * carries. So the frame places nothing of the library's own.
-   */
-  it("places no store somebody else's factory kept, even under the binding that called it", () => {
-    const caller = fileScope(MODULE_ID, HOME, CAP, false);
-    const factory = fileScope("/repo/vendor/undo.ts", "vendor/undo.ts", CAP, true);
-    const $draft = atom("");
-
-    caller.begin();
-
-    const $timeline = factory.store(
-      atom<string[]>([]),
-      site({ name: "$timeline", fn: "withUndo" }),
-    );
-
-    caller.store($draft, site({ name: "$draft" }));
-    caller.end($draft, site({ name: "$draft", type: "unknown" }));
-
-    expect(ownerLinksOf($timeline)).toEqual([]);
-    expect(names()).toEqual(["$timeline", "$draft"]);
-  });
-
-  it("places a store a factory of the developer's own kept, under the binding that called it", () => {
-    const caller = fileScope(MODULE_ID, HOME, CAP, false);
-    const helper = fileScope("/repo/src/helpers.ts", "src/helpers.ts", CAP, false);
-    const $draft = atom("");
-
-    caller.begin();
-
-    const $timeline = helper.store(atom<string[]>([]), site({ name: "$timeline", fn: "withUndo" }));
-
-    caller.store($draft, site({ name: "$draft" }));
-    caller.end($draft, site({ name: "$draft", type: "unknown" }));
-
-    expect(ownerOf($timeline)).toBe($draft);
-  });
-
-  it("names the node after the binding, in the module the binding was written in", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP, false);
-    const model = { $open: atom(false) };
-
-    scope.begin();
-    /** Made inside a function, or the store would stand at its own site and want no frame. */
-    scope.store(model.$open, site({ name: "$open", fn: "makeOpen" }));
-    scope.end(model, site({ name: "model", type: "unknown" }));
-
-    expect(ownerOf(model.$open)).toBe(model);
-    expect(nodeInfoOf(model)).toMatchObject({ name: "model", home: HOME, external: false });
-  });
-
-  it("catches no store the registry already knew, so an adopted one keeps its place", () => {
-    const scope = fileScope(MODULE_ID, HOME, CAP, false);
-    const $shared = atom(0);
-    const panel = { title: "" };
-
-    scope.store($shared, site({ name: "$shared" }));
-    scope.begin();
-    scope.adopt($shared, site({ name: "$shared", type: "unknown" }));
-    scope.end(panel, site({ name: "panel", type: "unknown" }));
-
-    expect(ownerOf($shared)).toBeUndefined();
-  });
-});
-
 /**
  * A known limit, pinned so it stays known: the factory's module did not re-run, so it did not
  * clear, and the caller's reload adds to what the run before it left.
@@ -996,8 +903,8 @@ describe("a factory defined in one module and called from another", () => {
     const factory = fileScope(FACTORY_ID, FACTORY_HOME, 50, false);
 
     reload(2, () => {
-      factory.store(atom(0), site({ fn: "makeCart" }));
-      factory.store(atom(0), site({ fn: "makeCart" }));
+      factory.store(atom(0), site());
+      factory.store(atom(0), site());
     });
 
     expect(names()).toEqual(["$items", "$items #2", "$items #3", "$items #4"]);
@@ -1007,7 +914,7 @@ describe("a factory defined in one module and called from another", () => {
     const factory = fileScope(FACTORY_ID, FACTORY_HOME, 2, false);
 
     reload(5, () => {
-      factory.store(atom(0), site({ fn: "makeCart" }));
+      factory.store(atom(0), site());
     });
 
     expect(names()).toEqual(["$items #4", "$items #5"]);
@@ -1019,7 +926,7 @@ describe("a factory defined in one module and called from another", () => {
     reload(3, (caller) => {
       const $made = atom(0);
 
-      factory.store($made, site({ fn: "makeCart" }));
+      factory.store($made, site());
       caller.adopt($made, site({ name: "$cart", line: 5, type: "unknown" }));
     });
 
@@ -1057,7 +964,7 @@ describe("clear", () => {
     const shared = fileScope("/repo/src/shared.ts", "src/shared.ts", CAP, false);
     const $width = atom(0);
 
-    shared.store($width, site({ name: "$width", fn: "makeLayout" }));
+    shared.store($width, site({ name: "$width" }));
 
     function save(): void {
       const page = fileScope(MODULE_ID, HOME, CAP, false);
@@ -1081,7 +988,7 @@ describe("clear", () => {
     const $w = atom(0);
     const held = { $w };
 
-    shared.store($w, site({ name: "$w", fn: "makeShared" }));
+    shared.store($w, site({ name: "$w" }));
 
     /** `held` is the same object on every save, and the container around it is a new one. */
     function save(): void {
@@ -1107,7 +1014,7 @@ describe("clear", () => {
     const $width = atom(0);
     const bounds = [$width];
 
-    shared.store($width, site({ name: "$width", fn: "makeLayout" }));
+    shared.store($width, site({ name: "$width" }));
     shared.own([{ name: "bounds", value: bounds, exported: true }]);
     page.own([{ name: "layout", value: { width: $width }, exported: true }]);
     fileScope(MODULE_ID, HOME, CAP, false).clear();
@@ -1141,7 +1048,7 @@ describe("clear", () => {
     const $draft = Object.assign(atom(""), { $canUndo });
 
     shared.store($draft, site({ name: "$draft" }));
-    shared.store($canUndo, site({ name: "$canUndo", fn: "withUndo" }));
+    shared.store($canUndo, site({ name: "$canUndo" }));
     shared.own([{ name: "$draft", value: $draft, exported: true }]);
     page.own([{ name: "$undoable", value: $canUndo, exported: true }]);
 

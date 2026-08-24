@@ -31,7 +31,6 @@ function plugin(
     type: "atom",
     origin: "plugin",
     external: false,
-    fn: null,
     ...overrides,
   };
 }
@@ -297,27 +296,6 @@ describe("registry", () => {
         type: "batched",
         origin: "explicit",
       });
-    });
-
-    it("keeps the enclosing function of the site that registered the store last", () => {
-      const $draft = atom("");
-
-      registerStore(plugin({ store: $draft, name: "$draft", fn: "makeDraft" }));
-
-      expect(getEntry($draft)?.fn).toBe("makeDraft");
-
-      registerStore(plugin({ store: $draft, name: "$draft (line 4)", fn: null }));
-
-      expect(getEntry($draft)?.fn).toBeNull();
-    });
-
-    it("leaves the enclosing function of an explicit entry alone", () => {
-      const $count = atom(0);
-
-      trackStores("cart", { $count });
-      registerStore(plugin({ store: $count, name: "$counter", fn: "makeCounter" }));
-
-      expect(getEntry($count)?.fn).toBeNull();
     });
 
     it("leaves the name a store's owner knows it by alone when a group takes the store", () => {

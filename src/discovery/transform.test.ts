@@ -62,8 +62,6 @@ const runtime: FileScope = {
   store: (store) => store,
   adopt: (value) => value,
   own: () => {},
-  begin: () => {},
-  end: (value) => value,
   clear: () => {},
 };
 
@@ -97,9 +95,7 @@ describe("the pre-parse test", () => {
     const result = transform(FACTORY_CALL);
 
     expect(output(result)).toContain(
-      `__nsdt.end((__nsdt.begin(), __nsdt.adopt(createPanel(), ` +
-        `{"name":"panel","fn":null,"line":2,"type":"unknown"})), ` +
-        `{"name":"panel","fn":null,"line":2,"type":"unknown"})`,
+      `__nsdt.adopt(createPanel(), {"name":"panel","line":2,"type":"unknown"})`,
     );
     expect(ownCall(result)).toBe(`__nsdt.own([{name:"panel",value:panel,exported:true}]);`);
   });
@@ -109,9 +105,7 @@ describe("the pre-parse test", () => {
       `import { Editor } from "./editor.ts";\nconst hidden = new WeakMap([[{}, new Editor()]]);\n`,
     );
 
-    expect(output(result)).toContain(
-      `__nsdt.end((__nsdt.begin(), new WeakMap([[{}, new Editor()]])), {"name":"hidden"`,
-    );
+    expect(output(result)).toContain(`const hidden = new WeakMap([[{}, new Editor()]]);`);
     expect(ownCall(result)).toBe(`__nsdt.own([{name:"hidden",value:hidden,exported:false}]);`);
   });
 
@@ -149,7 +143,7 @@ describe("callee matching", () => {
     const result = transform(`import { atom } from "nanostores";\nexport const $c = atom(0);\n`);
 
     expect(output(result)).toContain(
-      `export const $c = __nsdt.store(atom(0), {"name":"$c","fn":null,"line":2,"type":"atom"});`,
+      `export const $c = __nsdt.store(atom(0), {"name":"$c","line":2,"type":"atom"});`,
     );
   });
 
@@ -161,8 +155,8 @@ describe("callee matching", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: "$one", fn: null, line: 2, type: "atom" },
-      { name: "$two", fn: null, line: 3, type: "computed" },
+      { name: "$one", line: 2, type: "atom" },
+      { name: "$two", line: 3, type: "computed" },
     ]);
   });
 
@@ -193,7 +187,7 @@ describe("callee matching", () => {
 
     expect(output(transform(source, { adoptFactories: false }))).not.toContain("__nsdt.adopt(");
     expect(output(transform(source))).toContain(
-      `__nsdt.adopt(atom(0), {"name":"$c","fn":null,"line":2,"type":"unknown"})`,
+      `__nsdt.adopt(atom(0), {"name":"$c","line":2,"type":"unknown"})`,
     );
   });
 
@@ -233,29 +227,11 @@ describe("callee matching", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: null, fn: "makeCart", line: 3, type: "atom" },
-      { name: null, fn: null, line: 7, type: "atom" },
-      { name: null, fn: null, line: 10, type: "atom" },
-      { name: null, fn: "load", line: 14, type: "atom" },
+      { name: null, line: 3, type: "atom" },
+      { name: null, line: 7, type: "atom" },
+      { name: null, line: 10, type: "atom" },
+      { name: null, line: 14, type: "atom" },
     ]);
-  });
-
-  it("names an anonymous function after the declarator, property or method around it", () => {
-    const result = transform(
-      `import { atom } from "nanostores";\n` +
-        `const makeCart = () => {\n` +
-        `  const $items = atom([]);\n` +
-        `  return $items;\n` +
-        `};\n` +
-        `const factories = {\n` +
-        `  cart: function () {\n` +
-        `    const $cart = atom(0);\n` +
-        `    return $cart;\n` +
-        `  },\n` +
-        `};\n`,
-    );
-
-    expect(metas(result).map((meta) => meta.fn)).toEqual(["makeCart", "cart"]);
   });
 
   it("leaves a store a function returns unnamed, because one line makes them all", () => {
@@ -266,7 +242,7 @@ describe("callee matching", () => {
         `}\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: null, fn: "makeUser", line: 3, type: "map" }]);
+    expect(metas(result)).toEqual([{ name: null, line: 3, type: "map" }]);
   });
 
   it("skips a creation site nested inside an already instrumented one", () => {
@@ -275,7 +251,7 @@ describe("callee matching", () => {
         `const $total = computed($items, () => atom(0));\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$total", fn: null, line: 2, type: "computed" }]);
+    expect(metas(result)).toEqual([{ name: "$total", line: 2, type: "computed" }]);
   });
 
   it("instruments nothing for a namespace import and warns once for the file", () => {
@@ -284,7 +260,7 @@ describe("callee matching", () => {
 
     expect(output(transform(source, { adoptFactories: false }))).not.toContain("__nsdt.adopt(");
     expect(output(result)).toContain(
-      `__nsdt.adopt(ns.atom(0), {"name":"$c","fn":null,"line":2,"type":"unknown"})`,
+      `__nsdt.adopt(ns.atom(0), {"name":"$c","line":2,"type":"unknown"})`,
     );
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain(MODULE_KEY);
@@ -298,7 +274,7 @@ describe("`this` in a class field", () => {
     );
 
     expect(output(result)).toContain(
-      `$value = __nsdt.store(atom(""), {"name":null,"fn":null,"line":3,"type":"atom"}, this);`,
+      `$value = __nsdt.store(atom(""), {"name":null,"line":3,"type":"atom"}, this);`,
     );
   });
 
@@ -313,10 +289,10 @@ describe("`this` in a class field", () => {
 
     expect(output(result)).toContain(
       `static $opened = __nsdt.store(atom(false), ` +
-        `{"name":null,"fn":null,"line":3,"type":"atom"}, this);`,
+        `{"name":null,"line":3,"type":"atom"}, this);`,
     );
     expect(output(result)).toContain(
-      `$value = __nsdt.store(atom(""), {"name":null,"fn":null,"line":4,"type":"atom"}, this);`,
+      `$value = __nsdt.store(atom(""), {"name":null,"line":4,"type":"atom"}, this);`,
     );
   });
 
@@ -326,7 +302,7 @@ describe("`this` in a class field", () => {
     );
 
     expect(output(result)).toContain(
-      `#hidden = __nsdt.store(atom(0), {"name":null,"fn":null,"line":3,"type":"atom"}, this);`,
+      `#hidden = __nsdt.store(atom(0), {"name":null,"line":3,"type":"atom"}, this);`,
     );
   });
 
@@ -336,7 +312,7 @@ describe("`this` in a class field", () => {
     );
 
     expect(output(result)).toContain(
-      `__nsdt.store(atom(0), {"name":null,"fn":null,"line":3,"type":"atom"}, this)`,
+      `__nsdt.store(atom(0), {"name":null,"line":3,"type":"atom"}, this)`,
     );
   });
 
@@ -443,8 +419,8 @@ describe("the gate", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: null, fn: "Row", line: 4, type: "atom" },
-      { name: null, fn: "Row", line: 4, type: "unknown" },
+      { name: null, line: 4, type: "atom" },
+      { name: null, line: 4, type: "unknown" },
     ]);
   });
 });
@@ -458,7 +434,7 @@ describe("adoption", () => {
 
     expect(output(result)).toContain(
       `__nsdt.adopt(persistentAtom("theme", "dark"), ` +
-        `{"name":"$theme","fn":null,"line":2,"type":"atom"})`,
+        `{"name":"$theme","line":2,"type":"atom"})`,
     );
   });
 
@@ -468,7 +444,7 @@ describe("adoption", () => {
 
     expect(output(result)).toContain(
       `__nsdt.adopt(persistentAtom("theme", "dark"), ` +
-        `{"name":"theme","fn":null,"line":1,"type":"unknown"})`,
+        `{"name":"theme","line":1,"type":"unknown"})`,
     );
     expect(ownCall(result)).toBe(`__nsdt.own([{name:"theme",value:theme,exported:false}]);`);
   });
@@ -478,8 +454,7 @@ describe("adoption", () => {
     const result = transform(`const theme = persistent(fallback("dark"));\n`);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt(persistent(fallback("dark")), ` +
-        `{"name":"theme","fn":null,"line":1,"type":"unknown"})`,
+      `__nsdt.adopt(persistent(fallback("dark")), ` + `{"name":"theme","line":1,"type":"unknown"})`,
     );
   });
 
@@ -487,14 +462,14 @@ describe("adoption", () => {
     const result = transform(`import { atom } from "nanostores";\nconst count = atom(0);\n`);
 
     expect(output(result)).not.toContain("__nsdt.adopt(");
-    expect(metas(result)).toEqual([{ name: "count", fn: null, line: 2, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "count", line: 2, type: "atom" }]);
   });
 
   it("leaves a call callee matching already wrapped alone", () => {
     const result = transform(`import { atom } from "nanostores";\nconst $c = atom(0);\n`);
 
     expect(output(result)).not.toContain("__nsdt.adopt(");
-    expect(metas(result)).toEqual([{ name: "$c", fn: null, line: 2, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$c", line: 2, type: "atom" }]);
   });
 
   /**
@@ -509,8 +484,8 @@ describe("adoption", () => {
 
     expect(output(result)).toContain(
       `__nsdt.adopt(withLogging(__nsdt.store(atom(0), ` +
-        `{"name":null,"fn":null,"line":2,"type":"atom"})), ` +
-        `{"name":"$c","fn":null,"line":2,"type":"unknown"})`,
+        `{"name":null,"line":2,"type":"atom"})), ` +
+        `{"name":"$c","line":2,"type":"unknown"})`,
     );
   });
 
@@ -521,8 +496,7 @@ describe("adoption", () => {
 
     /** The object stands in an argument, so its property names nothing either. */
     expect(output(result)).toContain(
-      `{"name":null,"fn":null,"line":2,"type":"atom"}) }), ` +
-        `{"name":"$store","fn":null,"line":2,"type":"unknown"})`,
+      `{"name":null,"line":2,"type":"atom"}) }), ` + `{"name":"$store","line":2,"type":"unknown"})`,
     );
   });
 
@@ -534,10 +508,7 @@ describe("adoption", () => {
   it("wraps only the call the binding holds, whatever stands in its arguments", () => {
     const result = transform(`const $pair = combine(fallback("a"), fallback("b"));\n`);
 
-    expect(metas(result)).toEqual([
-      { name: "$pair", fn: null, line: 1, type: "unknown" },
-      { name: "$pair", fn: null, line: 1, type: "unknown" },
-    ]);
+    expect(metas(result)).toEqual([{ name: "$pair", line: 1, type: "unknown" }]);
   });
 
   it("keeps the index where the array is the value the binding holds", () => {
@@ -546,8 +517,8 @@ describe("adoption", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: "$totals[0]", fn: null, line: 2, type: "atom" },
-      { name: "$totals[1]", fn: null, line: 2, type: "atom" },
+      { name: "$totals[0]", line: 2, type: "atom" },
+      { name: "$totals[1]", line: 2, type: "atom" },
     ]);
   });
 
@@ -558,10 +529,9 @@ describe("adoption", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: null, fn: null, line: 2, type: "atom" },
-      { name: null, fn: null, line: 2, type: "atom" },
-      { name: "$pointerEnd", fn: null, line: 2, type: "unknown" },
-      { name: "$pointerEnd", fn: null, line: 2, type: "unknown" },
+      { name: null, line: 2, type: "atom" },
+      { name: null, line: 2, type: "atom" },
+      { name: "$pointerEnd", line: 2, type: "unknown" },
     ]);
   });
 
@@ -595,7 +565,7 @@ describe("adoption", () => {
         `});\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$total", fn: null, line: 2, type: "computed" }]);
+    expect(metas(result)).toEqual([{ name: "$total", line: 2, type: "computed" }]);
   });
 
   it("is turned off by adoptFactories, and callee matching keeps working", () => {
@@ -607,9 +577,7 @@ describe("adoption", () => {
     );
 
     expect(output(result)).not.toContain("__nsdt.adopt(");
-    expect(output(result)).toContain(
-      `__nsdt.store(atom(0), {"name":"$a","fn":null,"line":2,"type":"atom"})`,
-    );
+    expect(output(result)).toContain(`__nsdt.store(atom(0), {"name":"$a","line":2,"type":"atom"})`);
   });
 
   it("reads through a type annotation between the name and the call", () => {
@@ -617,7 +585,7 @@ describe("adoption", () => {
 
     expect(output(result)).toContain(
       `__nsdt.adopt(createRouter({ home: "/" }), ` +
-        `{"name":"$router","fn":null,"line":1,"type":"unknown"})`,
+        `{"name":"$router","line":1,"type":"unknown"})`,
     );
   });
 
@@ -629,11 +597,11 @@ describe("adoption", () => {
 
     expect(output(result)).toContain(
       `__nsdt.adopt(persistentAtom("theme", "dark"), ` +
-        `{"name":"$theme","fn":null,"line":1,"type":"unknown"})`,
+        `{"name":"$theme","line":1,"type":"unknown"})`,
     );
     expect(output(result)).toContain(
       `__nsdt.adopt(createRouter({ home: "/" }), ` +
-        `{"name":"$router","fn":null,"line":2,"type":"unknown"})`,
+        `{"name":"$router","line":2,"type":"unknown"})`,
     );
   });
 
@@ -650,7 +618,7 @@ describe("adoption", () => {
     const result = transform(`import { atom } from "nanostores";\nconst $c = (atom(0));\n`);
 
     expect(output(result)).not.toContain("__nsdt.adopt(");
-    expect(metas(result)).toEqual([{ name: "$c", fn: null, line: 2, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$c", line: 2, type: "atom" }]);
   });
 
   it("gives a file that only adopts the same header, so a reload clears it", () => {
@@ -666,13 +634,13 @@ describe("an awaited call", () => {
   it("gives the call the name the binding wrote, not a numbered one", () => {
     const result = transform(AWAITED);
 
-    expect(metas(result)).toEqual([{ name: "$x", fn: null, line: 1, type: "unknown" }]);
+    expect(metas(result)).toEqual([{ name: "$x", line: 1, type: "unknown" }]);
   });
 
   it("names one standing under a key by that key", () => {
     const result = transform(`const holder = { $u: await load() };\n`);
 
-    expect(metas(result)).toEqual([{ name: "$u", fn: null, line: 1, type: "unknown" }]);
+    expect(metas(result)).toEqual([{ name: "$u", line: 1, type: "unknown" }]);
   });
 
   it("names one standing in an array by its index off the binding", () => {
@@ -687,22 +655,13 @@ describe("an awaited call", () => {
         `export const $theme = await persistentAtom("theme", "dark");\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$theme", fn: null, line: 2, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$theme", line: 2, type: "atom" }]);
   });
 
   it("keeps a throttle comment standing over the declaration", () => {
     const result = transform(`// @nanostores-devtools:throttle 100\nconst $x = await load();\n`);
 
-    expect(metas(result)).toEqual([
-      { name: "$x", fn: null, line: 2, type: "unknown", throttle: 100 },
-    ]);
-  });
-
-  /** A frame must close in the same tick, so one an await stands under would never close. */
-  it("opens no frame around the initializer", () => {
-    const result = transform(AWAITED);
-
-    expect(output(result)).not.toContain("__nsdt.begin(");
+    expect(metas(result)).toEqual([{ name: "$x", line: 2, type: "unknown", throttle: 100 }]);
   });
 });
 
@@ -718,7 +677,7 @@ describe("a call no name reaches", () => {
     const result = transform(IN_A_COMPONENT);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt(userStore(id), {"name":null,"fn":"Row","line":3,"type":"unknown"})`,
+      `__nsdt.adopt(userStore(id), {"name":null,"line":3,"type":"unknown"})`,
     );
   });
 
@@ -730,8 +689,8 @@ describe("a call no name reaches", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: null, fn: "Row", line: 4, type: "unknown" },
-      { name: null, fn: "Row", line: 4, type: "unknown" },
+      { name: null, line: 4, type: "unknown" },
+      { name: null, line: 4, type: "unknown" },
     ]);
   });
 
@@ -741,8 +700,8 @@ describe("a call no name reaches", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: null, fn: "Row", line: 3, type: "unknown" },
-      { name: null, fn: "Row", line: 3, type: "unknown" },
+      { name: null, line: 3, type: "unknown" },
+      { name: null, line: 3, type: "unknown" },
     ]);
   });
 
@@ -751,7 +710,7 @@ describe("a call no name reaches", () => {
       `import userStore from "./stores.ts";\nexport function Row(id) {\n  return userStore(id);\n}\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: null, fn: "Row", line: 3, type: "unknown" }]);
+    expect(metas(result)).toEqual([{ name: null, line: 3, type: "unknown" }]);
   });
 
   it("reads the kind off the export behind the name the file wrote", () => {
@@ -760,7 +719,7 @@ describe("a call no name reaches", () => {
         `export function themeFor(key) {\n  return stored(key, "dark");\n}\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: null, fn: "themeFor", line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: null, line: 3, type: "atom" }]);
   });
 
   it("leaves a callee the file declares itself alone, which is a helper of its own", () => {
@@ -787,7 +746,7 @@ describe("a call no name reaches", () => {
     );
 
     expect(output(result)).toContain(
-      `__nsdt.store(map({ id }), {"name":null,"fn":"userStore","line":3,"type":"map"})`,
+      `__nsdt.store(map({ id }), {"name":null,"line":3,"type":"map"})`,
     );
     expect(output(result)).not.toContain("__nsdt.adopt(");
   });
@@ -831,7 +790,7 @@ describe("an optional chain", () => {
     const result = transform(`const x = a?.b();\n`);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt(a?.b(), {"name":"x","fn":null,"line":1,"type":"unknown"})`,
+      `__nsdt.adopt(a?.b(), {"name":"x","line":1,"type":"unknown"})`,
     );
     expect(evaluate(result, "x", { a: null })).toBeUndefined();
   });
@@ -840,7 +799,7 @@ describe("an optional chain", () => {
     const result = transform(`const x = f()?.b().c;\n`);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt(f(), {"name":"x","fn":null,"line":1,"type":"unknown"})?.b().c;`,
+      `__nsdt.adopt(f(), {"name":"x","line":1,"type":"unknown"})?.b().c;`,
     );
   });
 
@@ -848,7 +807,7 @@ describe("an optional chain", () => {
     const result = transform(`import { atom } from "nanostores";\nconst x = a?.b(atom(0)).c;\n`);
 
     expect(output(result)).toContain(
-      `a?.b(__nsdt.store(atom(0), {"name":null,"fn":null,"line":2,"type":"atom"})).c;`,
+      `a?.b(__nsdt.store(atom(0), {"name":null,"line":2,"type":"atom"})).c;`,
     );
     expect(evaluate(result, "x", { atom: () => ({}), a: null })).toBeUndefined();
   });
@@ -863,7 +822,7 @@ describe("an optional chain", () => {
     const result = transform(`const x = (a?.b)().c;\n`);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt((a?.b)(), {"name":"x","fn":null,"line":1,"type":"unknown"}).c;`,
+      `__nsdt.adopt((a?.b)(), {"name":"x","line":1,"type":"unknown"}).c;`,
     );
   });
 
@@ -871,7 +830,7 @@ describe("an optional chain", () => {
     const result = transform(`const x = a.b().c;\n`);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt(a.b(), {"name":"x","fn":null,"line":1,"type":"unknown"}).c;`,
+      `__nsdt.adopt(a.b(), {"name":"x","line":1,"type":"unknown"}).c;`,
     );
   });
 });
@@ -923,7 +882,7 @@ describe("the package map", () => {
       { storeTypes: resolveStoreTypes({ "@nanostores/persistent": { gone: "map" } }).types },
     );
 
-    expect(metas(result)[0]).toEqual({ name: "$theme", fn: null, line: 2, type: "atom" });
+    expect(metas(result)[0]).toEqual({ name: "$theme", line: 2, type: "atom" });
     expect(result.warnings).toEqual([]);
   });
 
@@ -961,7 +920,7 @@ describe("the package map", () => {
         `export const $c = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$c", fn: null, line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$c", line: 3, type: "atom" }]);
   });
 
   it("carries a package kind wherever adoption reaches, not only a top-level binding", () => {
@@ -970,7 +929,7 @@ describe("the package map", () => {
         `export function make() {\n  return { theme: persistentAtom("theme", "dark") };\n}\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: null, fn: "make", line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: null, line: 3, type: "atom" }]);
   });
 
   it("takes no kind at all with adoption turned off", () => {
@@ -1149,9 +1108,7 @@ describe("the throttle comment", () => {
       `${IMPORT}// @nanostores-devtools:throttle\nconst $frame = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([
-      { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
-    ]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom", throttle: true }]);
   });
 
   it("marks a call adoption takes, which is where a store from a dependency arrives", () => {
@@ -1159,7 +1116,6 @@ describe("the throttle comment", () => {
 
     expect(metas(result)).toContainEqual({
       name: "$frame",
-      fn: null,
       line: 2,
       type: "unknown",
       throttle: true,
@@ -1171,9 +1127,7 @@ describe("the throttle comment", () => {
       `${IMPORT}/* @nanostores-devtools:throttle */\nconst $frame = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([
-      { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
-    ]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom", throttle: true }]);
   });
 
   /** The comment marks a statement, and one statement can make more than one store. */
@@ -1182,7 +1136,7 @@ describe("the throttle comment", () => {
       `${IMPORT}// @nanostores-devtools:throttle\nconst $pair = merge([atom(0), atom(1)]);\n`,
     );
 
-    expect(metas(result).map((site) => site.throttle)).toEqual([true, true, true, true]);
+    expect(metas(result).map((site) => site.throttle)).toEqual([true, true, true]);
   });
 
   it("reaches no further than that statement", () => {
@@ -1191,8 +1145,8 @@ describe("the throttle comment", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
-      { name: "$other", fn: null, line: 4, type: "atom" },
+      { name: "$frame", line: 3, type: "atom", throttle: true },
+      { name: "$other", line: 4, type: "atom" },
     ]);
   });
 
@@ -1201,13 +1155,13 @@ describe("the throttle comment", () => {
       `${IMPORT}// @nanostores-devtools:throttle\nconst $other = 1;\nconst $frame = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 4, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 4, type: "atom" }]);
   });
 
   it("leaves an ordinary comment alone", () => {
     const result = transform(`${IMPORT}// the frame clock\nconst $frame = atom(0);\n`);
 
-    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom" }]);
   });
 
   it("reads the rate the comment names, in milliseconds", () => {
@@ -1215,9 +1169,7 @@ describe("the throttle comment", () => {
       `${IMPORT}// @nanostores-devtools:throttle 100\nconst $frame = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([
-      { name: "$frame", fn: null, line: 3, type: "atom", throttle: 100 },
-    ]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom", throttle: 100 }]);
   });
 
   it("hands the rate to every store of the statement, block comment included", () => {
@@ -1225,7 +1177,7 @@ describe("the throttle comment", () => {
       `${IMPORT}/* @nanostores-devtools:throttle 250 */\nconst $pair = merge([atom(0), atom(1)]);\n`,
     );
 
-    expect(metas(result).map((site) => site.throttle)).toEqual([250, 250, 250, 250]);
+    expect(metas(result).map((site) => site.throttle)).toEqual([250, 250, 250]);
   });
 
   /** The mark is the point of the comment, so nothing readable behind it may cost the store one. */
@@ -1236,9 +1188,7 @@ describe("the throttle comment", () => {
         `${IMPORT}// @nanostores-devtools:throttle ${rate}\nconst $frame = atom(0);\n`,
       );
 
-      expect(metas(result)).toEqual([
-        { name: "$frame", fn: null, line: 3, type: "atom", throttle: true },
-      ]);
+      expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom", throttle: true }]);
     },
   );
 
@@ -1247,7 +1197,7 @@ describe("the throttle comment", () => {
       `${IMPORT}// @nanostores-devtools:throttled\nconst $frame = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom" }]);
   });
 });
 
@@ -1259,9 +1209,7 @@ describe("the no-throttle comment", () => {
       `${IMPORT}// @nanostores-devtools:no-throttle\nconst $frame = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([
-      { name: "$frame", fn: null, line: 3, type: "atom", throttle: false },
-    ]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom", throttle: false }]);
   });
 
   it("reads a block comment the same way, and spares every store of the statement", () => {
@@ -1269,7 +1217,7 @@ describe("the no-throttle comment", () => {
       `${IMPORT}/* @nanostores-devtools:no-throttle */\nconst $pair = merge([atom(0), atom(1)]);\n`,
     );
 
-    expect(metas(result).map((site) => site.throttle)).toEqual([false, false, false, false]);
+    expect(metas(result).map((site) => site.throttle)).toEqual([false, false, false]);
   });
 
   it("reaches no further than that statement", () => {
@@ -1278,8 +1226,8 @@ describe("the no-throttle comment", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: "$frame", fn: null, line: 3, type: "atom", throttle: false },
-      { name: "$other", fn: null, line: 4, type: "atom" },
+      { name: "$frame", line: 3, type: "atom", throttle: false },
+      { name: "$other", line: 4, type: "atom" },
     ]);
   });
 
@@ -1288,9 +1236,7 @@ describe("the no-throttle comment", () => {
       `${IMPORT}// @nanostores-devtools:no-throttle it runs at 60fps\nconst $frame = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([
-      { name: "$frame", fn: null, line: 3, type: "atom", throttle: false },
-    ]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom", throttle: false }]);
   });
 
   it("leaves a comment alone that only starts like the name", () => {
@@ -1298,7 +1244,7 @@ describe("the no-throttle comment", () => {
       `${IMPORT}// @nanostores-devtools:no-throttled\nconst $frame = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom" }]);
   });
 
   /** Two comments say two things, and the rate the mark names is the one nothing else can say. */
@@ -1359,15 +1305,6 @@ describe("the ignore comment", () => {
     expect(body(transform(IMPORT + source))).toBe(IMPORT + source);
   });
 
-  /** A frame is the only thing that reaches a store an initializer kept in a closure. */
-  it("opens no creation frame around an ignored initializer", () => {
-    const result = transform(
-      `${IMPORT}// @nanostores-devtools:ignore\nconst editor = new Editor();\n`,
-    );
-
-    expect(output(result)).not.toContain("__nsdt.begin(");
-  });
-
   it("leaves an ignored binding out of the own list, so it renames and places nothing", () => {
     const result = transform(
       `${IMPORT}// @nanostores-devtools:ignore\nexport const $secret = atom(0);\n` +
@@ -1382,7 +1319,7 @@ describe("the ignore comment", () => {
       `${IMPORT}// @nanostores-devtools:ignore\nconst $secret = atom(0);\nconst $shown = atom(1);\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$shown", fn: null, line: 4, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$shown", line: 4, type: "atom" }]);
   });
 
   it("marks nothing when a statement stands between it and the store", () => {
@@ -1390,13 +1327,13 @@ describe("the ignore comment", () => {
       `${IMPORT}// @nanostores-devtools:ignore\nconst other = 1;\nconst $shown = atom(0);\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$shown", fn: null, line: 4, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$shown", line: 4, type: "atom" }]);
   });
 
   it("leaves a comment alone that only starts like the name", () => {
     const result = transform(`${IMPORT}// @nanostores-devtools:ignored\nconst $frame = atom(0);\n`);
 
-    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom" }]);
   });
 
   /** A store nobody draws has no rate, so the comment that asks for one has nothing to say. */
@@ -1467,7 +1404,7 @@ describe("a devtools comment the plugin does not know", () => {
 
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain(`"@nanostores-devtools-throttle"`);
-    expect(metas(result)).toEqual([{ name: "$frame", fn: null, line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: "$frame", line: 3, type: "atom" }]);
   });
 
   it("warns about a file the transform gives back unchanged", () => {
@@ -1504,116 +1441,6 @@ describe("a devtools comment the plugin does not know", () => {
     );
 
     expect(result.warnings).toHaveLength(3);
-  });
-});
-
-describe("the creation frame", () => {
-  const IMPORT = `import { atom } from "nanostores";\n`;
-
-  /** What one frame opens with, which is the same text for every initializer it wraps. */
-  const OPENED = "__nsdt.end((__nsdt.begin(), ";
-
-  function frames(result: StoreTransform): number {
-    return output(result).split(OPENED).length - 1;
-  }
-
-  it("wraps a top-level initializer that calls something we did not instrument", () => {
-    const result = transform(`${IMPORT}const $draft = pipe(atom(""), withUndo());\n`);
-
-    expect(output(result)).toContain(
-      `const $draft = ${OPENED}__nsdt.adopt(pipe(__nsdt.store(atom(""), ` +
-        `{"name":null,"fn":null,"line":2,"type":"atom"}), withUndo()), ` +
-        `{"name":"$draft","fn":null,"line":2,"type":"unknown"})), ` +
-        `{"name":"$draft","fn":null,"line":2,"type":"unknown"});`,
-    );
-  });
-
-  it("wraps a `new`, whose fields and closures are made while it runs", () => {
-    const result = transform(`${IMPORT}const $c = atom(0);\nconst editorOne = new Editor();\n`);
-
-    expect(output(result)).toContain(
-      `const editorOne = ${OPENED}new Editor()), ` +
-        `{"name":"editorOne","fn":null,"line":3,"type":"unknown"});`,
-    );
-  });
-
-  it("stands outside the adopt call around the same initializer", () => {
-    const result = transform(`const $theme = persistentAtom("theme", "dark");\n`);
-    const site = `{"name":"$theme","fn":null,"line":1,"type":"unknown"}`;
-
-    expect(output(result)).toContain(
-      `const $theme = ${OPENED}__nsdt.adopt(persistentAtom("theme", "dark"), ${site})), ${site});`,
-    );
-  });
-
-  it("opens none around a plain creator, which makes the one store the wrap names", () => {
-    const result = transform(
-      `import { atom, computed } from "nanostores";\n` +
-        `const $c = atom(0);\n` +
-        `const $t = computed($c, (value) => value);\n`,
-    );
-
-    expect(frames(result)).toBe(0);
-  });
-
-  it("looks through a cast, which a test on the node type alone sees no call behind", () => {
-    const result = transform(
-      `${IMPORT}const $c = atom(0);\n` +
-        `const $one = pipe($c) as Draft;\n` +
-        `const $two = pipe($c) satisfies Draft;\n` +
-        `const $three = pipe($c)!;\n` +
-        `const four = (pipe($c));\n`,
-    );
-
-    expect(frames(result)).toBe(4);
-  });
-
-  it("opens no frame around an await, and still lists the module's bindings", () => {
-    const result = transform(
-      `${IMPORT}const $c = atom(0);\nconst $remote = withUndo(await load());\n`,
-    );
-
-    expect(frames(result)).toBe(0);
-    expect(ownCall(result)).toBe(
-      `__nsdt.own([{name:"$c",value:$c,exported:false}, {name:"$remote",value:$remote,exported:false}]);`,
-    );
-  });
-
-  it("keeps the frame around a sibling initializer the await never reached", () => {
-    const result = transform(
-      `${IMPORT}const $c = atom(0);\n` +
-        `const remote = load(await ready());\n` +
-        `const model = makeModel();\n`,
-    );
-
-    expect(frames(result)).toBe(1);
-    expect(output(result)).toContain(`const model = ${OPENED}__nsdt.adopt(makeModel(), `);
-  });
-
-  it("opens none for a destructured binding, which no one name holds", () => {
-    const result = transform(`${IMPORT}const $c = atom(0);\nconst { $one } = makePair();\n`);
-
-    expect(frames(result)).toBe(0);
-  });
-
-  it("opens none for a binding that stands inside a function", () => {
-    const result = transform(
-      `${IMPORT}const $c = atom(0);\nfunction make() {\n  const held = makeModel();\n}\n`,
-    );
-
-    expect(frames(result)).toBe(0);
-  });
-
-  it("opens none for an ambient declaration, which binds nothing at all", () => {
-    const result = transform(`${IMPORT}const $c = atom(0);\ndeclare const model: Model;\n`);
-
-    expect(frames(result)).toBe(0);
-  });
-
-  it("leaves the file it emits parsable", () => {
-    const result = transform(`${IMPORT}const $draft = pipe(atom(""), withUndo()) as Draft;\n`);
-
-    expect(parser.parseSync(MODULE_KEY, output(result)).errors).toEqual([]);
   });
 });
 

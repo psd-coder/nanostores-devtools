@@ -10,11 +10,8 @@ import {
 } from "./global.ts";
 import { claimSiteName, releaseSiteNames, siteParts } from "./stores/names.ts";
 import {
-  beginFrame,
   type Binding,
   type ModuleHome,
-  endFrame,
-  noteBirth,
   ownBindings,
   ownField,
   releaseLinks,
@@ -31,10 +28,9 @@ import type { ThrottleComment } from "./timeline/throttle.ts";
 
 export type { StoreType };
 
-/** Module, name, enclosing function and line: one place in the source where a store is made. */
+/** Module, name and line: one place in the source where a store is made. */
 export type CreationSite = {
   name: string | null;
-  fn: string | null;
   line: number;
   type: StoreType;
   /**
@@ -48,8 +44,6 @@ export type FileScope = {
   store: <TStore>(store: TStore, site: CreationSite, owner?: object) => TStore;
   adopt: <TValue>(value: TValue, site: CreationSite) => TValue;
   own: (bindings: readonly Binding[]) => void;
-  begin: () => void;
-  end: <TValue>(value: TValue, site: CreationSite) => TValue;
   clear: () => void;
 };
 
@@ -78,11 +72,6 @@ export function fileScope(
     state.made += 1;
     claimSiteName(scope, state, module);
 
-    /** A store the registry does not know yet is born here, which is what an open frame catches. */
-    if (getEntry(store) === undefined) {
-      noteBirth(store);
-    }
-
     const entry = registerStore({
       store,
       name: state.name,
@@ -90,7 +79,6 @@ export function fileScope(
       type,
       origin: "plugin",
       external,
-      fn: site.fn,
       throttle: site.throttle,
       ...siteParts(state, state.made),
     });
@@ -152,21 +140,6 @@ export function fileScope(
      */
     own(bindings) {
       ownBindings(module, bindings, maxDepth);
-    },
-
-    /**
-     * The frame around one top-level initializer, opened before the expression runs and closed on
-     * the value it returned. It is the only mechanism that reaches a store the expression kept in
-     * a closure, where no property walk can find it.
-     */
-    begin() {
-      beginFrame();
-    },
-
-    end(value, site) {
-      endFrame(module, value, site.name);
-
-      return value;
     },
 
     /**
@@ -243,7 +216,7 @@ function doomedIndex(stores: SiteStore[]): number {
 }
 
 function siteState(scope: ModuleScope, site: CreationSite, name: string): SiteState {
-  const key = [site.name, site.fn, site.line].join("\u0000");
+  const key = [site.name, site.line].join("\u0000");
   const known = scope.sites.get(key);
 
   if (known) {
@@ -252,7 +225,6 @@ function siteState(scope: ModuleScope, site: CreationSite, name: string): SiteSt
 
   const created: SiteState = {
     name,
-    fn: site.fn,
     line: site.line,
     file: null,
     placed: false,

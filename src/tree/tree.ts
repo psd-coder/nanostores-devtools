@@ -3,7 +3,6 @@ import {
   boundNames,
   drawnOwners,
   drawnParents,
-  isPlaced,
   nodeInfoOf,
   placedByDeveloper,
 } from "./placement.ts";
@@ -92,8 +91,8 @@ type Held =
  * it by, the top-level binding that wrote its name, or the home its entry sits at and nothing more.
  *
  * A binding carries its own name and its own home, because two bindings in two modules put one
- * store at two different homes. An owner may carry no key at all: a frame and a class field hold
- * the store under no property, so nothing there is a name.
+ * store at two different homes. An owner may carry no key at all: a class field holds the store
+ * under no property, so nothing there is a name.
  */
 type PlacedBy =
   | { under: "owner"; key: string | undefined }
@@ -176,10 +175,6 @@ export function buildTree(): TreeModel {
  * reached it from. Where neither did, the first owner recorded is the one that expands.
  */
 function place(tree: Tree, entry: StoreEntry): void {
-  if (!isPlaced(entry)) {
-    return;
-  }
-
   const chosen = placedByDeveloper(entry);
   const owners = drawnOwners(entry.store);
 
@@ -403,9 +398,8 @@ function boundParts(bound: BoundName): NameParts | null {
  * only where they part does it matter: `{ username: focus($values, "username") }` reads as
  * `username`, where the birth name says `$lens` and a second lens beside it takes a number.
  *
- * A frame and a class field carry no such name. Nothing there holds the store under a key: the frame
- * only knows it was born while an expression ran. Those keep the name the creation site gave, and a
- * store no site ever named keeps its registered one.
+ * A class field carries no such name: nothing there holds the store under a key. Those keep the
+ * name the creation site gave, and a store no site ever named keeps its registered one.
  */
 function childPlacement(pass: Pass, held: Held, inside: HolderNode | undefined): Placement {
   if (held.kind === "node") {

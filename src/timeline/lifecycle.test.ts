@@ -2,7 +2,7 @@ import { atom, computed, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { connectDevtools } from "../redux/connect.ts";
-import { peekDevtoolsGlobal, resetDevtoolsGlobal } from "../global.ts";
+import { resetDevtoolsGlobal } from "../global.ts";
 import { ownBindings } from "../stores/ownership.ts";
 import { getEntry, registerStore, type StoreType, unregisterStore } from "../stores/registry.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
@@ -16,7 +16,7 @@ function endOfTurn(): Promise<void> {
 }
 
 function register(name: string, store: Store, type: StoreType = "atom", home = HOME): void {
-  registerStore({ store, name, home, type, origin: "plugin", external: false, fn: null });
+  registerStore({ store, name, home, type, origin: "plugin", external: false });
 }
 
 /** Connect, reach the deferred `init`, then open the panel, which is when rows start flowing. */
@@ -371,139 +371,16 @@ describe("register, unregister and hot reload rows", () => {
   });
 });
 
-describe("a store the tree draws nowhere", () => {
-  /** A store the plugin registered from a creation site inside a function, placed by nothing. */
-  function registerMadeIn(name: string, store: Store, fn: string): void {
-    registerStore({
-      store,
-      name,
-      home: HOME,
-      type: "atom",
-      origin: "plugin",
-      external: false,
-      fn,
-    });
-  }
-
-  it("draws no register row for it, and still draws one for the stores beside it", async () => {
-    await listen();
-
-    registerMadeIn("$hits", atom(0), "track");
-    register("$count", atom(1));
-
-    await endOfTurn();
-
-    expect(rowNames()).toEqual(["$count/register"]);
-  });
-
-  it("draws no register row at all when nothing in the turn is placed", async () => {
-    await listen();
-
-    registerMadeIn("$hits", atom(0), "track");
-    registerMadeIn("$misses", atom(1), "track");
-
-    await endOfTurn();
-
-    expect(fake.sends).toHaveLength(0);
-  });
-
-  it("draws no mount or unmount row for it", async () => {
-    const $hits = atom(0);
-
-    registerMadeIn("$hits", $hits, "track");
-    await listen();
-
-    const unbind = $hits.listen(() => {});
-
-    unbind();
-
-    await endOfTurn();
-
-    expect(fake.sends).toHaveLength(0);
-  });
-
-  /** The flag is not a row: the marker a value carries reads it, so the skip must not touch it. */
-  it("still records that it was mounted, which the tree reads", async () => {
-    const $hits = atom(0);
-
-    registerMadeIn("$hits", $hits, "track");
-    await listen();
-
-    $hits.listen(() => {})();
-
-    expect(getEntry($hits)?.everMounted).toBe(true);
-  });
-
-  it("draws no write row either, because that write changed nothing anyone can see", async () => {
-    const $hits = atom(0);
-
-    registerMadeIn("$hits", $hits, "track");
-    await listen();
-
-    $hits.set(1);
-
-    await endOfTurn();
-
-    expect(fake.sends).toHaveLength(0);
-  });
-
+describe("a store drawn under an owner", () => {
   /**
-   * The other half of the same rule, and the reason it is not `isPlaced`. A store with no
-   * placement holds no key of its own and is still drawn wherever a value the panel shows holds
-   * it, and then its own write is the only thing that pushes the new tree.
+   * A hot reload takes a whole module in one turn, and the owner may go first. Both left the tree,
+   * so one row carries both changes and the diff shows the owner and what it held going together.
    */
-  it("draws its write row once a drawn value holds it", async () => {
-    const $hits = atom(0);
-    const $panel = atom<unknown>(null);
-
-    registerMadeIn("$hits", $hits, "track");
-    register("$panel", $panel);
-    await listen();
-
-    $panel.set([$hits]);
-    await endOfTurn();
-
-    $hits.set(1);
-    await endOfTurn();
-
-    expect(rowNames()).toEqual(["$panel/set", "$hits/set"]);
-  });
-
-  it("goes quiet again for a new connection, which draws its own first tree", async () => {
-    const $hits = atom(0);
-    const $panel = atom<unknown>(null);
-
-    registerMadeIn("$hits", $hits, "track");
-    register("$panel", $panel);
-    await listen();
-
-    $panel.set([$hits]);
-    await endOfTurn();
-
-    peekDevtoolsGlobal()?.session?.handle.disconnect();
-
-    /** Out of the drawn value while nothing is listening, so no tree of this run ever held it. */
-    $panel.set(null);
-
-    await listen();
-    fake.sends.length = 0;
-
-    $hits.set(2);
-    await endOfTurn();
-
-    expect(fake.sends).toHaveLength(0);
-  });
-
-  /**
-   * A hot reload takes a whole module in one turn, and the owner may go first. The store it held
-   * then has no drawn owner left, so the row names the owner alone. That is the whole of what left
-   * the tree: a store drawn under an owner leaves the tree with it, and the diff shows both.
-   */
-  it("names the owner alone when a reload takes it before the store it held", async () => {
+  it("draws one row for the owner and the store it held when a reload takes both", async () => {
     const $canUndo = atom(false);
     const $draft = Object.assign(atom(""), { $canUndo });
 
-    registerMadeIn("$canUndo", $canUndo, "withUndo");
+    register("$canUndo", $canUndo);
     register("$draft", $draft);
     ownBindings({ home: HOME, external: false, moduleKey: HOME }, [
       { name: "$draft", value: $draft, exported: true },
@@ -516,8 +393,11 @@ describe("a store the tree draws nowhere", () => {
     await endOfTurn();
 
     expect(fake.sends[0]?.action["action"]).toEqual({
-      type: "$draft/unregister",
-      changes: [{ label: `${HOME}/$draft`, op: "unregister" }],
+      type: `${HOME}/unregister`,
+      changes: [
+        { label: `${HOME}/$draft`, op: "unregister" },
+        { label: `${HOME}/$canUndo`, op: "unregister" },
+      ],
     });
   });
 });

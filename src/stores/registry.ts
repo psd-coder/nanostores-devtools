@@ -62,14 +62,9 @@ export type StoreEntry = {
   origin: StoreOrigin;
   /** Whether the home is a file of somebody else's, which sorts it after the developer's own. */
   external: boolean;
-  /**
-   * The function the store was made inside, from its creation site, and `null` for one made at
-   * module level.
-   */
-  fn: string | null;
   /** The file the name says it came from, once a second module the home holds claims it too. */
   file: string | null;
-  /** Where in the file it was made, `makeCart, line 12`, once a second site here claims the name. */
+  /** Where in the file it was made, `line 12`, once a second site here claims the name. */
   place: string | null;
   /** Which store of its creation site this is, counting from one. */
   number: number;
@@ -89,7 +84,6 @@ export type Registration = {
   type: StoreType;
   origin: StoreOrigin;
   external: boolean;
-  fn: string | null;
   /**
    * What the comment over the store's creation site said: nothing, a bare mark, the rate in
    * milliseconds it holds the store to, or `false` from `// @nanostores-devtools:no-throttle`.
@@ -197,7 +191,6 @@ export function registerStore(registration: Registration): StoreEntry {
     label: labelOf(to),
     type: registration.type,
     origin: registration.origin,
-    fn: registration.fn,
     everMounted: false,
     throttle: createThrottleState(registration.throttle),
     unhook: [],
@@ -236,7 +229,6 @@ export function trackStores(group: string, stores: Readonly<Record<string, Store
       type: "unknown",
       origin: "explicit",
       external: false,
-      fn: null,
     });
   }
 }
@@ -370,15 +362,6 @@ function relabelEntry(
 
     return entry;
   }
-
-  /**
-   * The site that registered last says which function holds the store: one made inside a helper
-   * and then adopted at a top-level binding is no longer a store only that helper knows about.
-   *
-   * An explicit registration clears the function, and that is right: it passes none, and a store
-   * the developer placed is drawn where they put it rather than under the function that built it.
-   */
-  entry.fn = registration.fn;
 
   const ownerName = ownerNameOf(registration);
 

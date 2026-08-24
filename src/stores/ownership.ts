@@ -152,98 +152,6 @@ function placesNothing(module: ModuleHome): boolean {
 }
 
 /**
- * A frame opens before a top-level initializer runs. The two mechanisms above see what is reachable
- * at the end of the module body, and a store held only in a closure is reachable from nothing, so
- * what the frame catches is all that places it.
- *
- * The outermost frame books the drop, and no frame inside it books another: a frame must close in
- * the same tick, and one whose expression threw would otherwise catch every store made anywhere
- * from then on.
- *
- * This is the one call that brings the registry into being for a module that may register nothing.
- * A frame that waited for one would catch nothing at all: the first store born inside it is what
- * creates it, and by then the frame was already skipped.
- */
-export function beginFrame(): void {
-  const { frames } = getDevtoolsGlobal();
-
-  if (frames.length === 0) {
-    queueMicrotask(() => {
-      frames.length = 0;
-    });
-  }
-
-  frames.push({ stores: [] });
-}
-
-/** A store born while a frame is open, which that frame places when it closes. */
-export function noteBirth(store: Store): void {
-  peekDevtoolsGlobal()?.frames.at(-1)?.stores.push(store);
-}
-
-/**
- * The frame closes, which is when everything it caught is placed: children are born before the
- * parent exists, so nothing can be placed while it is open. The store the expression returned
- * becomes the parent, and anything else becomes a node named after the binding.
- *
- * A frame opened inside an open frame hands its stores up, so an outer binding still sees
- * everything built beneath it.
- */
-export function endFrame(module: ModuleHome, value: unknown, name: string | null): void {
-  const devtools = peekDevtoolsGlobal();
-
-  if (devtools === undefined) {
-    return;
-  }
-
-  const frame = devtools.frames.pop();
-
-  if (frame === undefined) {
-    return;
-  }
-
-  const outer = devtools.frames.at(-1);
-
-  if (outer !== undefined) {
-    outer.stores.push(...frame.stores);
-
-    return;
-  }
-
-  /** The pop and the hand-up above still run, or a later frame of ours would close the wrong one. */
-  if (placesNothing(module)) {
-    return;
-  }
-
-  const holder = frameHolder(module, value, name);
-
-  if (holder === undefined) {
-    return;
-  }
-
-  for (const store of frame.stores.filter(handedOver)) {
-    hangUnder(module, devtools, holder, store);
-  }
-}
-
-/**
- * Whether the store the frame caught is one the library handed over, rather than one it kept.
- *
- * A frame catches every store born while a top-level expression of the developer's ran, however
- * many files down. What the call gave back is adopted at that call site and takes the developer's
- * file as its home, and so does anything the value it returned carries, which the binding scan
- * reaches through a property. A store still homed in somebody else's file is one nothing there
- * exposes: it is the util's own working state, `$inputs` inside `resourceAtom`, and drawing it
- * says the app holds a store its author never handed out.
- *
- * The frame keeps its full reach inside the developer's own files, where a store born in a closure
- * is theirs whether or not a property leads to it.
- */
-function handedOver(store: Store): boolean {
-  return getEntry(store)?.external !== true;
-}
-
-/**
  * A store made in a class field initializer, where `this` is what holds it. `typeof owner ===
  * "function"` is the whole test that tells the two cases apart: a static initializer's `this` is
  * the constructor, so its node is keyed by the class name and carries no type label, because the
@@ -359,7 +267,6 @@ function registerFound(module: ModuleHome, store: Store, name: string): void {
     type: getDevtoolsGlobal().creations.get(store) ?? "unknown",
     origin: "plugin",
     external: module.external,
-    fn: null,
   });
 
   /** Only this list makes the module's own reload drop what its scan registered. */
@@ -476,112 +383,6 @@ function placeStores(scan: Scan, value: unknown, owner: object, depth: number): 
       recordOwner(scan.module, member, owner, "scan");
     }
   }
-}
-
-/**
- * What the closing frame draws its stores under: the store the expression returned, or a node named
- * after the binding. A value that holds nothing gets no node, so what it made stays flat.
- */
-function frameHolder(module: ModuleHome, value: unknown, name: string | null): object | undefined {
-  if (!canHold(value)) {
-    return undefined;
-  }
-
-  if (!isStore(value)) {
-    makeNode(module, value, undefined, "frame", {
-      home: module.home,
-      external: module.external,
-      name: name ?? UNNAMED,
-      ours: name === null,
-      numbered: name === null,
-      type: typeNameOf(value),
-      skipped: skippedCount(value),
-    });
-  }
-
-  return value;
-}
-
-/** How many members a cap left out, which a value that could not be read has none of. */
-function skippedCount(value: object): number {
-  const members = membersOf(value, undefined);
-
-  return members.read ? members.past.length : 0;
-}
-
-/**
- * The top of what already holds the store is what moves, not the store itself: a node a class field
- * made keeps its own fields and hangs under the binding whole, which is what gets an unenumerable
- * holder its binding back.
- */
-function hangUnder(
-  module: ModuleHome,
-  devtools: DevtoolsGlobal,
-  holder: object,
-  store: Store,
-): void {
-  const top = topHolder(devtools, store);
-
-  if (top === holder) {
-    return;
-  }
-
-  if (isStore(top)) {
-    if (standsAlone(top)) {
-      return;
-    }
-
-    recordOwner(module, top, holder, "frame");
-
-    return;
-  }
-
-  const info = devtools.nodes.get(top);
-
-  if (info !== undefined) {
-    addParent(module, top, info, holder, "frame");
-  }
-}
-
-/**
- * Whether the store already holds a place the frame cannot improve on: one made at a module-level
- * site, which the tree draws flat at the file it was written in because it has no function it could
- * belong to.
- *
- * What the frame knows is that the store was born while some expression ran, and that is a claim
- * about when, not about what holds it. `merged([eventAtom(root, "pointerup"), …])` keeps its sources
- * in a closure, so nothing on the atom it hands back leads to them, and nesting them inside it says
- * that atom holds them. They are siblings of it, and flat is where they belong.
- *
- * A store the registry never saw has no site to stand at, so the frame is still all it has.
- */
-function standsAlone(store: Store): boolean {
-  return getEntry(store)?.fn === null;
-}
-
-/**
- * What holds a store at the very top of its chain, which is the store itself when nothing does.
- *
- * **A chain, not the graph.** This is frame machinery: it runs while the module body is still
- * going, before the binding scan has recorded anything, so what it walks is a class field's `this`
- * and an earlier frame's holder, and each of those gives one answer. Widening it to every edge
- * would find a top the frame has no business moving.
- */
-function topHolder(devtools: DevtoolsGlobal, store: Store): object {
-  let current: object = store;
-  let above = firstHolder(devtools, current);
-
-  while (above !== undefined) {
-    current = above;
-    above = firstHolder(devtools, current);
-  }
-
-  return current;
-}
-
-/** One step up the chain a frame walks: a store's first live owner, or a node's first parent. */
-function firstHolder(devtools: DevtoolsGlobal, value: object): object | undefined {
-  return holdersOf(devtools, value)[0];
 }
 
 /** Everything a node draws apart from what holds it, which is the one thing a walk never replaces. */
@@ -811,10 +612,6 @@ function propertiesOf(value: object): Member[] {
  * One more thing that holds the store, once per reference the developer wrote. A `scan` and a
  * `field` both know a property name, so both are references and both accumulate.
  *
- * **A frame is not a reference.** All it knows is that the store was born while an expression ran,
- * which is a claim about when. There is at most one frame link, kept only where nothing better ever
- * turns up, and the tree draws it only where the store has no other link at all.
- *
  * A new owner the store already holds above it is refused, itself included, because an owner graph
  * that loops would make the tree infinite.
  */
@@ -833,7 +630,7 @@ function recordOwner(
 
   /** The same owner proposed again: one link, and the source that knows a key names it. */
   if (known !== undefined) {
-    if (known.source === "frame" || (source !== "frame" && known.key === undefined)) {
+    if (known.key === undefined) {
       known.source = source;
       known.key = key;
       known.moduleKey = module.moduleKey;
@@ -844,9 +641,7 @@ function recordOwner(
     return;
   }
 
-  const frameTaken = source === "frame" && links.some((link) => link.source === "frame");
-
-  if (frameTaken || owner === store || reaches(devtools, owner, store)) {
+  if (owner === store || reaches(devtools, owner, store)) {
     return;
   }
 
@@ -885,11 +680,7 @@ function reaches(devtools: DevtoolsGlobal, from: object, wanted: object): boolea
   return false;
 }
 
-/**
- * Every step up: what holds a store, and what holds a node. A frame link counts here even though
- * the tree may not draw it, because a sweep can take the links in front of it away and leave the
- * frame drawing after all.
- */
+/** Every step up: what holds a store, and what holds a node. */
 function holdersOf(devtools: DevtoolsGlobal, value: object): object[] {
   const held = isStore(value)
     ? devtools.owners.get(value)?.map((link) => link.owner)

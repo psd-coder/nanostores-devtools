@@ -24,7 +24,7 @@ function endOfTurn(): Promise<void> {
 }
 
 function register(name: string, store: Store, type: StoreType = "atom"): void {
-  registerStore({ store, name, home: "cart", type, origin: "plugin", external: false, fn: null });
+  registerStore({ store, name, home: "cart", type, origin: "plugin", external: false });
 }
 
 /** Connect, reach the deferred `init`, then open the panel, which is when rows start flowing. */
@@ -240,7 +240,6 @@ describe("direct write rows", () => {
         type: "atom",
         origin: "plugin",
         external: true,
-        fn: "focus",
       });
       ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
         { name: "fields", value: { username: $lens }, exported: false },

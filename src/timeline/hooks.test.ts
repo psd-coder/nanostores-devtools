@@ -16,7 +16,7 @@ function endOfTurn(): Promise<void> {
 }
 
 function register(store: Store, name: string, type: StoreType = "atom"): void {
-  registerStore({ store, name, home: HOME, type, origin: "plugin", external: false, fn: null });
+  registerStore({ store, name, home: HOME, type, origin: "plugin", external: false });
 }
 
 function hooked(store: Store): boolean {

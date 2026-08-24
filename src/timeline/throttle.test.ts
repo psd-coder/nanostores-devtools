@@ -31,7 +31,6 @@ function register(
     type,
     origin: "plugin",
     external: false,
-    fn: null,
     throttle,
   });
 }
@@ -265,7 +264,6 @@ describe("the throttle option", () => {
       type: "atom",
       origin: "plugin",
       external: false,
-      fn: null,
       file: "frames.ts",
       place: "makeFrames, line 12",
       number: 2,
@@ -748,7 +746,6 @@ describe("autoThrottle", () => {
       type: "atom",
       origin: "explicit",
       external: false,
-      fn: null,
     });
     await listen({ autoThrottle: 1 });
 
@@ -773,7 +770,6 @@ describe("autoThrottle", () => {
       type: "atom",
       origin: "plugin",
       external: false,
-      fn: null,
       file: "frames.ts",
       number: 2,
     });
