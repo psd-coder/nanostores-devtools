@@ -410,19 +410,29 @@ const $frame = atom(0);
 **The plugin reads a third comment, and it is not about rows.** `// @nanostores-devtools:ignore`
 keeps every store the statement below it makes out of the devtools: no key in the tree, no row in
 the timeline, nothing in the panel that says the store is there. It marks the whole statement the
-way the other two do, it wins over them where both stand over one statement, and it changes nothing
-else in the file. A store you keep out this way is called **ignored**:
+way the other comments do, it wins over any of them standing over the same statement, and it changes
+nothing else in the file. A store you keep out this way is called **ignored**:
 
 ```ts
 // @nanostores-devtools:ignore
 const $session = atom(readToken());
 ```
 
-The colon is the one separator. A `@nanostores-devtools` comment that names none of the three is
+**The fourth one caps one binding.** `// @nanostores-devtools:max-members 25` walks the first 25
+members of the binding below it and stops, at every depth of it. What it leaves out is not drawn and
+not registered, so nothing subscribes to it, and the panel says how many members it left out and
+names the comment, so you can find the line:
+
+```ts
+// @nanostores-devtools:max-members 25
+export const rows = await loadEveryRow();
+```
+
+The colon is the one separator. A `@nanostores-devtools` comment that names none of the four is
 read as ordinary prose, and so is one with a hyphen where the colon belongs. The plugin then warns
 once, naming the file and the line, so a typo does not quietly leave a store drawn.
 [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-connectdevtools-option-costs)
-has the full rules for all three.
+has the full rules for all four.
 
 `handle.disconnect()` closes the bridge: it stops listening, drops the rows it has not sent,
 detaches every nanostores hook, and lets the next `connectDevtools()` open a fresh connection. You

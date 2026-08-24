@@ -119,6 +119,16 @@ type Span = { start: number; end: number };
 type Mark = Span & { throttle: number | boolean };
 
 /**
+ * A range a member cap settles, and the number it named, or nothing at all where it named none the
+ * plugin can read. The refused one is kept rather than dropped, because the line it stands on is
+ * what the warning about it names.
+ */
+type Cap = Span & { maxMembers: number | undefined };
+
+/** One top-level name the module binds, and the cap a comment over its statement gave it. */
+type Bound = { name: string; maxMembers: number | undefined };
+
+/**
  * The comment that holds a store to one row a second, written on its own line above the store. It
  * takes a rate of its own, `// @nanostores-devtools:throttle 100`, and the rest of the line is captured so a
  * comment that names no readable rate still marks its store.
@@ -138,11 +148,19 @@ const NO_THROTTLE_COMMENT = /^@nanostores-devtools:no-throttle(?:\s+[^]*)?$/;
  */
 const IGNORE_COMMENT = /^@nanostores-devtools:ignore(?:\s+[^]*)?$/;
 
+/**
+ * The fourth one: how many members of the binding below the scan walks, at every depth of it. The
+ * rest of the line is captured, so a number nobody can read is warned about rather than passed
+ * over as prose.
+ */
+const MAX_MEMBERS_COMMENT = /^@nanostores-devtools:max-members(?:\s+([^]*))?$/;
+
 /** Every devtools comment the plugin reads, for the developer who wrote one it does not. */
 const DEVTOOLS_COMMENTS = [
   "@nanostores-devtools:ignore",
   "@nanostores-devtools:throttle",
   "@nanostores-devtools:no-throttle",
+  "@nanostores-devtools:max-members",
 ] as const;
 
 /**
@@ -174,7 +192,7 @@ export function transformStores(input: TransformInput): StoreTransform {
   const open: number[] = [];
   const lines = lineStarts(input.code);
   /** The module's top-level bindings, in source order, for the scan the runtime walks at load. */
-  const bound: string[] = [];
+  const bound: Bound[] = [];
   /** Which of them the developer exported, which is the name the app knows a store by. */
   const exported = new Set<string>();
   /** The statements a throttle comment stands over, so every site inside one carries the flag. */
@@ -458,9 +476,10 @@ export function transformStores(input: TransformInput): StoreTransform {
    * and take the module down.
    *
    * Every name a pattern binds is listed, so `const { $user, $cart } = makeThings()` reaches the
-   * scan as two bindings.
+   * scan as two bindings. A cap comment over the statement reaches every one of them, because the
+   * comment stands over the statement and the statement is what binds them all.
    */
-  function readBindings(statement: TopLevel): void {
+  function readBindings(statement: TopLevel, maxMembers: number | undefined): void {
     const exportedHere = statement.type === "ExportNamedDeclaration";
     const declared = exportedHere ? statement.declaration : statement;
 
@@ -474,7 +493,7 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     for (const declarator of declared.declarations) {
       for (const name of boundNames(declarator.id)) {
-        bound.push(name);
+        bound.push({ name, maxMembers });
 
         if (exportedHere) {
           exported.add(name);
@@ -517,15 +536,31 @@ export function transformStores(input: TransformInput): StoreTransform {
    */
   const ignores = parsed.comments.filter(isIgnoreComment).map(spanOf);
   const rates = parsed.comments.flatMap(readThrottleComment);
+  const caps = parsed.comments.flatMap(readCapComment);
   let previousEnd = 0;
+
+  /**
+   * A number the plugin cannot read caps nothing and says so, wherever the comment stands. The line
+   * is what the developer looks up, so it is named whether a binding stands below it or not.
+   */
+  for (const cap of caps.filter((held) => held.maxMembers === undefined)) {
+    warnings.add(
+      `"${input.moduleKey}" line ${lineOf(lines, cap.start)} holds a ` +
+        `@nanostores-devtools:max-members comment with no number the plugin can read, so it caps ` +
+        `nothing. Write a whole number of 1 or more, as in ` +
+        `"// @nanostores-devtools:max-members 25".`,
+    );
+  }
 
   for (const statement of parsed.program.body) {
     const span = { start: statement.start, end: statement.end };
     /** A comment with no statement between it and this one stands over this one. */
     const stands = (held: Span): boolean =>
       held.start >= previousEnd && held.end <= statement.start;
-    /** Ignore beats throttle over one statement: a store nobody draws has no rate. */
+    /** Ignore beats the other three over one statement: a store nobody draws has no settings. */
     const ignoredHere = ignores.some(stands);
+    /** Two caps over one statement: the first one that named a number the plugin can read. */
+    const cap = caps.filter(stands).find((held) => held.maxMembers !== undefined);
 
     if (ignoredHere) {
       ignored.push(span);
@@ -551,7 +586,7 @@ export function transformStores(input: TransformInput): StoreTransform {
     if (statement.type === "ImportDeclaration") {
       readImport(statement);
     } else if (!ignoredHere) {
-      readBindings(statement);
+      readBindings(statement, cap?.maxMembers);
     }
   }
 
@@ -659,7 +694,7 @@ export function transformStores(input: TransformInput): StoreTransform {
    * file whose last line is a comment still ends that comment before this call.
    */
   if (bound.length > 0) {
-    const listed = bound.map((name) => binding(name, exported.has(name)));
+    const listed = bound.map((one) => binding(one, exported.has(one.name)));
 
     edited.append(`\n${SCOPE}.own([${listed.join(", ")}]);\n`);
   }
@@ -672,9 +707,14 @@ export function transformStores(input: TransformInput): StoreTransform {
   };
 }
 
-/** The name as it is written in the source, beside the value it holds at the end of the body. */
-function binding(name: string, exported: boolean): string {
-  return `{name:${JSON.stringify(name)},value:${name},exported:${exported}}`;
+/**
+ * The name as it is written in the source, beside the value it holds at the end of the body. The
+ * cap is written only where a comment named one, so the walk's own unbounded rule stands alone.
+ */
+function binding(bound: Bound, exported: boolean): string {
+  const cap = bound.maxMembers === undefined ? "" : `,maxMembers:${bound.maxMembers}`;
+
+  return `{name:${JSON.stringify(bound.name)},value:${bound.name},exported:${exported}${cap}}`;
 }
 
 /**
@@ -863,6 +903,29 @@ function readThrottleComment(comment: Comment): Mark[] {
   const rate = Number(match[1]);
 
   return [{ ...span, throttle: Number.isFinite(rate) && rate > 0 ? rate : true }];
+}
+
+/**
+ * How many members of the binding below the walk takes: a whole number of 1 or more, the same shape
+ * the `maxDepth` option takes. Anything else caps nothing, because the developer meant a number and
+ * hiding their stores over a typo is worse than the warning the refused one gets instead.
+ *
+ * A fraction is refused rather than rounded. `0.5` would draw nothing at all, and the panel's note
+ * names the number it walked, so a rounded `2.5` would point the developer at a line they never
+ * wrote.
+ */
+function readCapComment(comment: Comment): Cap[] {
+  const match = MAX_MEMBERS_COMMENT.exec(comment.value.trim());
+
+  if (match === null) {
+    return [];
+  }
+
+  const limit = Number(match[1]);
+
+  return [
+    { ...spanOf(comment), maxMembers: Number.isInteger(limit) && limit > 0 ? limit : undefined },
+  ];
 }
 
 /**

@@ -662,6 +662,51 @@ describe("a node", () => {
     expect(ownerOf(past.$open)).toBeUndefined();
   });
 
+  it("caps a plain object built at run time by the same number", () => {
+    const past = panel();
+    const many = { a: panel(), b: panel(), c: past };
+
+    ownBindings(FROM, [{ name: "many", value: many, exported: false, maxMembers: 2 }]);
+
+    expect(nodeInfoOf(many)?.walked).toBe(2);
+    expect(nodeInfoOf(many)?.skipped).toBe(1);
+    expect(nodeInfoOf(past)).toBeUndefined();
+    expect(ownerOf(past.$open)).toBeUndefined();
+  });
+
+  /** The number bounds the whole binding, or a developer who wrote it would see nothing change. */
+  it("caps a member of a member, so the number reaches every depth", () => {
+    const past = panel();
+    const inner = [panel(), panel(), past];
+    const many = [inner];
+
+    ownBindings(FROM, [{ name: "many", value: many, exported: false, maxMembers: 2 }]);
+
+    expect(nodeInfoOf(inner)?.skipped).toBe(1);
+    expect(nodeInfoOf(past)).toBeUndefined();
+    expect(ownerOf(past.$open)).toBeUndefined();
+  });
+
+  /** A store past the number never registers, so nothing subscribes to it and nothing checks it. */
+  it("registers no store past the number", () => {
+    const past = panel();
+
+    ownBindings(FROM, [{ name: "many", value: [panel(), past], exported: false, maxMembers: 1 }]);
+
+    expect(listEntries().map((entry) => entry.name)).toEqual(["many[0].$open"]);
+  });
+
+  /** A wrapper named it before the scan ran, so it keeps that entry and draws at its own file. */
+  it("leaves a store a wrapper registered past the number with no owner of its own", () => {
+    const past = panel();
+
+    track(past.$open, "$open");
+    ownBindings(FROM, [{ name: "many", value: [panel(), past], exported: false, maxMembers: 1 }]);
+
+    expect(ownerOf(past.$open)).toBeUndefined();
+    expect(nodeInfoOf(past)).toBeUndefined();
+  });
+
   it("walks every member of a binding that named no number", () => {
     const last = panel();
     const many = [...Array.from({ length: 4999 }, panel), last];

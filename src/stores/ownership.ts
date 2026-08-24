@@ -474,16 +474,17 @@ function membersOf(value: object, limit: number | undefined): Members {
       );
     }
 
-    return { read: true, drawn: propertiesOf(value), past: [] };
+    return capped(propertiesOf(value), limit);
   } catch (error) {
     return { read: false, reason: describeError(error) };
   }
 }
 
 /**
- * Only a collection is capped, and only where the binding named a number. A collection's length is
- * data, so a developer who knows theirs is long can say how much of it to draw; nobody else is
- * guessing on their behalf.
+ * Every container is capped the same way, and only where the binding named a number. An object
+ * built at run time has as many keys as its data, so a rule that capped an array and left the
+ * object beside it whole would be arbitrary. The number comes from a comment the developer wrote
+ * over that binding; nobody guesses one on their behalf.
  */
 function capped(members: Member[], limit: number | undefined): Members {
   if (limit === undefined) {

@@ -1310,7 +1310,7 @@ describe("buildSnapshot", () => {
         expect(held["[0]"]).toEqual({ "$open [store]": false });
         expect(held["…"]).toEqual({
           data: {},
-          __serializedType__: "2 more members past the 2 walked",
+          __serializedType__: "2 more members left out by `@nanostores-devtools:max-members 2`",
         });
       });
 
@@ -1355,6 +1355,25 @@ describe("buildSnapshot", () => {
 
         expect(Object.keys(held)).toHaveLength(5000);
         expect(held["$key4999 [store]"]).toBe(4999);
+      });
+
+      it("caps a plain object built at run time and names the comment in the note", () => {
+        const members = Object.fromEntries(
+          Array.from({ length: 5 }, (_, index) => [`$key${index}`, atom(index)]),
+        );
+
+        Object.values(members).forEach((store, index) => {
+          track(store, `$made #${index + 1}`);
+        });
+        ownBindings(FROM, [{ name: "made", value: members, exported: false, maxMembers: 2 }]);
+
+        const held = heldBy("made");
+
+        expect(Object.keys(held)).toEqual(["$key0 [store]", "$key1 [store]", "…"]);
+        expect(held["…"]).toEqual({
+          data: {},
+          __serializedType__: "3 more members left out by `@nanostores-devtools:max-members 2`",
+        });
       });
 
       it("numbers a name two nodes of one home both want", () => {

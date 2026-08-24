@@ -141,9 +141,9 @@ export type NodeInfo = {
    * reference the developer wrote: two containers holding one node both draw it.
    */
   parents: ParentLink[];
-  /** How many members of a collection the walk drew, so the `skipped` note can name that number. */
+  /** How many members the walk drew, which is the number the binding's own cap named. */
   walked: number;
-  /** How many members of a collection the walk left out, past the number the binding named. */
+  /** How many members the walk left out, past the number the binding named. */
   skipped: number;
 };
 

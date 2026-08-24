@@ -593,6 +593,65 @@ describe("a binding holding thousands of stores", () => {
   });
 });
 
+const CAPPED_HOME = "fixture/capped.js";
+const CAPPED = `${FIXTURE_DIR}/capped.js`;
+
+describe("a binding a max-members comment stands over", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [CAPPED]:
+          `import { atom } from "nanostores";\n` +
+          `const make = (open) => ({ $open: atom(open) });\n` +
+          `const made = atom("past");\n` +
+          `// @nanostores-devtools:max-members 2\n` +
+          `export const rows = [make(false), [make(true), make(false), make(true)], made];\n`,
+      },
+      CAPPED,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("draws the number the comment named and a note that names the comment", () => {
+    const rows = buildSnapshot()[CAPPED_HOME]?.["rows"] as { data: Record<string, unknown> };
+
+    expect(Object.keys(rows.data)).toEqual(["[0]", "[1]", "…"]);
+    expect(rows.data["…"]).toEqual({
+      data: {},
+      __serializedType__: "1 more members left out by `@nanostores-devtools:max-members 2`",
+    });
+  });
+
+  /** The number bounds the whole binding, so the array inside it takes the same two. */
+  it("caps a member of a member by the same number", () => {
+    const rows = buildSnapshot()[CAPPED_HOME]?.["rows"] as { data: Record<string, unknown> };
+    const inner = rows.data["[1]"] as { data: Record<string, unknown> };
+
+    expect(Object.keys(inner.data)).toEqual(["[0]", "[1]", "…"]);
+  });
+
+  /** The creator call named it before the scan ran, so the cap leaves it drawn at its own file. */
+  it("draws a store a wrapper registered past the number flat at its file", () => {
+    expect(buildSnapshot()[CAPPED_HOME]?.["made [store]"]).toBe("past");
+  });
+
+  /** Every store the scan reached, and the one the wrapper named where the scan stopped. */
+  it("registers no store past the number, at any depth", () => {
+    expect(
+      listEntries()
+        .map((entry) => entry.name)
+        .sort(),
+    ).toEqual(["made", "rows[0].$open", "rows[1][0].$open", "rows[1][1].$open"]);
+  });
+});
+
 const SPREAD_HOME = "fixture/spread.js";
 const SPREAD = `${FIXTURE_DIR}/spread.js`;
 

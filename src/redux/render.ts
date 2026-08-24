@@ -90,7 +90,11 @@ function renderHeld(node: HolderNode): Record<string, unknown> {
   const drawn = renderNodes(node.children);
 
   if (node.skipped > 0) {
-    drawn[MORE_KEY] = mark(`${node.skipped} more members past the ${node.walked} walked`, {});
+    /** Nothing is ever left out but by a cap, so the walked count is the number that cap named. */
+    drawn[MORE_KEY] = mark(
+      `${node.skipped} more members left out by \`@nanostores-devtools:max-members ${node.walked}\``,
+      {},
+    );
   }
 
   return drawn;

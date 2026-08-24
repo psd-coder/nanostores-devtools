@@ -647,14 +647,52 @@ never a file under `node_modules`, so a store built inside a dependency has no s
 to mark. Such a store is in the tree only because you named it in `trackStores`, and dropping that
 name, or calling `untrack`, is what keeps it out.
 
+**`// @nanostores-devtools:max-members 25` caps how much of one binding the scan walks**, which is
+the fourth comment the plugin reads:
+
+```ts
+// @nanostores-devtools:max-members 25
+export const rows = await loadEveryRow();
+```
+
+The scan then takes the first 25 members of that binding and stops. It marks the whole statement
+below it, the way the other three do, so every name a destructured statement binds takes the same
+number.
+
+**The number reaches every depth of that binding**, not the top level alone, so a member of a member
+is capped too. Without that, a comment saying 25 would still leave 25 containers walked whole, and
+the developer who wrote it would see almost nothing change.
+
+**A member past the number is not registered at all.** It draws nowhere, nothing subscribes to it,
+and no timeline row is ever checked for it, which is the cost the comment exists to remove. The
+panel says what it left out under one key, `…`, and names the comment while it does:
+
+```
+4975 more members left out by `@nanostores-devtools:max-members 25`
+```
+
+A store that a creator call already registered under its own name keeps that row, drawn flat at its
+file rather than under the binding.
+
+**It takes a whole number of 1 or more**, the same shape `maxDepth` takes. Missing, zero, negative,
+a fraction or not a number at all: in each case the comment caps nothing, the binding is walked
+whole, and your bundler prints the file and the line, so a typo never quietly hides half your
+stores. **Ignoring beats it** over one statement, the way it beats
+throttling: `ignore` is the escape, and this comment is the middle setting between drawing all of a
+binding and drawing none of it.
+
+**No option sets this for the whole project.** `maxDepth` bounds how deep every binding is walked,
+and this comment bounds how wide one of them is.
+
 **A `@nanostores-devtools` comment the plugin cannot read warns instead of acting.**
-`// @nanostores-devtools:ignored` names none of the three, so we read it as prose and the store
+`// @nanostores-devtools:ignored` names none of the four, so we read it as prose and the store
 below it stays drawn. The same goes for `// @nanostores-devtools-throttle`, with a hyphen where the
 colon belongs: the plugin reads the namespace and everything written on it, so both forms warn
 rather than pass as prose. The plugin warns once through your bundler, naming the file, the line,
-what you wrote and the three comments it reads: `@nanostores-devtools:ignore`,
-`@nanostores-devtools:throttle` and `@nanostores-devtools:no-throttle`. Read that warning as your
-file not doing what it looks like it does.
+what you wrote and the four comments it reads: `@nanostores-devtools:ignore`,
+`@nanostores-devtools:throttle`, `@nanostores-devtools:no-throttle` and
+`@nanostores-devtools:max-members`. Read that warning as your file not doing what it looks like it
+does.
 
 A custom serializer is `{ match: (value) => boolean, convert: (value) => unknown }`. Serializers
 run in array order, the first match wins, and all of them run before every rule of ours.

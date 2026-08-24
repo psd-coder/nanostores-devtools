@@ -87,13 +87,13 @@ in milliseconds, and `autoThrottle`, which catches a store writing more than ten
 holds it for the rest of the session. The tree is never behind; only the steps between entries are
 lost. The tree key says the word while it holds: `$frame [store, throttled]`.
 
-**Devtools comment** — one of the three `// @nanostores-devtools:` comments the plugin reads while
-it walks your source: `:throttle`, which can name a rate in milliseconds, `:no-throttle` and
-`:ignore`. The package name is the namespace and the colon is the one separator. Each one stands on
-its own line and puts a **mark** on the whole statement below it, so a call that makes several
-stores marks all of them. Only the plugin reads them, nothing about a comment reaches the runtime,
-and one that opens with the namespace and names none of the three is read as prose and warned about.
-This is not **Marker**, which is a view word.
+**Devtools comment** — one of the four `// @nanostores-devtools:` comments the plugin reads while
+it walks your source: `:throttle`, which can name a rate in milliseconds, `:no-throttle`, `:ignore`
+and `:max-members`, which names how many members of one **binding** the **binding scan** walks. The
+package name is the namespace and the colon is the one separator. Each one stands on its own line
+and puts a **mark** on the whole statement below it, so a call that makes several stores marks all
+of them. Only the plugin reads them, and one that opens with the namespace and names none of the
+four is read as prose and warned about. This is not **Marker**, which is a view word.
 
 **Ignored** — a store the developer kept out of the devtools with `// @nanostores-devtools:ignore`.
 The plugin wraps nothing in the statement below that comment, so the store never registers, takes no

@@ -1368,6 +1368,101 @@ describe("the ignore comment", () => {
   });
 });
 
+describe("the max-members comment", () => {
+  const IMPORT = `import { atom } from "nanostores";\n`;
+
+  it("writes the number onto the binding the statement below it makes", () => {
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:max-members 25\nconst rows = [atom(0)];\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"rows",value:rows,exported:false,maxMembers:25}]);`,
+    );
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("reads a block comment the same way", () => {
+    const result = transform(
+      `${IMPORT}/* @nanostores-devtools:max-members 4 */\nconst rows = [atom(0)];\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"rows",value:rows,exported:false,maxMembers:4}]);`,
+    );
+  });
+
+  /** One statement binds every name its pattern writes, so the comment over it reaches them all. */
+  it("reaches every name a destructured statement binds", () => {
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:max-members 2\nconst { users, carts } = makeThings();\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"users",value:users,exported:false,maxMembers:2}, ` +
+        `{name:"carts",value:carts,exported:false,maxMembers:2}]);`,
+    );
+  });
+
+  it("leaves the binding below it alone and every other binding uncapped", () => {
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:max-members 3\nconst rows = [atom(0)];\n` +
+        `const others = [atom(1)];\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"rows",value:rows,exported:false,maxMembers:3}, ` +
+        `{name:"others",value:others,exported:false}]);`,
+    );
+  });
+
+  it("caps nothing where a statement stands between the comment and the binding", () => {
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:max-members 3\nfetchAll();\nconst rows = [atom(0)];\n`,
+    );
+
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"rows",value:rows,exported:false}]);`);
+  });
+
+  it.each([
+    ["no number at all", "// @nanostores-devtools:max-members"],
+    ["zero", "// @nanostores-devtools:max-members 0"],
+    ["a negative number", "// @nanostores-devtools:max-members -5"],
+    ["a word", "// @nanostores-devtools:max-members abc"],
+    ["a fraction below one", "// @nanostores-devtools:max-members 0.5"],
+    ["a fraction above one", "// @nanostores-devtools:max-members 2.5"],
+  ])("warns about %s and walks the binding whole", (_case, comment) => {
+    const result = transform(`${IMPORT}${comment}\nconst rows = [atom(0)];\n`);
+
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"rows",value:rows,exported:false}]);`);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain(MODULE_KEY);
+    expect(result.warnings[0]).toContain("line 2");
+    expect(result.warnings[0]).toContain("@nanostores-devtools:max-members");
+  });
+
+  /** Ignore is the escape and this is the middle setting, so a statement with both is ignored. */
+  it("lists no binding at all where ignore stands over the same statement", () => {
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:ignore\n// @nanostores-devtools:max-members 2\n` +
+        `const rows = [atom(0)];\n`,
+    );
+
+    expect(ownCall(result)).toBeUndefined();
+  });
+
+  it("takes the first number it can read where two comments stand over one statement", () => {
+    const result = transform(
+      `${IMPORT}// @nanostores-devtools:max-members abc\n// @nanostores-devtools:max-members 7\n` +
+        `const rows = [atom(0)];\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"rows",value:rows,exported:false,maxMembers:7}]);`,
+    );
+  });
+});
+
 describe("a devtools comment the plugin does not know", () => {
   const IMPORT = `import { atom } from "nanostores";\n`;
 
@@ -1382,7 +1477,8 @@ describe("a devtools comment the plugin does not know", () => {
     expect(warning).toContain("line 3");
     expect(warning).toContain(`"@nanostores-devtools:ignored"`);
     expect(warning).toContain(
-      "@nanostores-devtools:ignore, @nanostores-devtools:throttle, @nanostores-devtools:no-throttle",
+      "@nanostores-devtools:ignore, @nanostores-devtools:throttle, " +
+        "@nanostores-devtools:no-throttle, @nanostores-devtools:max-members",
     );
   });
 
@@ -1413,11 +1509,12 @@ describe("a devtools comment the plugin does not know", () => {
     expect(result.warnings).toHaveLength(1);
   });
 
-  it("says nothing about the three comments it reads, whatever follows them", () => {
+  it("says nothing about the four comments it reads, whatever follows them", () => {
     const result = transform(
       `${IMPORT}// @nanostores-devtools:ignore it holds a token\nconst $secret = atom(0);\n` +
         `// @nanostores-devtools:throttle 100\nconst $frame = atom(1);\n` +
-        `// @nanostores-devtools:no-throttle\nconst $fast = atom(2);\n`,
+        `// @nanostores-devtools:no-throttle\nconst $fast = atom(2);\n` +
+        `// @nanostores-devtools:max-members 25\nconst rows = [atom(3)];\n`,
     );
 
     expect(result.warnings).toEqual([]);
