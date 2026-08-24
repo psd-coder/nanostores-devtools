@@ -6,13 +6,12 @@ import {
   getDevtoolsGlobal,
   type ModuleScope,
   type NodeInfo,
-  type OwnerSource,
   peekDevtoolsGlobal,
   scopeOf,
 } from "../global.ts";
 import { makeLabel } from "./labels.ts";
 import { claimBindingFile, type NameSource } from "./names.ts";
-import { getEntry, isStore, registerStore, renameEntry } from "./registry.ts";
+import { getEntry, isStore, registerStore, renameEntry, renameFound } from "./registry.ts";
 import { describeError, warnOnce } from "../utils/warn.ts";
 
 /**
@@ -32,6 +31,12 @@ const STORE_KEYS: ReadonlySet<string> = new Set([
   "notify",
   "off",
 ]);
+
+/**
+ * What every class carries beside the static fields the developer wrote. A static field may be
+ * named any of the three, so they are skipped by name rather than by how they are defined.
+ */
+const CLASS_KEYS: ReadonlySet<string> = new Set(["prototype", "length", "name"]);
 
 /**
  * How many steps into a binding the walk takes, counting a property, an index and a key alike,
@@ -58,6 +63,12 @@ export type Binding = {
   value: unknown;
   exported: boolean;
   maxMembers?: number;
+  /**
+   * Whether the name binds a class, whose own static properties the walk reads. Nothing else a
+   * function binds is looked inside: reading the own properties of every top-level function in the
+   * app would cost every one of them for the one rare shape a static store is.
+   */
+  isClass?: boolean;
 };
 
 /** One key and value inside a walked value. Not a binding: nothing in the source names it. */
@@ -101,6 +112,9 @@ type Scan = {
  * walked. A top-level binding beats the key of an object holding the same store, so one pass would
  * let a walk started earlier in the file name the store after where it was found, and the order
  * the developer wrote their bindings in would decide.
+ *
+ * **A class is walked too**, for its own static fields, which nothing else can reach: a static
+ * field belongs to the class, and no instance of it holds the store.
  */
 export function ownBindings(
   module: ModuleHome,
@@ -117,8 +131,8 @@ export function ownBindings(
     }
   }
 
-  for (const { name, value, maxMembers } of bindings) {
-    if (canHold(value)) {
+  for (const { name, value, maxMembers, isClass } of bindings) {
+    if (canHold(value) || (isClass === true && typeof value === "function")) {
       walk(
         { module, binding: name, seen: new Set(), maxDepth, maxMembers },
         value,
@@ -161,7 +175,7 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
   const statics = typeof owner === "function";
   const written = statics ? classKey(owner) : undefined;
 
-  makeNode(module, owner, undefined, "field", {
+  makeNode(module, owner, undefined, {
     home: module.home,
     external: module.external,
     name: written ?? UNNAMED,
@@ -172,7 +186,7 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
     skipped: 0,
   });
 
-  recordOwner(module, store, owner, "field");
+  recordOwner(module, store, owner);
 }
 
 /**
@@ -249,7 +263,7 @@ function joined(path: string, key: string): string {
  * The kind comes from `creations`, where a creator call with no name of its own filed it, so a
  * store the plugin wrapped without being able to name it still draws as the type it is.
  */
-function registerFound(module: ModuleHome, store: Store, name: string): void {
+function registerFound(module: ModuleHome, store: Store, name: string, ownerName?: string): void {
   if (getEntry(store) !== undefined) {
     return;
   }
@@ -261,10 +275,51 @@ function registerFound(module: ModuleHome, store: Store, name: string): void {
     type: getDevtoolsGlobal().creations.get(store) ?? "unknown",
     origin: "plugin",
     external: module.external,
+    ownerName,
   });
 
   /** Only this list makes the module's own reload drop what its scan registered. */
   scopeOf(module.moduleKey).owned.add(store);
+}
+
+/**
+ * The store the walk has just reached under a key, and the name it goes by from here. A store no
+ * wrapper could name is registered; a store one already registered is renamed to the path, because
+ * the name a creator call gave it is one key of one object and two objects hold a key called
+ * `$open`. Its entry, its kind and its throttle comment are all kept.
+ *
+ * Three names beat the path, and each of them is a thing the developer wrote for this store: a
+ * group they registered it into by hand, a top-level binding that holds it, and the first path a
+ * scan already recorded. That last one is what stops import order moving a row header about.
+ */
+function nameReached(module: ModuleHome, store: Store, path: string, key: string): void {
+  const known = getEntry(store);
+
+  if (known === undefined) {
+    registerFound(module, store, path, key);
+
+    return;
+  }
+
+  if (known.origin === "explicit" || isBound(store) || pathTaken(store)) {
+    return;
+  }
+
+  renameFound(store, path, module.home, key);
+}
+
+/** Whether a top-level binding of the developer's own already names the store. */
+function isBound(store: Store): boolean {
+  return (getDevtoolsGlobal().bound.get(store) ?? []).length > 0;
+}
+
+/**
+ * Whether a scan has already recorded a chain that reaches the store. The first one wins the
+ * entry's name, across modules as well, so a module loaded later adds its owner link and leaves
+ * the name alone.
+ */
+function pathTaken(store: Store): boolean {
+  return (getDevtoolsGlobal().owners.get(store) ?? []).some((link) => link.path !== undefined);
 }
 
 /**
@@ -305,7 +360,7 @@ function walk(
 
   /** A store already holds a place of its own, so only another kind of value becomes a node. */
   if (!isStore(value)) {
-    makeNode(scan.module, value, owner, "scan", {
+    makeNode(scan.module, value, owner, {
       home: scan.module.home,
       external: scan.module.external,
       name,
@@ -321,8 +376,8 @@ function walk(
     const reached = joined(path, key);
 
     if (isStore(member)) {
-      registerFound(scan.module, member, reached);
-      recordOwner(scan.module, member, value, "scan", key);
+      nameReached(scan.module, member, reached, key);
+      recordOwner(scan.module, member, value, key, reached);
     }
 
     if (canHold(member)) {
@@ -363,7 +418,6 @@ function makeNode(
   module: ModuleHome,
   value: object,
   parent: object | undefined,
-  source: OwnerSource,
   node: Drawn,
 ): void {
   const { nodes } = getDevtoolsGlobal();
@@ -378,7 +432,7 @@ function makeNode(
   }
 
   if (parent !== undefined) {
-    addParent(module, value, info, parent, source);
+    addParent(module, value, info, parent);
   }
 }
 
@@ -387,13 +441,7 @@ function makeNode(
  * parent graph that loops would make the tree infinite, and refused where the same parent is
  * already recorded, so a second walk over one binding draws no second copy of the node.
  */
-function addParent(
-  module: ModuleHome,
-  value: object,
-  info: NodeInfo,
-  parent: object,
-  source: OwnerSource,
-): void {
+function addParent(module: ModuleHome, value: object, info: NodeInfo, parent: object): void {
   const devtools = getDevtoolsGlobal();
 
   info.parents = live(info.parents, (link) => link.parent);
@@ -406,7 +454,7 @@ function addParent(
     return;
   }
 
-  info.parents.push({ parent: new WeakRef(parent), source, moduleKey: module.moduleKey });
+  info.parents.push({ parent: new WeakRef(parent), moduleKey: module.moduleKey });
   noteLink(module.moduleKey, value);
 }
 
@@ -427,6 +475,11 @@ function classKey(owner: object): string | undefined {
  * cannot.
  */
 function typeNameOf(value: object): string | undefined {
+  /** A class is drawn under the name that binds it, and `Function` behind that says nothing. */
+  if (typeof value === "function") {
+    return undefined;
+  }
+
   const prototype: object | null = Object.getPrototypeOf(value);
   const descriptor =
     prototype === null ? undefined : Object.getOwnPropertyDescriptor(prototype, "constructor");
@@ -552,12 +605,17 @@ function keyName(key: unknown): string | undefined {
     : undefined;
 }
 
+/**
+ * A class gives up its own static fields, and what every class carries beside them is skipped:
+ * `prototype` holds the methods, and `length` and `name` describe the class itself.
+ */
 function propertiesOf(value: object): Member[] {
   const found: Member[] = [];
   const store = isStore(value);
+  const isClass = typeof value === "function";
 
   for (const key of Object.keys(value)) {
-    if (store && STORE_KEYS.has(key)) {
+    if ((store && STORE_KEYS.has(key)) || (isClass && CLASS_KEYS.has(key))) {
       continue;
     }
 
@@ -572,8 +630,8 @@ function propertiesOf(value: object): Member[] {
 }
 
 /**
- * One more thing that holds the store, once per reference the developer wrote. A `scan` and a
- * `field` both know a property name, so both are references and both accumulate.
+ * One more thing that holds the store, once per reference the developer wrote. A class field and a
+ * walk both know a property name, so both are references and both accumulate.
  *
  * A new owner the store already holds above it is refused, itself included, because an owner graph
  * that loops would make the tree infinite.
@@ -582,8 +640,8 @@ function recordOwner(
   module: ModuleHome,
   store: Store,
   owner: object,
-  source: OwnerSource,
   key?: string,
+  path?: string,
 ): void {
   const devtools = getDevtoolsGlobal();
   const links = live(devtools.owners.get(store) ?? [], (link) => link.owner);
@@ -591,12 +649,13 @@ function recordOwner(
 
   devtools.owners.set(store, links);
 
-  /** The same owner proposed again: one link, and the source that knows a key names it. */
+  /** The same owner proposed again: one link, and the walk that knows a key names it. */
   if (known !== undefined) {
     if (known.key === undefined) {
-      known.source = source;
       known.key = key;
+      known.path = path;
       known.moduleKey = module.moduleKey;
+      takeKey(devtools, owner, key, store);
       /** The link is this module's from here, so its own reload has to be able to find it. */
       noteLink(module.moduleKey, store);
     }
@@ -608,8 +667,39 @@ function recordOwner(
     return;
   }
 
-  links.push({ owner: new WeakRef(owner), source, key, moduleKey: module.moduleKey });
+  takeKey(devtools, owner, key, store);
+  links.push({ owner: new WeakRef(owner), key, path, moduleKey: module.moduleKey });
   noteLink(module.moduleKey, store);
+}
+
+/**
+ * One owner and one key name one store. A key holds one value, and the scan reads it at the end of
+ * the module body, so the last scan to walk the owner saw what was really there and any other
+ * store's link to that key is out of date.
+ *
+ * The store that loses the link keeps its entry and draws at its own file. The app may hold it
+ * somewhere no walk reached, and a store the panel drew a moment ago is worth more there than
+ * nowhere at all.
+ */
+function takeKey(
+  devtools: DevtoolsGlobal,
+  owner: object,
+  key: string | undefined,
+  store: Store,
+): void {
+  if (key === undefined) {
+    return;
+  }
+
+  const held = devtools.keyed.get(owner) ?? new Map<string, WeakRef<Store>>();
+  const taken = held.get(key)?.deref();
+
+  devtools.keyed.set(owner, held);
+  held.set(key, new WeakRef(store));
+
+  if (taken !== undefined && taken !== store) {
+    dropOwn(devtools.owners, taken, (link) => link.owner.deref() !== owner);
+  }
 }
 
 /**

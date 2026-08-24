@@ -315,19 +315,14 @@ function rootNodes(pass: Pass, held: readonly Held[]): TreeNode[] {
 }
 
 /**
- * The children of one owner.
- *
- * A clash is settled twice over: the store's own name and place first, and its home second. The
- * home is for the one clash a file level made impossible, where ownership draws stores from two
- * files into one node and two files each hold a `$history`. Both sides show it, because one bare
- * `$history` beside a `$history` from `vendor/withUndo.ts` does not say where the bare one came
- * from.
+ * The children of one owner. Two stores here cannot want one name: one owner and one key name one
+ * store, so a store found at a key another one already took loses its link and is drawn at its own
+ * file instead. What is left to settle is a node the walk found no written name for, which takes a
+ * number like every other.
  */
 function childNodes(pass: Pass, held: readonly Held[]): TreeNode[] {
   const placements = held.map((one) => childPlacement(pass, one));
 
-  keepApart(placements, ownNaming);
-  keepApart(placements, homedNaming);
   numberApart(placements);
 
   return fillAll(pass, sorted(placements));
@@ -392,8 +387,7 @@ function boundParts(bound: BoundName): NameParts | null {
 /**
  * A nested store is drawn under the name its owner really holds it under, which carries nothing
  * that tells two stores apart: the parent already says which one this is. Where several stores
- * still land on one parent under one name, `keepApart` and `numberApart` below tell them apart
- * again.
+ * still land on one parent under one name, `numberApart` below tells them apart again.
  *
  * The scan reads that name off the owner, so it is the key the developer wrote and not the name the
  * store was born with. The two agree wherever a util calls its own field what it exposes it as, and
@@ -490,30 +484,6 @@ function nameForOwner(entry: StoreEntry): string {
 }
 
 /**
- * A name only one child wants stays; a name two of them want is replaced on both sides. A node keeps
- * its name here whatever happens: the only name it has is the one the developer wrote, so a clash
- * over it waits for a number instead.
- *
- * **Two siblings clash when the name clashes**, whatever each one holds and however fast it writes.
- * The type and the throttle state are words a view spells, and both move while the app runs, so a
- * name that rested on either would come and go under the developer.
- */
-function keepApart(placements: readonly Placement[], rename: (entry: StoreEntry) => Naming): void {
-  const wanted = countNames(placements);
-
-  for (const { node } of placements) {
-    if (node.kind === "holder" || wanted.get(nameKey(node)) === 1) {
-      continue;
-    }
-
-    const { name, qualifier } = rename(node.entry);
-
-    node.name = name;
-    node.qualifier = qualifier;
-  }
-}
-
-/**
  * A name two children still want is numbered, which is where a node's ordinal comes from. Both
  * sides take one, because one bare `panel` next to a `panel` numbered two does not say which of the
  * two the bare one is.
@@ -570,19 +540,6 @@ function nameKey(node: TreeNode): string {
     qualifier?.place ?? "",
     ordinalDigits(qualifier?.number ?? 1),
   ].join(PART);
-}
-
-/** The clash a file level made impossible, so the group holds the home instead of the place. */
-function homedNaming(entry: StoreEntry): Naming {
-  return { name: entry.name, qualifier: { file: entry.home, place: null, number: entry.number } };
-}
-
-/** The developer's own name for the store, with everything that tells it from another of it. */
-function ownNaming(entry: StoreEntry): Naming {
-  return {
-    name: entry.name,
-    qualifier: { file: entry.file, place: entry.place, number: entry.number },
-  };
 }
 
 /** Nothing to say where a store was made and only one of it, so nothing has to be drawn. */

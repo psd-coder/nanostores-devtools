@@ -1,10 +1,12 @@
-import { rowName } from "../tree/placement.ts";
+import { otherPaths, rowName } from "../tree/placement.ts";
 import type { Change, Row, RowOp } from "../timeline/timeline.ts";
 
 /** One change as the panel prints it: the store spelled for a reader, and what it did. */
 type DrawnChange = {
   label: string;
   op: RowOp;
+  /** Every other chain that reaches the store, where the developer holds it in more than one. */
+  also?: string[] | undefined;
   path?: string | undefined;
   from?: string | undefined;
 };
@@ -43,6 +45,11 @@ function rowType(row: Row): string {
 
 function renderChange(change: Change, index: number): DrawnChange {
   const drawn: DrawnChange = { label: change.entry.label, op: change.op };
+  const also = otherPaths(change.entry);
+
+  if (also.length > 0) {
+    drawn.also = also;
+  }
 
   if (change.path !== undefined) {
     drawn.path = change.path;

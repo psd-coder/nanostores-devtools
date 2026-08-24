@@ -307,8 +307,7 @@ loaded first. The **model** decides which node takes one and what goes in it; th
 
 **Key order** — a **view** rule, and the only place these parts are ever put together: a tree key
 reads name, type note, one parenthesis group, number, always in that order. The group holds the
-place the store was made, until two homes have to be told apart: the home takes the group then and
-the place is left out, so a key carries one group and never two.
+place the store was made, so a key carries one group and never two.
 
 **Lifecycle row** — a timeline entry for something other than a value change: a store joining or
 leaving the registry, or mounting and unmounting. All four are on by default, because a tree that

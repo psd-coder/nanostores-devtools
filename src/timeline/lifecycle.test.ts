@@ -69,7 +69,7 @@ describe("mount and unmount rows", () => {
     });
   });
 
-  it("names a mount row after the key its owner holds the store under", async () => {
+  it("names a mount row after the whole path that reaches the store", async () => {
     const $lens = atom("");
 
     register("$lens", $lens);
@@ -84,7 +84,7 @@ describe("mount and unmount rows", () => {
     unbind();
     await endOfTurn();
 
-    expect(rowNames()).toEqual(["username/mount", "username/unmount"]);
+    expect(rowNames()).toEqual(["fields.username/mount", "fields.username/unmount"]);
   });
 
   it("coalesces nothing: mounting three stores draws three rows", async () => {
@@ -237,7 +237,7 @@ describe("register, unregister and hot reload rows", () => {
     expect(fake.sends[0]?.state).toEqual({ [HOME]: { "$late [store]": 0 } });
   });
 
-  it("names a register row after the key its owner holds the one store under", async () => {
+  it("names a register row after the whole path that reaches the one store", async () => {
     const $lens = atom("");
 
     await listen();
@@ -248,7 +248,7 @@ describe("register, unregister and hot reload rows", () => {
 
     await endOfTurn();
 
-    expect(rowNames()).toEqual(["username/register"]);
+    expect(rowNames()).toEqual(["fields.username/register"]);
   });
 
   it("coalesces one module's registrations into one row naming each store", async () => {
@@ -396,7 +396,7 @@ describe("a store drawn under an owner", () => {
       type: `${HOME}/unregister`,
       changes: [
         { label: `${HOME}/$draft`, op: "unregister" },
-        { label: `${HOME}/$canUndo`, op: "unregister" },
+        { label: `${HOME}/$draft.$canUndo`, op: "unregister" },
       ],
     });
   });

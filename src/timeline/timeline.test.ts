@@ -193,7 +193,7 @@ describe("direct write rows", () => {
       expect(fake.sends[0]?.state).toEqual({ cart: { "$undoable [store]": true } });
     });
 
-    it("names a row after the key its owner holds the store under", async () => {
+    it("names a row after the whole path that reaches the store", async () => {
       const $lens = atom("");
       const fields = { username: $lens };
 
@@ -207,7 +207,7 @@ describe("direct write rows", () => {
 
       await endOfTurn();
 
-      expect(fake.sends[0]?.action["type"]).toBe("username/set");
+      expect(fake.sends[0]?.action["type"]).toBe("fields.username/set");
       expect(fake.sends[0]?.state).toEqual({ cart: { fields: { "username [store]": "ada" } } });
     });
 
@@ -229,8 +229,8 @@ describe("direct write rows", () => {
       expect(fake.sends[0]?.action["type"]).toBe("$username/set");
     });
 
-    /** The change carries where the store came from, which a name the owner chose does not say. */
-    it("leaves the change's label pointing at the file the store was born in", async () => {
+    /** The path is the developer's own file reaching in, so the label follows it home. */
+    it("moves the label onto the path that reaches a store born somewhere else", async () => {
       const $lens = atom("");
 
       registerStore({
@@ -251,8 +251,62 @@ describe("direct write rows", () => {
       await endOfTurn();
 
       expect(fake.sends[0]?.action["action"]).toEqual({
-        type: "username/set",
-        changes: [{ label: "vendor/lensed.ts/$lens", op: "set" }],
+        type: "fields.username/set",
+        changes: [{ label: "cart/fields.username", op: "set" }],
+      });
+    });
+
+    it("heads a setKey row with the binding path and the key it wrote", async () => {
+      const $user = deepMap<{ profile: { city: string } }>({ profile: { city: "kyiv" } });
+      const config = { theme: { $user } };
+
+      register("$user", $user, "deepMap");
+      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+        { name: "config", value: config, exported: false },
+      ]);
+      await listen();
+
+      $user.setKey("profile.city", "lviv");
+
+      await endOfTurn();
+
+      expect(fake.sends[0]?.action["type"]).toBe("config.theme.$user/setKey:profile.city");
+    });
+
+    /** The developer said where the store belongs, so the scan records a link and renames nothing. */
+    it("heads a row with the group key a developer registered the store under", async () => {
+      const $counter = atom(0);
+
+      trackStores("checkout", { $counter });
+      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+        { name: "holder", value: { $counter }, exported: false },
+      ]);
+      await listen();
+
+      $counter.set(1);
+
+      await endOfTurn();
+
+      expect(fake.sends[0]?.action["type"]).toBe("$counter/set");
+    });
+
+    it("lists every other path that reaches the store beside the change", async () => {
+      const $shared = atom(0);
+
+      register("$shared", $shared);
+      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+        { name: "left", value: { $shared }, exported: false },
+        { name: "right", value: { $shared }, exported: false },
+      ]);
+      await listen();
+
+      $shared.set(1);
+
+      await endOfTurn();
+
+      expect(fake.sends[0]?.action["action"]).toEqual({
+        type: "left.$shared/set",
+        changes: [{ label: "cart/left.$shared", op: "set", also: ["right.$shared"] }],
       });
     });
 
@@ -676,7 +730,7 @@ describe("computed follower rows", () => {
     });
   });
 
-  it("names that row after the key its owner holds the follower under", async () => {
+  it("names that row after the whole path that reaches the follower", async () => {
     const $source = atom(1);
     const $total = computed($source, (source) => source * 2);
 
@@ -691,7 +745,7 @@ describe("computed follower rows", () => {
 
     await endOfTurn();
 
-    expect(fake.sends[0]?.action["type"]).toBe("doubled/computed");
+    expect(fake.sends[0]?.action["type"]).toBe("totals.doubled/computed");
   });
 
   it("hands the panel no stack for a row a follower opened on its own", async () => {

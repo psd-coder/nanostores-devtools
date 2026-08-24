@@ -1069,7 +1069,7 @@ describe("the binding scan", () => {
     );
   });
 
-  it("leaves out an import, a class, a function and a binding inside a block", () => {
+  it("leaves out an import, a function and a binding inside a block, and lists the class", () => {
     const result = transform(
       `import { atom } from "nanostores";\n` +
         `import { $shared } from "./other.ts";\n` +
@@ -1079,7 +1079,10 @@ describe("the binding scan", () => {
         `const $own = atom(0);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([{name:"$own",value:$own,exported:false}]);`);
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"Editor",value:Editor,exported:true,isClass:true}, ` +
+        `{name:"$own",value:$own,exported:false}]);`,
+    );
   });
 
   it("still parses when the module's last line is a comment that ends the file", () => {
@@ -1091,11 +1094,30 @@ describe("the binding scan", () => {
   });
 
   it("says nothing for a file with no top-level binding", () => {
-    const result = transform(
-      `import { atom } from "nanostores";\n` + `export class Editor {\n  $value = atom("");\n}\n`,
-    );
+    const result = transform(`import { atom } from "nanostores";\n` + `use(atom(0));\n`);
 
     expect(output(result)).not.toContain("__nsdt.own(");
+  });
+
+  /** A static field is the one store a class holds that no other binding of the file can reach. */
+  it("lists a class, so the scan can walk its own static fields", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` + `class Panel {\n  static $opened = atom(0);\n}\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"Panel",value:Panel,exported:false,isClass:true}]);`,
+    );
+  });
+
+  it("leaves out a class the types alone declare, which binds nothing once they are stripped", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `declare class Ambient {}\n` +
+        `const $own = atom(0);\n`,
+    );
+
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"$own",value:$own,exported:false}]);`);
   });
 });
 

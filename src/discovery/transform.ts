@@ -125,8 +125,11 @@ type Mark = Span & { throttle: number | boolean };
  */
 type Cap = Span & { maxMembers: number | undefined };
 
-/** One top-level name the module binds, and the cap a comment over its statement gave it. */
-type Bound = { name: string; maxMembers: number | undefined };
+/**
+ * One top-level name the module binds, the cap a comment over its statement gave it, and whether
+ * the name binds a class, whose own static fields the scan reads.
+ */
+type Bound = { name: string; maxMembers: number | undefined; isClass?: boolean };
 
 /**
  * The comment that holds a store to one row a second, written on its own line above the store. It
@@ -478,6 +481,10 @@ export function transformStores(input: TransformInput): StoreTransform {
    * Every name a pattern binds is listed, so `const { $user, $cart } = makeThings()` reaches the
    * scan as two bindings. A cap comment over the statement reaches every one of them, because the
    * comment stands over the statement and the statement is what binds them all.
+   *
+   * A class the module names is listed too, flagged, because a static field of it holds a store
+   * that nothing else can reach: the class is what holds it, and the name of the class is what the
+   * developer would write to look it up.
    */
   function readBindings(statement: TopLevel, maxMembers: number | undefined): void {
     const exportedHere = statement.type === "ExportNamedDeclaration";
@@ -485,6 +492,18 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     if (exportedHere) {
       readExportList(statement);
+    }
+
+    if (declared?.type === "ClassDeclaration") {
+      if (declared.declare !== true && declared.id !== null) {
+        bound.push({ name: declared.id.name, maxMembers, isClass: true });
+
+        if (exportedHere) {
+          exported.add(declared.id.name);
+        }
+      }
+
+      return;
     }
 
     if (declared?.type !== "VariableDeclaration" || declared.declare === true) {
@@ -709,12 +728,26 @@ export function transformStores(input: TransformInput): StoreTransform {
 
 /**
  * The name as it is written in the source, beside the value it holds at the end of the body. The
- * cap is written only where a comment named one, so the walk's own unbounded rule stands alone.
+ * cap is written only where a comment named one, so the walk's own unbounded rule stands alone, and
+ * the class flag only where the name binds a class, which is the one value walked for its own
+ * static properties.
  */
 function binding(bound: Bound, exported: boolean): string {
-  const cap = bound.maxMembers === undefined ? "" : `,maxMembers:${bound.maxMembers}`;
+  const parts = [
+    `name:${JSON.stringify(bound.name)}`,
+    `value:${bound.name}`,
+    `exported:${exported}`,
+  ];
 
-  return `{name:${JSON.stringify(bound.name)},value:${bound.name},exported:${exported}${cap}}`;
+  if (bound.maxMembers !== undefined) {
+    parts.push(`maxMembers:${bound.maxMembers}`);
+  }
+
+  if (bound.isClass === true) {
+    parts.push("isClass:true");
+  }
+
+  return `{${parts.join(",")}}`;
 }
 
 /**

@@ -48,11 +48,13 @@ export type StoreEntry = {
   name: string;
   home: string;
   /**
-   * The name whatever owns the store knows it by, which is the one its creation site gave it. It
-   * stays as it was when a binding of the developer's renames the entry, because the owner drawing
-   * a repeat of the store still knows it under its own key.
+   * The name whatever owns the store knows it by: the key the walk found it under, or the one its
+   * creation site gave it. It stays as it was when a binding of the developer's renames the entry,
+   * because the owner drawing a repeat of the store still knows it under its own key.
    *
-   * `null` where no creation site ever named the store, which is a store a group registered by
+   * One key, never a path, so a tree key holds no dot the developer did not write.
+   *
+   * `null` where nothing ever named the store for an owner, which is a store a group registered by
    * hand and the plugin never saw.
    */
   ownerName: string | null;
@@ -89,6 +91,12 @@ export type Registration = {
    * milliseconds it holds the store to, or `false` from `// @nanostores-devtools:no-throttle`.
    */
   throttle?: ThrottleComment;
+  /**
+   * What whatever holds the store knows it by, where that differs from the name the entry takes.
+   * The binding scan names an entry by the whole path that reached the store, `config.theme.$x`,
+   * while the owner holds it under one key, `$x`, and a tree key is that key alone.
+   */
+  ownerName?: string | undefined;
 } & Partial<NameParts>;
 
 /** A name in full: the home, the name, and everything that tells it from another one the same. */
@@ -133,7 +141,11 @@ function labelOf(place: EntryPlace): string {
  * holds no member under that name. So it gives none.
  */
 function ownerNameOf(registration: Registration): string | null {
-  return registration.origin === "explicit" ? null : registration.name;
+  if (registration.origin === "explicit") {
+    return null;
+  }
+
+  return registration.ownerName ?? registration.name;
 }
 
 function entryPlace(registration: Registration): EntryPlace {
@@ -258,6 +270,39 @@ export function renameEntry(store: Store, name: string, home: string, file: stri
   }
 
   moveEntry(devtools, entry, to);
+}
+
+/**
+ * The path the binding scan reached a store by, and the key its owner holds it under. The path
+ * beats the name a creation site gave, because one key of one object is not a name: two objects
+ * both hold an `$open`, and one name in the registry holds one store.
+ *
+ * What already told this entry from another of the same name is kept. It says where the store was
+ * made, which the path says nothing about, and a warning may already have told the developer to
+ * look for it.
+ */
+export function renameFound(store: Store, name: string, home: string, ownerName: string): void {
+  const devtools = peekDevtoolsGlobal();
+  const entry = devtools?.entries.get(store);
+
+  if (!devtools || !entry || entry.origin === "explicit") {
+    return;
+  }
+
+  entry.ownerName = ownerName;
+
+  const to: EntryPlace = {
+    name,
+    home,
+    external: false,
+    file: entry.file,
+    place: entry.place,
+    number: entry.number,
+  };
+
+  if (nameKey(to) !== nameKey(entry)) {
+    moveEntry(devtools, entry, to);
+  }
 }
 
 export function untrack(group: string): void {

@@ -274,11 +274,11 @@ describe("the fixture drawn by the shipped code", () => {
   });
 
   /**
-   * A static field's store is reached by nothing: the field carries no name after the gate, and a
-   * class declaration is no binding the scan lists, so no walk starts at the class.
+   * A static field belongs to the class, and no instance of it holds the store. The class is the
+   * one name that reaches it, so the scan walks a class binding's own static properties.
    */
-  it("draws nothing for a static field, which no binding of the developer's reaches", () => {
-    expect(homeOf(EDITOR_HOME)["Editor"]).toBeUndefined();
+  it("draws a static field under the class that holds it", () => {
+    expect(homeOf(EDITOR_HOME)["Editor"]).toEqual({ "$opened [store]": 0 });
   });
 
   it("walks an array by index, and nests a node inside a node", () => {
@@ -413,13 +413,13 @@ describe("the draw-once invariant", () => {
   it("draws every store it draws at all once per reference the developer wrote", () => {
     /** No note anywhere: nothing in the fixture asks for a number, so nothing is left out. */
     expect(JSON.stringify(buildSnapshot()).split('"…"').length - 1).toBe(0);
-    expect(listEntries()).toHaveLength(102);
+    expect(listEntries()).toHaveLength(103);
 
     const counts = countPlacements();
     const placements = [...counts.values()];
 
-    /** One label per entry, so a label two entries shared would drop the count below 102. */
-    expect(counts.size).toBe(102);
+    /** One label per entry, so a label two entries shared would drop the count below 103. */
+    expect(counts.size).toBe(103);
     /**
      * Nothing is registered and drawn nowhere. Every store the registry holds is one a name of the
      * developer's own reaches, so the tree has a place for all of them. The stores that used to sit
@@ -430,10 +430,10 @@ describe("the draw-once invariant", () => {
     /**
      * Draw-once: a store is drawn once for each reference the developer wrote and never twice for
      * one. A name they bound and a container they put it in are both references, so a store with a
-     * flat name and one owner draws twice, and one with three references draws three times. All 102
-     * draw at all, and 115 counts every repeat beside them.
+     * flat name and one owner draws twice, and one with three references draws three times. All 103
+     * draw at all, and 116 counts every repeat beside them.
      */
-    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(115);
+    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(116);
     expect(
       [...counts]
         .filter(([, times]) => times > 1)
@@ -597,7 +597,7 @@ describe("the line a creation site records", () => {
 
   it("names the line in the developer's own file, not the line after the types are stripped", () => {
     const places = listEntries()
-      .filter((entry) => entry.name === "$dup")
+      .filter((entry) => entry.name.endsWith("$dup"))
       .map((entry) => entry.place);
 
     expect(places, WRONG_LINE).toEqual(["line 16", "line 20"]);
@@ -605,12 +605,12 @@ describe("the line a creation site records", () => {
 
   it("spells that line into the name the panel and the warnings read", () => {
     const labels = listEntries()
-      .filter((entry) => entry.name === "$dup")
+      .filter((entry) => entry.name.endsWith("$dup"))
       .map((entry) => entry.label);
 
     expect(labels, WRONG_LINE).toEqual([
-      `${SITES_HOME}/$dup (line 16)`,
-      `${SITES_HOME}/$dup (line 20)`,
+      `${SITES_HOME}/one.$dup (line 16)`,
+      `${SITES_HOME}/two.$dup (line 20)`,
     ]);
   });
 

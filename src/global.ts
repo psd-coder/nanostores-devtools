@@ -63,9 +63,6 @@ export type ModuleScope = {
   linked: Set<WeakRef<object>>;
 };
 
-/** Which mechanism drew an owner edge: the binding scan, or a class field initializer. */
-export type OwnerSource = "scan" | "field";
-
 /**
  * One top-level binding that holds a store: where it is written, and what it calls the store. The
  * home rides along because two bindings in two modules put one store at two different homes, and a
@@ -82,10 +79,9 @@ export type BoundName = {
   exported: boolean;
 };
 
-/** What one store is drawn under, what put it there, and the key that owner knows it by. */
+/** What one store is drawn under, the key that owner knows it by, and the path that reached it. */
 export type OwnerLink = {
   owner: WeakRef<object>;
-  source: OwnerSource;
   /** The module whose run drew the edge, so a hot reload of that module drops exactly its own. */
   moduleKey: string;
   /**
@@ -94,6 +90,12 @@ export type OwnerLink = {
    * Nothing for every other owner, where the store's own name is already the key.
    */
   key: string | undefined;
+  /**
+   * The whole chain the scan walked to reach the store through this owner, `right.$shared`. The
+   * entry takes the first one of them and the rest are what a change lists beside it, so a
+   * developer holding one store in two places sees both. Nothing for a link no scan drew.
+   */
+  path: string | undefined;
 };
 
 /**
@@ -106,7 +108,7 @@ export type OwnerLink = {
 export type Owners = WeakMap<Store, OwnerLink[]>;
 
 /** What holds a node, on the same terms an `OwnerLink` holds a store. */
-export type ParentLink = { parent: WeakRef<object>; source: OwnerSource; moduleKey: string };
+export type ParentLink = { parent: WeakRef<object>; moduleKey: string };
 
 /**
  * A thing in the tree that holds others and has no value of its own: a class instance, an object a
@@ -170,6 +172,14 @@ export type DevtoolsGlobal = {
   /** What each store is drawn under, which the registry knows nothing about. */
   owners: Owners;
   /**
+   * Which store sits at each key of each owner, so a second store found at a key another one
+   * already took drops that one's link. One key holds one value, and the scan reads it at the end
+   * of a module body, so the last scan to walk the owner saw the truth.
+   *
+   * Weak on both sides: the owner keeps nothing alive, and neither does the store behind a key.
+   */
+  keyed: WeakMap<object, Map<string, WeakRef<Store>>>;
+  /**
    * Every top-level binding of the developer's own that holds each store. All of them draw, and
    * the one the primary rule picks is written onto the entry, because the whole point is that the
    * registry draws it.
@@ -214,6 +224,7 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     homeNames: new Map(),
     creations: new WeakMap(),
     owners: new WeakMap(),
+    keyed: new WeakMap(),
     bound: new WeakMap(),
     nodes: new WeakMap(),
   };

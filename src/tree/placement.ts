@@ -5,24 +5,29 @@ import { getEntry, isStore, type StoreEntry } from "../stores/registry.ts";
 import { primaryName } from "../stores/ownership.ts";
 
 /**
- * What a row calls the store, which is the key the tree draws it under. A row names something the
- * developer goes and looks up, so a name no key in the tree carries points at nothing: three lenses
- * writing `$lens/set` say which store changed only to whoever wrote the util.
+ * What a row calls the store: the whole chain from the top-level binding down, `config.theme.$x`,
+ * or the one name a binding or a group gave it. A row names something the developer goes and looks
+ * up, and a path is something they could paste back into their own source, while the last key alone
+ * says nothing about which of two objects holding an `$open` moved.
  *
- * A home of their own wins, as it does everywhere: a top-level binding or a group they registered by
- * hand is drawn flat under that name, and the row says the same. Where nothing does, the store is
- * drawn under its owner alone, and the owner's own key is the only name it has.
- *
- * This reads the placement rather than the entry, so the row and the tree cannot drift: the same
- * link decides both. The entry's `label` is untouched: a change prints it beside the row, and it
- * still says which file the store really came from.
+ * The row and the tree are built from the same links rather than from the same string: the entry's
+ * name is the chain the scan walked, and the tree draws one key of that chain per level. Both come
+ * out of the walk, so neither can drift from the other.
  */
 export function rowName(entry: StoreEntry): string {
-  if (placedByDeveloper(entry)) {
-    return entry.name;
-  }
+  return entry.name;
+}
 
-  return drawnOwners(entry.store)[0]?.key ?? entry.name;
+/**
+ * Every other chain that reaches the store, which a change lists beside the one the entry took. A
+ * store two objects hold moves in both of them, and the row can head with only one name.
+ */
+export function otherPaths(entry: StoreEntry): string[] {
+  const paths = ownerLinksOf(entry.store).flatMap((link) =>
+    link.path === undefined || link.path === entry.name ? [] : [link.path],
+  );
+
+  return [...new Set(paths)];
 }
 
 /**
@@ -69,10 +74,11 @@ export function drawable(owner: object): boolean {
 }
 
 /**
- * A live owner and the key it knows the store by. The key belongs to the owner and not to the
- * store, so the two are one record: a key with no owner behind it names nothing.
+ * A live owner, the key it knows the store by, and the chain the walk took to reach it there. All
+ * three belong to the owner and not to the store, so they are one record: a key with no owner
+ * behind it names nothing.
  */
-export type LiveOwnerLink = { owner: object; key: string | undefined };
+export type LiveOwnerLink = { owner: object; key: string | undefined; path: string | undefined };
 
 /**
  * Every live owner of a store, and the key each one knows it by. An owner the app has let go reads
@@ -82,7 +88,7 @@ export function ownerLinksOf(store: Store): LiveOwnerLink[] {
   return (peekDevtoolsGlobal()?.owners.get(store) ?? []).flatMap((link) => {
     const owner = link.owner.deref();
 
-    return owner === undefined ? [] : [{ owner, key: link.key }];
+    return owner === undefined ? [] : [{ owner, key: link.key, path: link.path }];
   });
 }
 

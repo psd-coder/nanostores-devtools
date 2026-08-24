@@ -11,7 +11,13 @@ import {
   ownerLinksOf,
   rowName,
 } from "../tree/placement.ts";
-import { listEntries, registerStore, type StoreEntry, unregisterStore } from "./registry.ts";
+import {
+  getEntry,
+  listEntries,
+  registerStore,
+  type StoreEntry,
+  unregisterStore,
+} from "./registry.ts";
 
 const HOME = "src/model.ts";
 
@@ -248,7 +254,7 @@ describe("ownBindings", () => {
     expect(ownerOf($canUndo)).toBe($after);
   });
 
-  it("registers nothing, so a store already in the registry gains no second entry", () => {
+  it("renames the entry a wrapper made rather than making a second one", () => {
     const $canUndo = atom(false);
     const $draft = holder("", { $canUndo });
 
@@ -256,7 +262,7 @@ describe("ownBindings", () => {
     track($canUndo, "$canUndo");
     ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
-    expect(listEntries().map((entry) => entry.name)).toEqual(["$draft", "$canUndo"]);
+    expect(listEntries().map((entry) => entry.name)).toEqual(["$draft", "$draft.$canUndo"]);
   });
 
   /** A one-pass scan would name it after the key it was found at, so source order would decide. */
@@ -271,12 +277,104 @@ describe("ownBindings", () => {
     expect(listEntries()[0]).toMatchObject({ name: "$s", ownerName: "$s" });
   });
 
+  it("names it after the binding when that binding was written above the object as well", () => {
+    const $s = atom(0);
+
+    ownBindings(FROM, [
+      { name: "$s", value: $s, exported: false },
+      { name: "box", value: { inner: $s }, exported: false },
+    ]);
+
+    expect(listEntries()[0]).toMatchObject({ name: "$s", ownerName: "$s" });
+  });
+
   it("registers a store nothing else found, under the whole path that reached it", () => {
     const $draft = holder("", { $canUndo: atom(false) });
 
     ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(listEntries().map((entry) => entry.name)).toEqual(["$draft", "$draft.$canUndo"]);
+  });
+
+  it("brackets a key no identifier can spell, so the whole path stays something to type", () => {
+    const config = { "my-key": atom(0) };
+
+    ownBindings(FROM, [{ name: "config", value: config, exported: false }]);
+
+    expect(listEntries()[0]?.name).toBe(`config["my-key"]`);
+  });
+
+  /** Ten levels is rare, and the developer wrote every one of them, so none of it is left out. */
+  it("prints a long path whole, with nothing left out of the middle", () => {
+    const deep = { a: { b: { c: { d: { e: { f: atom(0) } } } } } };
+
+    ownBindings(FROM, [{ name: "app", value: deep, exported: false }]);
+
+    expect(listEntries()[0]?.name).toBe("app.a.b.c.d.e.f");
+  });
+
+  it("spells the whole path into the label, behind the file the store is drawn in", () => {
+    const config = { theme: { $x: atom(0) } };
+
+    ownBindings(FROM, [{ name: "config", value: config, exported: false }]);
+
+    expect(listEntries()[0]?.label).toBe(`${HOME}/config.theme.$x`);
+  });
+
+  it("keeps the short key for the owner, so no tree key holds a dot nobody wrote", () => {
+    const config = { theme: { $x: atom(0) } };
+
+    ownBindings(FROM, [{ name: "config", value: config, exported: false }]);
+
+    expect(listEntries()[0]).toMatchObject({ name: "config.theme.$x", ownerName: "$x" });
+  });
+
+  /** One key in one home is one name, so the path is the whole of what tells two of them apart. */
+  it("tells two members of one key in one home apart, so neither drops the other's entry", () => {
+    ownBindings(FROM, [
+      { name: "one", value: { $dup: atom(1) }, exported: false },
+      { name: "two", value: { $dup: atom(2) }, exported: false },
+    ]);
+
+    expect(listEntries().map((entry) => entry.name)).toEqual(["one.$dup", "two.$dup"]);
+  });
+
+  it("keeps the first path recorded, so a module loaded later adds a link and no name", () => {
+    const $shared = atom(0);
+    const later = { home: "src/late.ts", external: false, moduleKey: "src/late.ts" };
+
+    ownBindings(FROM, [{ name: "left", value: { $shared }, exported: false }]);
+    ownBindings(later, [{ name: "right", value: { $shared }, exported: false }]);
+
+    expect(listEntries()[0]?.name).toBe("left.$shared");
+    expect(ownerLinksOf($shared).map((link) => link.path)).toEqual([
+      "left.$shared",
+      "right.$shared",
+    ]);
+  });
+
+  it("keeps the entry name of a store no walk ever placed", () => {
+    const $loose = atom(0);
+
+    track($loose, "$loose");
+    ownBindings(FROM, [{ name: "count", value: 2, exported: false }]);
+
+    expect(listEntries()[0]?.name).toBe("$loose");
+  });
+
+  /** One key holds one value, and the scan read it last, so the store that was there has gone. */
+  it("drops the link of the store another one replaced at the same key", () => {
+    const $before = atom(0);
+    const $after = atom(1);
+    const holding: Record<string, Store> = { $x: $before };
+    const later = { home: "src/late.ts", external: false, moduleKey: "src/late.ts" };
+
+    ownBindings(FROM, [{ name: "holder", value: holding, exported: false }]);
+    holding["$x"] = $after;
+    ownBindings(later, [{ name: "box", value: holding, exported: false }]);
+
+    expect(ownerLinksOf($before)).toEqual([]);
+    expect(ownerOf($after)).toBe(holding);
   });
 
   it("leaves the entry a wrapper already made alone, and only renames it", () => {
@@ -705,6 +803,8 @@ describe("a node", () => {
 
     expect(ownerOf(past.$open)).toBeUndefined();
     expect(nodeInfoOf(past)).toBeUndefined();
+    /** No walk reached it, so there is no path to name it by and the entry keeps its own name. */
+    expect(getEntry(past.$open)?.name).toBe("$open");
   });
 
   it("walks every member of a binding that named no number", () => {
@@ -773,6 +873,43 @@ describe("a node", () => {
       ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
     }).not.toThrow();
     expect(created.$open.lc).toBe(0);
+  });
+});
+
+describe("a class binding", () => {
+  class Panel {
+    static $opened = atom(0);
+  }
+
+  beforeEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  afterEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  /** No instance holds a static field, so the class is the one name that reaches its store. */
+  it("walks a class's own static fields and registers what it finds under the class name", () => {
+    ownBindings(FROM, [{ name: "Panel", value: Panel, exported: false, isClass: true }]);
+
+    expect(listEntries()[0]?.name).toBe("Panel.$opened");
+    expect(nodeInfoOf(Panel)).toMatchObject({ name: "Panel", type: undefined });
+  });
+
+  it("leaves out what every class carries, so only the fields the developer wrote are walked", () => {
+    ownBindings(FROM, [{ name: "Panel", value: Panel, exported: false, isClass: true }]);
+
+    expect(nodeInfoOf(Panel)?.walked).toBe(1);
+  });
+
+  it("looks inside no other function, whatever it holds", () => {
+    const make = (): void => {};
+
+    Object.assign(make, { $held: atom(0) });
+    ownBindings(FROM, [{ name: "make", value: make, exported: false }]);
+
+    expect(listEntries()).toEqual([]);
   });
 });
 
@@ -1084,7 +1221,7 @@ describe("ownerLinksOf", () => {
 
     ownBindings(FROM, [{ name: "bounds", value: bounds, exported: false }]);
 
-    expect(ownerLinksOf($width)).toEqual([{ owner: bounds, key: "[0]" }]);
+    expect(ownerLinksOf($width)).toEqual([{ owner: bounds, key: "[0]", path: "bounds[0]" }]);
   });
 
   it("reads an owner the app has let go as no owner, so its key goes with it", () => {
@@ -1092,7 +1229,7 @@ describe("ownerLinksOf", () => {
     const gone: WeakRef<object> = { [Symbol.toStringTag]: "WeakRef", deref: () => undefined };
 
     getDevtoolsGlobal().owners.set($open, [
-      { owner: gone, source: "scan", key: "[0]", moduleKey: HOME },
+      { owner: gone, key: "[0]", path: undefined, moduleKey: HOME },
     ]);
 
     expect(ownerLinksOf($open)).toEqual([]);

@@ -969,7 +969,7 @@ describe("buildSnapshot", () => {
       }
     }
 
-    it("keeps the ordinal where one creation site put two stores on one parent", () => {
+    it("numbers both where one creation site put two stores on one parent", () => {
       const $first = atom(1);
       const $second = atom(2);
       const $draft = atom("");
@@ -981,17 +981,17 @@ describe("buildSnapshot", () => {
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
         "(value)",
-        "$row [store]",
+        "$row [store] #1",
         "$row [store] #2",
       ]);
     });
 
     /**
      * The clash rests on the name the tree draws, never on the key the view spells. The type word
-     * moves when adoption learns a type, so a clash decided on it would qualify a pair one moment
+     * moves when adoption learns a type, so a clash decided on it would number a pair one moment
      * and leave it bare the next.
      */
-    it("qualifies two children of one name whose types differ", () => {
+    it("numbers two children of one name whose types differ", () => {
       const $count = atom(1);
       const $total = computed(atom(1), (count) => count + 1);
       const $draft = atom("");
@@ -1003,8 +1003,8 @@ describe("buildSnapshot", () => {
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
         "(value)",
-        "$sum [store] (line 20)",
-        "$sum [computed] (line 30)",
+        "$sum [store] #1",
+        "$sum [computed] #2",
       ]);
     });
 
@@ -1028,12 +1028,12 @@ describe("buildSnapshot", () => {
 
       first.throttle.marked = false;
 
-      expect(bare).toEqual(["(value)", "$row [store]", "$row [store] #2"]);
-      expect(held).toEqual(["(value)", "$row [store, throttled]", "$row [store] #2"]);
+      expect(bare).toEqual(["(value)", "$row [store] #1", "$row [store] #2"]);
+      expect(held).toEqual(["(value)", "$row [store, throttled] #1", "$row [store] #2"]);
       expect(keysOf(HOME, "$draft [store]")).toEqual(bare);
     });
 
-    it("keeps two children of one name apart by the file each came from", () => {
+    it("numbers two children of one name that two files made", () => {
       const $mine = atom(1);
       const $theirs = atom(2);
       const $draft = atom("");
@@ -1045,25 +1045,8 @@ describe("buildSnapshot", () => {
 
       expect(keysOf(HOME, "$draft [store]")).toEqual([
         "(value)",
-        `$history [store] (${HOME})`,
-        "$history [store] (vendor/withUndo.ts)",
-      ]);
-    });
-
-    it("gives the home the one group, so no key of a home clash carries two", () => {
-      const $mine = atom(1);
-      const $theirs = atom(2);
-      const $draft = atom("");
-
-      track($draft, "$draft");
-      track($mine, "$history", HOME, "atom", "line 20");
-      track($theirs, "$history", "vendor/withUndo.ts", "atom", "line 20");
-      underOwner($draft, $mine, $theirs);
-
-      expect(keysOf(HOME, "$draft [store]")).toEqual([
-        "(value)",
-        `$history [store] (${HOME})`,
-        "$history [store] (vendor/withUndo.ts)",
+        "$history [store] #1",
+        "$history [store] #2",
       ]);
     });
 
