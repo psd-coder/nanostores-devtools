@@ -46,10 +46,18 @@ export const MAX_MEMBERS = 25;
 const UNNAMED = "ref";
 
 /**
- * One top-level binding: the name as the developer wrote it, the value it holds, and whether they
- * exported it, which is what settles a race between two bindings holding one store.
+ * One top-level name the module binds, and what the developer asked for about it. `exported` is
+ * what settles a race between two bindings holding one store.
  */
-export type Binding = readonly [string, unknown, boolean?];
+export type Binding = {
+  name: string;
+  value: unknown;
+  exported: boolean;
+  maxMembers?: number;
+};
+
+/** One key and value inside a walked value. Not a binding: nothing in the source names it. */
+export type Member = readonly [key: string, value: unknown];
 
 /**
  * The module these bindings come from: where a node one of them makes is drawn, and which module
@@ -61,7 +69,7 @@ export type ModuleHome = Pick<NodeInfo, "home" | "external"> & NameSource;
  * What one value holds: the members the tree draws, and the ones its cap left out. A value read
  * holds members; a value that threw at us holds a reason and nothing else, so the two never mix.
  */
-type Members = { read: true; drawn: Binding[]; past: Binding[] } | { read: false; reason: string };
+type Members = { read: true; drawn: Member[]; past: Member[] } | { read: false; reason: string };
 
 /**
  * One walk: the module it runs for, the top-level binding it started at, and what it has already
@@ -84,7 +92,7 @@ export function ownBindings(module: ModuleHome, bindings: readonly Binding[]): v
     return;
   }
 
-  for (const [name, value, exported = false] of bindings) {
+  for (const { name, value, exported } of bindings) {
     if (isStore(value)) {
       claimName(module, value, name, exported);
     }
@@ -620,7 +628,7 @@ function membersOf(value: object): Members {
  * Only a collection is capped. A plain object's keys are as many as the developer wrote, so a long
  * one is a thing they can see in their own source, while a collection's length is data.
  */
-function capped(members: Binding[]): Members {
+function capped(members: Member[]): Members {
   return { read: true, drawn: members.slice(0, MAX_MEMBERS), past: members.slice(MAX_MEMBERS) };
 }
 
@@ -629,8 +637,8 @@ function capped(members: Binding[]): Members {
  * index the array only inherits is drawn. A member keeps the index it really sits at, so a hole
  * shifts nothing that follows it, and one index that is refused costs the others nothing.
  */
-function indexed(value: readonly unknown[]): Binding[] {
-  const found: Binding[] = [];
+function indexed(value: readonly unknown[]): Member[] {
+  const found: Member[] = [];
 
   for (let index = 0; index < value.length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, index);
@@ -650,8 +658,8 @@ function indexed(value: readonly unknown[]): Binding[] {
 function walked(
   iterate: (visit: (member: unknown, key: unknown) => void) => void,
   nameOf: (key: unknown, index: number) => string | undefined,
-): Binding[] {
-  const found: Binding[] = [];
+): Member[] {
+  const found: Member[] = [];
   let index = 0;
 
   iterate((member, key) => {
@@ -682,8 +690,8 @@ function keyName(key: unknown): string | undefined {
     : undefined;
 }
 
-function propertiesOf(value: object): Binding[] {
-  const found: Binding[] = [];
+function propertiesOf(value: object): Member[] {
+  const found: Member[] = [];
   const store = isStore(value);
 
   for (const key of Object.keys(value)) {

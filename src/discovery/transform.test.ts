@@ -100,7 +100,7 @@ describe("the pre-parse test", () => {
         `{"name":"panel","fn":null,"line":2,"type":"unknown"})), ` +
         `{"name":"panel","fn":null,"line":2,"type":"unknown"})`,
     );
-    expect(ownCall(result)).toBe(`__nsdt.own([["panel", panel, true]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"panel",value:panel,exported:true}]);`);
   });
 
   it("reaches a file whose only store sits in an unenumerable holder", () => {
@@ -111,7 +111,7 @@ describe("the pre-parse test", () => {
     expect(output(result)).toContain(
       `__nsdt.end((__nsdt.begin(), new WeakMap([[{}, new Editor()]])), {"name":"hidden"`,
     );
-    expect(ownCall(result)).toBe(`__nsdt.own([["hidden", hidden, false]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"hidden",value:hidden,exported:false}]);`);
   });
 
   it("leaves a file that binds nothing at the top level alone, though it parses it", () => {
@@ -405,7 +405,7 @@ describe("adoption", () => {
       `__nsdt.adopt(persistentAtom("theme", "dark"), ` +
         `{"name":"theme","fn":null,"line":1,"type":"unknown"})`,
     );
-    expect(ownCall(result)).toBe(`__nsdt.own([["theme", theme, false]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"theme",value:theme,exported:false}]);`);
   });
 
   it("numbers a call standing in an argument under a plain name", () => {
@@ -928,8 +928,8 @@ describe("the binding scan", () => {
       output(result)
         .trimEnd()
         .endsWith(
-          `__nsdt.own([["$draft", $draft, true], ["model", model, false], ` +
-            `["pending", pending, false]]);`,
+          `__nsdt.own([{name:"$draft",value:$draft,exported:true}, {name:"model",value:model,exported:false}, ` +
+            `{name:"pending",value:pending,exported:false}]);`,
         ),
     ).toBe(true);
   });
@@ -943,8 +943,8 @@ describe("the binding scan", () => {
     );
 
     expect(ownCall(result)).toBe(
-      `__nsdt.own([["$typed", $typed, false], ["$value", $value, true], ` +
-        `["$alias", $alias, false]]);`,
+      `__nsdt.own([{name:"$typed",value:$typed,exported:false}, {name:"$value",value:$value,exported:true}, ` +
+        `{name:"$alias",value:$alias,exported:false}]);`,
     );
   });
 
@@ -960,8 +960,8 @@ describe("the binding scan", () => {
     );
 
     expect(ownCall(result)).toBe(
-      `__nsdt.own([["$typed", $typed, true], ["$only", $only, false], ` +
-        `["$shared", $shared, false]]);`,
+      `__nsdt.own([{name:"$typed",value:$typed,exported:true}, {name:"$only",value:$only,exported:false}, ` +
+        `{name:"$shared",value:$shared,exported:false}]);`,
     );
   });
 
@@ -980,7 +980,7 @@ describe("the binding scan", () => {
         `const $real = atom(0);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([["$real", $real, false]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"$real",value:$real,exported:false}]);`);
   });
 
   it("leaves a destructured binding out", () => {
@@ -991,7 +991,7 @@ describe("the binding scan", () => {
         `const $plain = atom(0);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([["$plain", $plain, false]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"$plain",value:$plain,exported:false}]);`);
   });
 
   it("leaves out an import, a class, a function and a binding inside a block", () => {
@@ -1004,7 +1004,7 @@ describe("the binding scan", () => {
         `const $own = atom(0);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([["$own", $own, false]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"$own",value:$own,exported:false}]);`);
   });
 
   it("still parses when the module's last line is a comment that ends the file", () => {
@@ -1257,7 +1257,7 @@ describe("the ignore comment", () => {
         `export const $shown = atom(1);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([["$shown", $shown, true]]);`);
+    expect(ownCall(result)).toBe(`__nsdt.own([{name:"$shown",value:$shown,exported:true}]);`);
   });
 
   it("reaches no further than that statement", () => {
@@ -1459,7 +1459,9 @@ describe("the creation frame", () => {
     );
 
     expect(frames(result)).toBe(0);
-    expect(ownCall(result)).toBe(`__nsdt.own([["$c", $c, false], ["$remote", $remote, false]]);`);
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"$c",value:$c,exported:false}, {name:"$remote",value:$remote,exported:false}]);`,
+    );
   });
 
   it("keeps the frame around a sibling initializer the await never reached", () => {

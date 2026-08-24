@@ -295,7 +295,7 @@ describe("the throttle option", () => {
 
     vi.advanceTimersByTime(1000);
     ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
-      ["$undoable", $canUndo, true],
+      { name: "$undoable", value: $canUndo, exported: true },
     ]);
     $canUndo.set(true);
     $canUndo.set(false);
@@ -455,7 +455,9 @@ describe("the plugin's comment", () => {
 
     register("$frame", $frame, "atom", true);
     await listen({ autoThrottle: false });
-    ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [["$fade", $frame, true]]);
+    ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+      { name: "$fade", value: $frame, exported: true },
+    ]);
 
     $frame.set(1);
     $frame.set(2);

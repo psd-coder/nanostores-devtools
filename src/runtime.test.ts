@@ -343,7 +343,7 @@ describe("a name two source lines claim", () => {
     const $alias = atom(0);
 
     scope.store($alias, site({ name: "$counter", line: 12 }));
-    scope.own([["$alias", $alias, true]]);
+    scope.own([{ name: "$alias", value: $alias, exported: true }]);
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
 
     expect(getEntry($alias)).toMatchObject({ name: "$alias", place: null });
@@ -355,7 +355,7 @@ describe("a name two source lines claim", () => {
     const $alias = atom(0);
 
     scope.store($alias, site({ name: "$counter", line: 12 }));
-    scope.own([["$alias", $alias, true]]);
+    scope.own([{ name: "$alias", value: $alias, exported: true }]);
     trackStores("cart", { $alias });
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
 
@@ -367,7 +367,7 @@ describe("a name two source lines claim", () => {
     const $alias = atom(0);
 
     scope.store($alias, site({ name: "$counter", line: 12 }));
-    scope.own([["$alias", $alias, true]]);
+    scope.own([{ name: "$alias", value: $alias, exported: true }]);
     scope.store(atom(0), site({ name: "$counter", line: 20 }));
 
     const reloaded = fileScope(MODULE_ID, HOME, CAP, false);
@@ -375,7 +375,7 @@ describe("a name two source lines claim", () => {
 
     reloaded.clear();
     reloaded.store($again, site({ name: "$counter", line: 12 }));
-    reloaded.own([["$alias", $again, true]]);
+    reloaded.own([{ name: "$alias", value: $again, exported: true }]);
     reloaded.store(atom(0), site({ name: "$counter", line: 20 }));
 
     expect(names()).toEqual(["$alias", "$counter (line 20)"]);
@@ -414,8 +414,8 @@ describe("a name two modules mapped to one home claim", () => {
     const $shared = atom(0);
 
     a.store($shared, site({ name: "$counter" }));
-    a.own([["$counter", $shared, true]]);
-    b.own([["$counter", $shared, true]]);
+    a.own([{ name: "$counter", value: $shared, exported: true }]);
+    b.own([{ name: "$counter", value: $shared, exported: true }]);
 
     /** Two modules, one name, one store: the repeat needs the file as much as the primary does. */
     expect(Object.keys(buildSnapshot()[SHARED] ?? {})).toEqual([
@@ -441,9 +441,9 @@ describe("a name two modules mapped to one home claim", () => {
     const $second = atom(0);
 
     a.store($first, site({ name: "$counter" }));
-    a.own([["$counter", $first, true]]);
+    a.own([{ name: "$counter", value: $first, exported: true }]);
     b.store($second, site({ name: "$counter" }));
-    b.own([["$counter", $second, true]]);
+    b.own([{ name: "$counter", value: $second, exported: true }]);
 
     expect(getEntry($first)).toMatchObject({ name: "$counter", file: "a.ts" });
     expect(getEntry($second)).toMatchObject({ name: "$counter", file: "b.ts" });
@@ -455,7 +455,7 @@ describe("a name two modules mapped to one home claim", () => {
     const $alias = atom(0);
 
     a.store($alias, site({ name: "$counter" }));
-    a.own([["$alias", $alias, true]]);
+    a.own([{ name: "$alias", value: $alias, exported: true }]);
     b.store(atom(0), site({ name: "$counter" }));
 
     expect(getEntry($alias)).toMatchObject({ name: "$alias", file: null });
@@ -596,9 +596,9 @@ describe("a name two modules mapped to one home claim", () => {
     const $kept = atom(0);
 
     a.store($first, site({ name: "$counter" }));
-    a.own([["$counter", $first, true]]);
+    a.own([{ name: "$counter", value: $first, exported: true }]);
     b.store($kept, site({ name: "$counter" }));
-    b.own([["$counter", $kept, true]]);
+    b.own([{ name: "$counter", value: $kept, exported: true }]);
     await listen();
 
     const reloaded = mapped(A_KEY);
@@ -606,7 +606,7 @@ describe("a name two modules mapped to one home claim", () => {
 
     reloaded.clear();
     reloaded.store($again, site({ name: "$counter" }));
-    reloaded.own([["$counter", $again, true]]);
+    reloaded.own([{ name: "$counter", value: $again, exported: true }]);
 
     await endOfTurn();
 
@@ -856,7 +856,7 @@ describe("own", () => {
     const $draft = Object.assign(atom<unknown>(""), { $canUndo });
 
     scope.store($draft, site({ name: "$draft" }));
-    scope.own([["$draft", $draft]]);
+    scope.own([{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerOf($canUndo)).toBe($draft);
     expect(names()).toEqual(["$draft"]);
@@ -872,7 +872,7 @@ describe("own", () => {
 
     expect(names()).toEqual(["$canUndo", "$canUndo #2"]);
 
-    scope.own([["$undoable", $second, true]]);
+    scope.own([{ name: "$undoable", value: $second, exported: true }]);
 
     expect(names()).toEqual(["$canUndo", "$undoable"]);
     expect(getEntry($second)?.ownerName).toBe("$canUndo");
@@ -882,7 +882,7 @@ describe("own", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const panel = { $open: atom(false) };
 
-    scope.own([["panel", panel]]);
+    scope.own([{ name: "panel", value: panel, exported: false }]);
 
     expect(nodeInfoOf(panel)).toMatchObject({ name: "panel", home: HOME, external: false });
   });
@@ -1053,7 +1053,7 @@ describe("clear", () => {
       const page = fileScope(MODULE_ID, HOME, CAP, false);
 
       page.clear();
-      page.own([["bounds", [$width], true]]);
+      page.own([{ name: "bounds", value: [$width], exported: true }]);
     }
 
     save();
@@ -1078,7 +1078,7 @@ describe("clear", () => {
       const page = fileScope(MODULE_ID, HOME, CAP, false);
 
       page.clear();
-      page.own([["a", { held }, true]]);
+      page.own([{ name: "a", value: { held }, exported: true }]);
     }
 
     save();
@@ -1098,8 +1098,8 @@ describe("clear", () => {
     const bounds = [$width];
 
     shared.store($width, site({ name: "$width", fn: "makeLayout" }));
-    shared.own([["bounds", bounds, true]]);
-    page.own([["layout", { width: $width }, true]]);
+    shared.own([{ name: "bounds", value: bounds, exported: true }]);
+    page.own([{ name: "layout", value: { width: $width }, exported: true }]);
     fileScope(MODULE_ID, HOME, CAP, false).clear();
 
     expect(ownerLinksOf($width).map((link) => link.owner)).toEqual([bounds]);
@@ -1111,8 +1111,8 @@ describe("clear", () => {
     const $draft = atom("");
 
     shared.store($draft, site({ name: "$draft" }));
-    shared.own([["$draft", $draft, true]]);
-    page.own([["$alias", $draft, false]]);
+    shared.own([{ name: "$draft", value: $draft, exported: true }]);
+    page.own([{ name: "$alias", value: $draft, exported: false }]);
 
     expect(buildSnapshot()).toEqual({
       "src/shared.ts": { "$draft [store]": "" },
@@ -1132,8 +1132,8 @@ describe("clear", () => {
 
     shared.store($draft, site({ name: "$draft" }));
     shared.store($canUndo, site({ name: "$canUndo", fn: "withUndo" }));
-    shared.own([["$draft", $draft, true]]);
-    page.own([["$undoable", $canUndo, true]]);
+    shared.own([{ name: "$draft", value: $draft, exported: true }]);
+    page.own([{ name: "$undoable", value: $canUndo, exported: true }]);
 
     expect(buildSnapshot()[HOME]).toEqual({ "$undoable [store]": false });
 

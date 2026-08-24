@@ -181,7 +181,7 @@ describe("direct write rows", () => {
 
       register("$canUndo", $canUndo);
       ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
-        ["$undoable", $canUndo, true],
+        { name: "$undoable", value: $canUndo, exported: true },
       ]);
       await listen();
 
@@ -198,7 +198,9 @@ describe("direct write rows", () => {
       const fields = { username: $lens };
 
       register("$lens", $lens);
-      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [["fields", fields]]);
+      ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
+        { name: "fields", value: fields, exported: false },
+      ]);
       await listen();
 
       $lens.set("ada");
@@ -215,8 +217,8 @@ describe("direct write rows", () => {
 
       register("$lens", $lens);
       ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
-        ["fields", fields],
-        ["$username", $lens, true],
+        { name: "fields", value: fields, exported: false },
+        { name: "$username", value: $lens, exported: true },
       ]);
       await listen();
 
@@ -241,7 +243,7 @@ describe("direct write rows", () => {
         fn: "focus",
       });
       ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
-        ["fields", { username: $lens }],
+        { name: "fields", value: { username: $lens }, exported: false },
       ]);
       await listen();
 
@@ -681,7 +683,7 @@ describe("computed follower rows", () => {
 
     register("$total", $total, "computed");
     ownBindings({ home: "cart", external: false, moduleKey: "cart" }, [
-      ["totals", { doubled: $total }],
+      { name: "totals", value: { doubled: $total }, exported: false },
     ]);
     mount($total);
     await listen();

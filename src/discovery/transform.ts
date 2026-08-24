@@ -729,7 +729,7 @@ export function transformStores(input: TransformInput): StoreTransform {
 
 /** The name as it is written in the source, beside the value it holds at the end of the body. */
 function binding(name: string, exported: boolean): string {
-  return `[${JSON.stringify(name)}, ${name}, ${exported}]`;
+  return `{name:${JSON.stringify(name)},value:${name},exported:${exported}}`;
 }
 
 /**

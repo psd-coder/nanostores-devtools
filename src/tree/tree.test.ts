@@ -79,7 +79,7 @@ describe("buildTree", () => {
     noteBirth($first);
     noteBirth($second);
     endFrame(FROM, $draft, "$draft");
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     const [drawn] = storesIn(homeAt(HOME));
     const held = storesIn(drawn?.children ?? []);
@@ -94,7 +94,7 @@ describe("buildTree", () => {
     const editor = { $held };
 
     track($held, "$held", "computed", "line 20");
-    ownBindings(FROM, [["editor", editor]]);
+    ownBindings(FROM, [{ name: "editor", value: editor, exported: false }]);
 
     const drawn = homeAt(HOME).flatMap(stringsIn);
 
@@ -107,7 +107,7 @@ describe("buildTree", () => {
     const editor = { $held };
 
     track($held, "$held");
-    ownBindings(FROM, [["editor", editor]]);
+    ownBindings(FROM, [{ name: "editor", value: editor, exported: false }]);
 
     const [node] = homeAt(HOME).filter((one): one is HolderNode => one.kind === "holder");
 

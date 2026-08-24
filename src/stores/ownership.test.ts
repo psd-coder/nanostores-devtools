@@ -69,7 +69,7 @@ describe("ownBindings", () => {
     const $canUndo = atom(false);
     const $draft = holder("", { $canUndo });
 
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerOf($canUndo)).toBe($draft);
   });
@@ -77,7 +77,7 @@ describe("ownBindings", () => {
   it("leaves the store a binding holds without an owner of its own", () => {
     const $draft = holder("", { $canUndo: atom(false) });
 
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerOf($draft)).toBeUndefined();
   });
@@ -86,9 +86,9 @@ describe("ownBindings", () => {
     const $open = atom(false);
 
     ownBindings(FROM, [
-      ["count", 2],
-      ["missing", undefined],
-      ["make", () => $open],
+      { name: "count", value: 2, exported: false },
+      { name: "missing", value: undefined, exported: false },
+      { name: "make", value: () => $open, exported: false },
     ]);
 
     expect(ownerOf($open)).toBeUndefined();
@@ -98,7 +98,7 @@ describe("ownBindings", () => {
     const $inner = atom(1);
     const $outer = Object.assign(atom<unknown>($inner), { events: $inner });
 
-    ownBindings(FROM, [["$outer", $outer]]);
+    ownBindings(FROM, [{ name: "$outer", value: $outer, exported: false }]);
 
     expect(ownerOf($inner)).toBeUndefined();
   });
@@ -114,7 +114,7 @@ describe("ownBindings", () => {
     });
 
     expect(() => {
-      ownBindings(FROM, [["$draft", $draft]]);
+      ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
     }).not.toThrow();
   });
 
@@ -126,7 +126,7 @@ describe("ownBindings", () => {
     Object.defineProperty(decoy, "listen", { enumerable: true, get: listen });
     Object.defineProperty(decoy, "lc", { enumerable: true, get: lc });
 
-    ownBindings(FROM, [["holder", { decoy }]]);
+    ownBindings(FROM, [{ name: "holder", value: { decoy }, exported: false }]);
 
     expect(listen).not.toHaveBeenCalled();
     expect(lc).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe("ownBindings", () => {
     const $canUndo = atom(false);
     const $draft = holder("", { $canUndo });
 
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect($draft.lc).toBe(0);
     expect($canUndo.lc).toBe(0);
@@ -149,7 +149,7 @@ describe("ownBindings", () => {
     const $first = holder(1, { $second });
     const $draft = holder(0, { $first });
 
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerOf($first)).toBe($draft);
     expect(ownerOf($second)).toBe($first);
@@ -164,8 +164,8 @@ describe("ownBindings", () => {
     const b = { shared };
 
     ownBindings(FROM, [
-      ["a", a, true],
-      ["b", b, true],
+      { name: "a", value: a, exported: true },
+      { name: "b", value: b, exported: true },
     ]);
 
     expect(parentsOf(shared)).toEqual([a, b]);
@@ -175,7 +175,7 @@ describe("ownBindings", () => {
     const $draft = holder("", {});
 
     Object.assign($draft, { $self: $draft });
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerOf($draft)).toBeUndefined();
   });
@@ -185,7 +185,7 @@ describe("ownBindings", () => {
     const $history = holder([], { $draft });
 
     Object.assign($draft, { $history });
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerOf($history)).toBe($draft);
     expect(ownerOf($draft)).toBeUndefined();
@@ -199,8 +199,8 @@ describe("ownBindings", () => {
     track($draft, "$draft");
     track($other, "$other");
     ownBindings(FROM, [
-      ["$draft", $draft],
-      ["$other", $other],
+      { name: "$draft", value: $draft, exported: false },
+      { name: "$other", value: $other, exported: false },
     ]);
 
     expect(ownerLinksOf($canUndo).map((link) => link.owner)).toEqual([$draft, $other]);
@@ -211,8 +211,8 @@ describe("ownBindings", () => {
     const $draft = holder("", { $canUndo });
 
     track($draft, "$draft");
-    ownBindings(FROM, [["$draft", $draft]]);
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerLinksOf($canUndo)).toHaveLength(1);
   });
@@ -225,11 +225,11 @@ describe("ownBindings", () => {
     track($left, "$left");
     track($right, "$right");
     ownBindings(FROM, [
-      ["$left", $left],
-      ["$right", $right],
+      { name: "$left", value: $left, exported: false },
+      { name: "$right", value: $right, exported: false },
     ]);
     Object.assign($canUndo, { $right });
-    ownBindings(FROM, [["$canUndo", $canUndo]]);
+    ownBindings(FROM, [{ name: "$canUndo", value: $canUndo, exported: false }]);
 
     expect(ownerLinksOf($right).map((link) => link.owner)).toEqual([]);
     expect(ownerLinksOf($canUndo).map((link) => link.owner)).toEqual([$left, $right]);
@@ -240,13 +240,13 @@ describe("ownBindings", () => {
     const $before = holder("", { $canUndo });
 
     track($before, "$draft");
-    ownBindings(FROM, [["$draft", $before]]);
+    ownBindings(FROM, [{ name: "$draft", value: $before, exported: false }]);
     unregisterStore($before);
 
     const $after = holder("", { $canUndo });
 
     track($after, "$draft");
-    ownBindings(FROM, [["$draft", $after]]);
+    ownBindings(FROM, [{ name: "$draft", value: $after, exported: false }]);
 
     expect(ownerOf($canUndo)).toBe($after);
   });
@@ -257,7 +257,7 @@ describe("ownBindings", () => {
 
     track($draft, "$draft");
     track($canUndo, "$canUndo");
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(listEntries().map((entry) => entry.name)).toEqual(["$draft", "$canUndo"]);
   });
@@ -265,7 +265,7 @@ describe("ownBindings", () => {
   it("leaves a store nothing registered out of the registry", () => {
     const $draft = holder("", { $canUndo: atom(false) });
 
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     expect(listEntries()).toEqual([]);
   });
@@ -275,7 +275,7 @@ describe("ownBindings", () => {
       const $canUndo = atom(false);
 
       track($canUndo, "$canUndo");
-      ownBindings(FROM, [["$undoable", $canUndo, true]]);
+      ownBindings(FROM, [{ name: "$undoable", value: $canUndo, exported: true }]);
 
       expect(listEntries()[0]?.name).toBe("$undoable");
       expect(namedByBinding($canUndo)).toBe(true);
@@ -288,13 +288,13 @@ describe("ownBindings", () => {
       track($typed, "$typed");
       track($also, "$typed #2");
       ownBindings(FROM, [
-        ["$typed", $typed, false],
-        ["$value", $typed, true],
-        ["$alias", $typed, false],
+        { name: "$typed", value: $typed, exported: false },
+        { name: "$value", value: $typed, exported: true },
+        { name: "$alias", value: $typed, exported: false },
       ]);
       ownBindings(FROM, [
-        ["$exported", $also, true],
-        ["$plain", $also, false],
+        { name: "$exported", value: $also, exported: true },
+        { name: "$plain", value: $also, exported: false },
       ]);
 
       expect(listEntries().map((entry) => entry.name)).toEqual(["$value", "$exported"]);
@@ -305,8 +305,8 @@ describe("ownBindings", () => {
 
       track($typed, "$typed");
       ownBindings(FROM, [
-        ["$first", $typed, true],
-        ["$second", $typed, true],
+        { name: "$first", value: $typed, exported: true },
+        { name: "$second", value: $typed, exported: true },
       ]);
 
       expect(listEntries()[0]?.name).toBe("$second");
@@ -317,9 +317,9 @@ describe("ownBindings", () => {
 
       track($typed, "$typed");
       ownBindings(FROM, [
-        ["$first", $typed, false],
-        ["$value", $typed, true],
-        ["$last", $typed, false],
+        { name: "$first", value: $typed, exported: false },
+        { name: "$value", value: $typed, exported: true },
+        { name: "$last", value: $typed, exported: false },
       ]);
 
       expect(boundNames($typed)?.primary.name).toBe("$value");
@@ -334,7 +334,7 @@ describe("ownBindings", () => {
 
       track($canUndo, "$canUndo");
       ownBindings({ home: "vendor/withUndo.ts", external: true, moduleKey: "vendor/withUndo.ts" }, [
-        ["$undoable", $canUndo, true],
+        { name: "$undoable", value: $canUndo, exported: true },
       ]);
 
       expect(listEntries()[0]?.name).toBe("$canUndo");
@@ -344,7 +344,7 @@ describe("ownBindings", () => {
     it("claims no store the registry never took", () => {
       const $loose = atom(false);
 
-      ownBindings(FROM, [["$loose", $loose, true]]);
+      ownBindings(FROM, [{ name: "$loose", value: $loose, exported: true }]);
 
       expect(namedByBinding($loose)).toBe(false);
     });
@@ -354,7 +354,7 @@ describe("ownBindings", () => {
     const $canUndo = atom(false);
     const $draft = holder("", { $canUndo });
 
-    ownBindings(FROM, [["$draft", $draft]]);
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
     const owners = peekDevtoolsGlobal()?.owners;
 
@@ -391,7 +391,7 @@ describe("a node", () => {
   it("keys a class instance by its binding and holds the constructor apart from that name", () => {
     const editorOne = new Editor();
 
-    ownBindings(FROM, [["editorOne", editorOne]]);
+    ownBindings(FROM, [{ name: "editorOne", value: editorOne, exported: false }]);
 
     expect(ownerOf(editorOne.$value)).toBe(editorOne);
     expect(nodeInfoOf(editorOne)).toMatchObject({ name: "editorOne", type: "Editor" });
@@ -411,7 +411,7 @@ describe("a node", () => {
 
     const held = new Sneaky();
 
-    ownBindings(FROM, [["held", held]]);
+    ownBindings(FROM, [{ name: "held", value: held, exported: false }]);
 
     expect(nameOf(held)).toBe("held");
     expect(nodeInfoOf(held)?.type).toBeUndefined();
@@ -421,7 +421,7 @@ describe("a node", () => {
   it("keys a plain object a factory returned by its binding, and labels it with nothing", () => {
     const created = panel();
 
-    ownBindings(FROM, [["panel", created]]);
+    ownBindings(FROM, [{ name: "panel", value: created, exported: false }]);
 
     expect(ownerOf(created.$open)).toBe(created);
     expect(nameOf(created)).toBe("panel");
@@ -432,7 +432,7 @@ describe("a node", () => {
     const first = new Editor();
     const drafts = [first, new Editor()];
 
-    ownBindings(FROM, [["drafts", drafts]]);
+    ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
 
     expect(nodeInfoOf(drafts)).toMatchObject({ name: "drafts", type: "Array" });
     expect(nameOf(first)).toBe("[0]");
@@ -448,7 +448,7 @@ describe("a node", () => {
       [2, second],
     ]);
 
-    ownBindings(FROM, [["byId", byId]]);
+    ownBindings(FROM, [{ name: "byId", value: byId, exported: false }]);
 
     expect(nodeInfoOf(byId)?.type).toBe("Map");
     expect(nameOf(scratch)).toBe(`["scratch"]`);
@@ -459,7 +459,7 @@ describe("a node", () => {
     const held = new Editor();
     const byRef = new Map([[{}, held]]);
 
-    ownBindings(FROM, [["byRef", byRef]]);
+    ownBindings(FROM, [{ name: "byRef", value: byRef, exported: false }]);
 
     expect(nodeInfoOf(held)).toBeUndefined();
     expect(ownerOf(held.$value)).toBeUndefined();
@@ -470,7 +470,7 @@ describe("a node", () => {
     const second = new Editor();
     const pool = new Set([first, second]);
 
-    ownBindings(FROM, [["pool", pool]]);
+    ownBindings(FROM, [{ name: "pool", value: pool, exported: false }]);
 
     expect(nodeInfoOf(pool)?.type).toBe("Set");
     expect(nameOf(first)).toBe("[0]");
@@ -482,8 +482,8 @@ describe("a node", () => {
     const panel = { open: atom(false) };
 
     ownBindings(FROM, [
-      ["bounds", [$width]],
-      ["panel", panel],
+      { name: "bounds", value: [$width], exported: false },
+      { name: "panel", value: panel, exported: false },
     ]);
 
     expect(ownerLinksOf($width)[0]?.key).toBe("[0]");
@@ -495,7 +495,7 @@ describe("a node", () => {
     const $lens = atom("");
 
     track($lens, "$lens");
-    ownBindings(FROM, [["fields", { username: $lens }]]);
+    ownBindings(FROM, [{ name: "fields", value: { username: $lens }, exported: false }]);
 
     expect(ownerLinksOf($lens)[0]?.key).toBe("username");
   });
@@ -515,7 +515,7 @@ describe("a node", () => {
     const drafts = new Loud();
 
     drafts.push(first);
-    ownBindings(FROM, [["drafts", drafts]]);
+    ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
 
     expect(nameOf(first)).toBe("[0]");
   });
@@ -532,7 +532,7 @@ describe("a node", () => {
     drafts[2] = third;
 
     expect(() => {
-      ownBindings(FROM, [["drafts", drafts]]);
+      ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
     }).not.toThrow();
     expect(hostile).not.toHaveBeenCalled();
     expect(nameOf(first)).toBe("[0]");
@@ -550,7 +550,7 @@ describe("a node", () => {
     Object.defineProperty(Array.prototype, 3, { configurable: true, get: inherited });
 
     try {
-      ownBindings(FROM, [["drafts", drafts]]);
+      ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
     } finally {
       Reflect.deleteProperty(Array.prototype, 3);
     }
@@ -569,7 +569,7 @@ describe("a node", () => {
     });
 
     expect(() => {
-      ownBindings(FROM, [["drafts", drafts]]);
+      ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
     }).not.toThrow();
     expect(ownerOf(created.$open)).toBeUndefined();
   });
@@ -581,7 +581,7 @@ describe("a node", () => {
 
     drafts[2] = third;
     drafts[5] = $open;
-    ownBindings(FROM, [["drafts", drafts]]);
+    ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
 
     expect(nameOf(third)).toBe("[2]");
     expect(ownerLinksOf($open)[0]?.key).toBe("[5]");
@@ -598,7 +598,7 @@ describe("a node", () => {
     Object.assign(hostile, { $open });
 
     expect(() => {
-      ownBindings(FROM, [["hostile", hostile]]);
+      ownBindings(FROM, [{ name: "hostile", value: hostile, exported: false }]);
     }).not.toThrow();
     expect(ownerOf($open)).toBe(hostile);
     expect(nodeInfoOf(hostile)?.type).toBeUndefined();
@@ -614,7 +614,7 @@ describe("a node", () => {
     const scratch = new Editor();
     const byId = new Loud([["scratch", scratch]]);
 
-    ownBindings(FROM, [["byId", byId]]);
+    ownBindings(FROM, [{ name: "byId", value: byId, exported: false }]);
 
     expect(nameOf(scratch)).toBe(`["scratch"]`);
   });
@@ -626,7 +626,7 @@ describe("a node", () => {
     const broken = Object.assign(empty, { $open });
 
     expect(() => {
-      ownBindings(FROM, [["broken", broken]]);
+      ownBindings(FROM, [{ name: "broken", value: broken, exported: false }]);
     }).not.toThrow();
     expect(ownerOf($open)).toBeUndefined();
   });
@@ -635,7 +635,7 @@ describe("a node", () => {
     const past = panel();
     const many = [...Array.from({ length: MAX_MEMBERS + 1 }, panel), past];
 
-    ownBindings(FROM, [["many", many]]);
+    ownBindings(FROM, [{ name: "many", value: many, exported: false }]);
 
     expect(nodeInfoOf(many)?.skipped).toBe(2);
     expect(nodeInfoOf(past)).toBeUndefined();
@@ -646,8 +646,8 @@ describe("a node", () => {
     const editorOne = new Editor();
 
     ownBindings(FROM, [
-      ["editorOne", editorOne],
-      ["drafts", [editorOne]],
+      { name: "editorOne", value: editorOne, exported: false },
+      { name: "drafts", value: [editorOne], exported: false },
     ]);
 
     expect(nameOf(editorOne)).toBe("editorOne");
@@ -657,7 +657,7 @@ describe("a node", () => {
     const created = panel();
 
     ownBindings({ home: "src/panel.ts", external: false, moduleKey: "src/panel.ts" }, [
-      ["panel", created],
+      { name: "panel", value: created, exported: false },
     ]);
 
     expect(nodeInfoOf(created)).toMatchObject({ home: "src/panel.ts", external: false });
@@ -667,7 +667,7 @@ describe("a node", () => {
     const created = panel();
 
     ownBindings({ home: "vendor/panel.ts", external: true, moduleKey: "vendor/panel.ts" }, [
-      ["panel", created],
+      { name: "panel", value: created, exported: false },
     ]);
 
     expect(nodeInfoOf(created)).toBeUndefined();
@@ -676,7 +676,7 @@ describe("a node", () => {
   it("holds a node's parent weakly, so it keeps no instance alive", () => {
     const first = new Editor();
 
-    ownBindings(FROM, [["drafts", [first]]]);
+    ownBindings(FROM, [{ name: "drafts", value: [first], exported: false }]);
 
     expect(peekDevtoolsGlobal()?.nodes).toBeInstanceOf(WeakMap);
     expect(nodeInfoOf(first)?.parents[0]?.parent).toBeInstanceOf(WeakRef);
@@ -694,7 +694,7 @@ describe("a node", () => {
     });
 
     expect(() => {
-      ownBindings(FROM, [["drafts", drafts]]);
+      ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
     }).not.toThrow();
     expect(created.$open.lc).toBe(0);
   });
@@ -734,8 +734,8 @@ describe("a value that refuses to be read", () => {
 
       expect(() => {
         ownBindings(FROM, [
-          ["remote", refusing(trap)],
-          ["panel", created],
+          { name: "remote", value: refusing(trap), exported: false },
+          { name: "panel", value: created, exported: false },
         ]);
       }).not.toThrow();
       expect(ownerOf(created.$open)).toBe(created);
@@ -758,7 +758,13 @@ describe("a value that refuses to be read", () => {
     const created = panel();
 
     expect(() => {
-      ownBindings(FROM, [["drafts", build(refusing("getOwnPropertyDescriptor"), created)]]);
+      ownBindings(FROM, [
+        {
+          name: "drafts",
+          value: build(refusing("getOwnPropertyDescriptor"), created),
+          exported: false,
+        },
+      ]);
     }).not.toThrow();
     expect(ownerOf(created.$open)).toBe(created);
   });
@@ -767,7 +773,7 @@ describe("a value that refuses to be read", () => {
     const created = panel();
     const held = new Proxy(created, {});
 
-    ownBindings(FROM, [["panel", held]]);
+    ownBindings(FROM, [{ name: "panel", value: held, exported: false }]);
 
     expect(ownerOf(created.$open)).toBe(held);
     expect(nodeInfoOf(held)).toMatchObject({ name: "panel" });
@@ -776,8 +782,8 @@ describe("a value that refuses to be read", () => {
   it("warns once per binding, not once per read", () => {
     const held = refusing("ownKeys");
 
-    ownBindings(FROM, [["remote", held]]);
-    ownBindings(FROM, [["remote", held]]);
+    ownBindings(FROM, [{ name: "remote", value: held, exported: false }]);
+    ownBindings(FROM, [{ name: "remote", value: held, exported: false }]);
 
     expect(console.warn).toHaveBeenCalledTimes(1);
     expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain('"remote"');
@@ -786,8 +792,8 @@ describe("a value that refuses to be read", () => {
 
   it("warns for each binding that refuses, so no second one is hidden by the first", () => {
     ownBindings(FROM, [
-      ["remote", { held: refusing("ownKeys") }],
-      ["other", { held: refusing("ownKeys") }],
+      { name: "remote", value: { held: refusing("ownKeys") }, exported: false },
+      { name: "other", value: { held: refusing("ownKeys") }, exported: false },
     ]);
 
     expect(console.warn).toHaveBeenCalledTimes(2);
@@ -796,7 +802,13 @@ describe("a value that refuses to be read", () => {
   });
 
   it("warns once for a binding holding two values that refuse, because one line is enough", () => {
-    ownBindings(FROM, [["remote", { first: refusing("ownKeys"), second: refusing("ownKeys") }]]);
+    ownBindings(FROM, [
+      {
+        name: "remote",
+        value: { first: refusing("ownKeys"), second: refusing("ownKeys") },
+        exported: false,
+      },
+    ]);
 
     expect(console.warn).toHaveBeenCalledTimes(1);
   });
@@ -808,7 +820,7 @@ describe("a value that refuses to be read", () => {
       },
     });
 
-    ownBindings(FROM, [["drafts", drafts]]);
+    ownBindings(FROM, [{ name: "drafts", value: drafts, exported: false }]);
 
     expect(console.warn).toHaveBeenCalledTimes(1);
     expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain('"drafts"');
@@ -856,7 +868,7 @@ describe("ownField", () => {
     const editorOne = new Editor();
 
     ownField(FROM, editorOne.$value, editorOne);
-    ownBindings(FROM, [["editorOne", editorOne]]);
+    ownBindings(FROM, [{ name: "editorOne", value: editorOne, exported: false }]);
 
     expect(nodeInfoOf(editorOne)).toMatchObject({
       name: "editorOne",
@@ -868,7 +880,7 @@ describe("ownField", () => {
   it("keeps the name the developer wrote when a class field runs after the scan", () => {
     const editorOne = new Editor();
 
-    ownBindings(FROM, [["editorOne", editorOne]]);
+    ownBindings(FROM, [{ name: "editorOne", value: editorOne, exported: false }]);
     ownField(FROM, editorOne.$value, editorOne);
 
     expect(nodeInfoOf(editorOne)?.name).toBe("editorOne");
@@ -900,7 +912,7 @@ describe("ownField", () => {
 
     const vault = new Vault();
 
-    ownBindings(FROM, [["vault", vault]]);
+    ownBindings(FROM, [{ name: "vault", value: vault, exported: false }]);
 
     expect(ownerOf(vault.hidden)).toBe(vault);
     expect(nodeInfoOf(vault)).toMatchObject({ name: "vault", type: "Vault" });
@@ -975,7 +987,7 @@ describe("ownField", () => {
     const editorOne = new Editor();
 
     ownField(FROM, editorOne.$value, editorOne);
-    ownBindings(FROM, [["shared", { $value: editorOne.$value }]]);
+    ownBindings(FROM, [{ name: "shared", value: { $value: editorOne.$value }, exported: false }]);
 
     expect(ownerOf(editorOne.$value)).toBe(editorOne);
   });
@@ -1012,7 +1024,7 @@ describe("the creation frame", () => {
     beginFrame();
     born($loose);
     endFrame(FROM, outer, "outer");
-    ownBindings(FROM, [["outer", outer, true]]);
+    ownBindings(FROM, [{ name: "outer", value: outer, exported: true }]);
 
     /** Both links are recorded, and only the one the developer wrote is drawn. */
     expect(peekDevtoolsGlobal()?.owners.get($loose)).toHaveLength(2);
@@ -1164,7 +1176,7 @@ describe("the creation frame", () => {
 
     expect(ownerOf(scratch.$open)).toBe(byId);
 
-    ownBindings(FROM, [["byId", byId]]);
+    ownBindings(FROM, [{ name: "byId", value: byId, exported: false }]);
 
     expect(ownerOf(scratch.$open)).toBe(scratch);
     expect(nodeInfoOf(scratch)?.name).toBe(`["scratch"]`);
@@ -1268,7 +1280,7 @@ describe("ownerLinksOf", () => {
     const $width = atom(320);
     const bounds = [$width];
 
-    ownBindings(FROM, [["bounds", bounds]]);
+    ownBindings(FROM, [{ name: "bounds", value: bounds, exported: false }]);
 
     expect(ownerLinksOf($width)).toEqual([{ owner: bounds, key: "[0]" }]);
   });

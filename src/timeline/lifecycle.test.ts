@@ -74,7 +74,7 @@ describe("mount and unmount rows", () => {
 
     register("$lens", $lens);
     ownBindings({ home: HOME, external: false, moduleKey: HOME }, [
-      ["fields", { username: $lens }],
+      { name: "fields", value: { username: $lens }, exported: false },
     ]);
     await listen();
 
@@ -243,7 +243,7 @@ describe("register, unregister and hot reload rows", () => {
     await listen();
     register("$lens", $lens);
     ownBindings({ home: HOME, external: false, moduleKey: HOME }, [
-      ["fields", { username: $lens }],
+      { name: "fields", value: { username: $lens }, exported: false },
     ]);
 
     await endOfTurn();
@@ -505,7 +505,9 @@ describe("a store the tree draws nowhere", () => {
 
     registerMadeIn("$canUndo", $canUndo, "withUndo");
     register("$draft", $draft);
-    ownBindings({ home: HOME, external: false, moduleKey: HOME }, [["$draft", $draft, true]]);
+    ownBindings({ home: HOME, external: false, moduleKey: HOME }, [
+      { name: "$draft", value: $draft, exported: true },
+    ]);
     await listen();
 
     unregisterStore($draft);

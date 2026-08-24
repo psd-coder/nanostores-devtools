@@ -911,7 +911,7 @@ describe("buildSnapshot", () => {
       track($draft, "$draft");
       track($canUndo, "$canUndo");
       track(atom(""), "$typed");
-      ownBindings(FROM, [["$draft", $draft]]);
+      ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: {
@@ -936,7 +936,7 @@ describe("buildSnapshot", () => {
       track($draft, "$draft");
       track($history, "$history");
       track($position, "$position");
-      ownBindings(FROM, [["$draft", $draft]]);
+      ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: {
@@ -960,7 +960,7 @@ describe("buildSnapshot", () => {
       unbind();
       entry.everMounted = true;
       track($child, "$child");
-      ownBindings(FROM, [["$total", $total]]);
+      ownBindings(FROM, [{ name: "$total", value: $total, exported: false }]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: { "$total [computed]": { "(value)": stale(2), "$child [store]": 1 } },
@@ -979,7 +979,7 @@ describe("buildSnapshot", () => {
       unbind();
       entry.everMounted = true;
       track($child, "$child");
-      ownBindings(FROM, [["$total", $total]]);
+      ownBindings(FROM, [{ name: "$total", value: $total, exported: false }]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: {
@@ -994,7 +994,7 @@ describe("buildSnapshot", () => {
 
       track($draft, "$draft");
       track($canUndo, "$canUndo");
-      ownBindings(FROM, [["$draft", $draft]]);
+      ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
       const node = readNode(readNode(drawnTree(), HOME), "$draft [store]");
       const held = readNode(node["(value)"], "from [store]");
@@ -1011,7 +1011,7 @@ describe("buildSnapshot", () => {
 
       track($draft2, "$draft2");
       trackNumbered($canUndo, "$canUndo", 2);
-      ownBindings(FROM, [["$draft2", $draft2]]);
+      ownBindings(FROM, [{ name: "$draft2", value: $draft2, exported: false }]);
 
       expect(keysOf(HOME, "$draft2 [store]")).toEqual(["(value)", "$canUndo [store]"]);
     });
@@ -1137,7 +1137,7 @@ describe("buildSnapshot", () => {
       track($form, "$form");
       trackNumbered($lens, "$lens", 1);
       trackNumbered($second, "$lens", 2);
-      ownBindings(FROM, [["$form", $form]]);
+      ownBindings(FROM, [{ name: "$form", value: $form, exported: false }]);
 
       expect(keysOf(HOME, "$form [store]")).toEqual([
         "(value)",
@@ -1152,7 +1152,7 @@ describe("buildSnapshot", () => {
 
       track($draft, "$draft");
       trackNumbered($total, "$total", 2, "computed");
-      ownBindings(FROM, [["$draft", $draft]]);
+      ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
       expect(keysOf(HOME, "$draft [store]")).toEqual(["(value)", "$total [computed]"]);
     });
@@ -1163,7 +1163,7 @@ describe("buildSnapshot", () => {
 
       track($draft, "$draft");
       track($canUndo, "$canUndo", "vendor/withUndo.ts");
-      ownBindings(FROM, [["$draft", $draft]]);
+      ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
@@ -1173,7 +1173,7 @@ describe("buildSnapshot", () => {
     it("leaves a store flat when nothing registered its owner", () => {
       const $canUndo = atom(false);
 
-      ownBindings(FROM, [["$draft", holder("", { $canUndo })]]);
+      ownBindings(FROM, [{ name: "$draft", value: holder("", { $canUndo }), exported: false }]);
       track($canUndo, "$canUndo");
 
       expect(buildSnapshot()).toEqual({ [HOME]: { "$canUndo [store]": false } });
@@ -1194,7 +1194,7 @@ describe("buildSnapshot", () => {
       track($position, "$position", "vendor/withUndo.ts");
       track($orphan, "$orphan", "src/other.ts");
       trackStores("cart", { $items: atom([]) });
-      ownBindings(FROM, [["$draft", $draft]]);
+      ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
       expect(drawnSlots()).toBe(listEntries().length);
     });
@@ -1205,7 +1205,7 @@ describe("buildSnapshot", () => {
 
       track($draft, "$draft");
       track($canUndo, "$canUndo");
-      ownBindings(FROM, [["$draft", $draft]]);
+      ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
       expect(buildSnapshot()).toEqual({
         [HOME]: { "$draft [store]": { "(value)": 7, "$canUndo [store]": false } },
@@ -1234,7 +1234,7 @@ describe("buildSnapshot", () => {
         const editorOne = new Editor();
 
         track(editorOne.$value, "$value");
-        ownBindings(FROM, [["editorOne", editorOne]]);
+        ownBindings(FROM, [{ name: "editorOne", value: editorOne, exported: false }]);
 
         expect(buildSnapshot()).toEqual({
           [HOME]: { editorOne: labelled("Editor", { "$value [store]": "draft" }) },
@@ -1245,7 +1245,7 @@ describe("buildSnapshot", () => {
         const panel = { $open: atom(false) };
 
         track(panel.$open, "$open");
-        ownBindings(FROM, [["panel", panel]]);
+        ownBindings(FROM, [{ name: "panel", value: panel, exported: false }]);
 
         expect(buildSnapshot()).toEqual({ [HOME]: { panel: { "$open [store]": false } } });
       });
@@ -1256,7 +1256,7 @@ describe("buildSnapshot", () => {
 
         trackNumbered(first.$value, "$value", 1);
         trackNumbered(second.$value, "$value", 2);
-        ownBindings(FROM, [["drafts", [first, second]]]);
+        ownBindings(FROM, [{ name: "drafts", value: [first, second], exported: false }]);
 
         expect(buildSnapshot()).toEqual({
           [HOME]: {
@@ -1272,7 +1272,9 @@ describe("buildSnapshot", () => {
         const scratch = new Editor();
 
         track(scratch.$value, "$value");
-        ownBindings(FROM, [["byId", new Map([["scratch", scratch]])]]);
+        ownBindings(FROM, [
+          { name: "byId", value: new Map([["scratch", scratch]]), exported: false },
+        ]);
 
         expect(heldBy("byId")).toEqual({
           '["scratch"]': labelled("Editor", { "$value [store]": "draft" }),
@@ -1285,7 +1287,7 @@ describe("buildSnapshot", () => {
 
         track(second.$value, "$second");
         track(first.$value, "$first");
-        ownBindings(FROM, [["pool", new Set([first, second])]]);
+        ownBindings(FROM, [{ name: "pool", value: new Set([first, second]), exported: false }]);
 
         expect(Object.keys(heldBy("pool"))).toEqual(["[0]", "[1]"]);
       });
@@ -1296,7 +1298,7 @@ describe("buildSnapshot", () => {
 
         track($width, "$width");
         track($ratio, "$ratio", HOME, "computed");
-        ownBindings(FROM, [["bounds", [$width, $ratio]]]);
+        ownBindings(FROM, [{ name: "bounds", value: [$width, $ratio], exported: false }]);
 
         expect(Object.keys(heldBy("bounds"))).toEqual(["[0] [store]", "[1] [computed]"]);
         expect(heldBy("bounds")["[0] [store]"]).toBe(320);
@@ -1309,7 +1311,7 @@ describe("buildSnapshot", () => {
         Object.assign($draft, { drafts: [first] });
         track($draft, "$draft");
         track(first.$value, "$value");
-        ownBindings(FROM, [["$draft", $draft]]);
+        ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
         expect(buildSnapshot()).toEqual({
           [HOME]: {
@@ -1325,7 +1327,9 @@ describe("buildSnapshot", () => {
 
       it("draws nothing for a node holding no store at all", () => {
         track(atom("x"), "$typed");
-        ownBindings(FROM, [["panel", { title: "Files", size: [1, 2] }]]);
+        ownBindings(FROM, [
+          { name: "panel", value: { title: "Files", size: [1, 2] }, exported: false },
+        ]);
 
         expect(buildSnapshot()).toEqual({ [HOME]: { "$typed [store]": "x" } });
       });
@@ -1340,7 +1344,7 @@ describe("buildSnapshot", () => {
         Object.setPrototypeOf($draft, Draft.prototype);
         track($draft, "$draft");
         track($canUndo, "$canUndo");
-        ownBindings(FROM, [["$draft", $draft]]);
+        ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
         expect(buildSnapshot()).toEqual({
           [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
@@ -1353,7 +1357,7 @@ describe("buildSnapshot", () => {
         members.forEach((member, index) => {
           track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
         });
-        ownBindings(FROM, [["many", members]]);
+        ownBindings(FROM, [{ name: "many", value: members, exported: false }]);
 
         const held = heldBy("many");
 
@@ -1375,7 +1379,7 @@ describe("buildSnapshot", () => {
         members.forEach((member, index) => {
           track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
         });
-        ownBindings(FROM, [["many", members]]);
+        ownBindings(FROM, [{ name: "many", value: members, exported: false }]);
 
         const held = heldBy("many");
 
@@ -1390,8 +1394,8 @@ describe("buildSnapshot", () => {
         track(panel.$open, "$open");
         track(sidebar.$width, "$width");
         ownBindings(FROM, [
-          ["panel", panel],
-          ["panel", sidebar],
+          { name: "panel", value: panel, exported: false },
+          { name: "panel", value: sidebar, exported: false },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -1407,7 +1411,7 @@ describe("buildSnapshot", () => {
 
         track(atom("bare"), "panel");
         track(panel.$open, "$open");
-        ownBindings(FROM, [["panel", panel]]);
+        ownBindings(FROM, [{ name: "panel", value: panel, exported: false }]);
 
         expect(buildSnapshot()).toEqual({
           [HOME]: { panel: { "$open [store]": false }, "panel [store]": "bare" },
@@ -1433,7 +1437,7 @@ describe("buildSnapshot", () => {
             external: true,
             moduleKey: "node_modules/panel/index.ts",
           },
-          [["panel", panel]],
+          [{ name: "panel", value: panel, exported: false }],
         );
 
         expect(buildSnapshot()).toEqual({ [HOME]: { "$typed [store]": "x" } });
@@ -1470,7 +1474,7 @@ describe("buildSnapshot", () => {
           ownField(FROM, Workbench.$opened, Workbench);
           track(Workbench.$opened, "$opened");
           trackFields(workbenchOne, 1);
-          ownBindings(FROM, [["workbenchOne", workbenchOne]]);
+          ownBindings(FROM, [{ name: "workbenchOne", value: workbenchOne, exported: false }]);
 
           expect(buildSnapshot()).toEqual({
             [HOME]: {
@@ -1487,8 +1491,8 @@ describe("buildSnapshot", () => {
           trackFields(workbenchOne, 1);
           trackFields(workbenchTwo, 2);
           ownBindings(FROM, [
-            ["workbenchOne", workbenchOne],
-            ["workbenchTwo", workbenchTwo],
+            { name: "workbenchOne", value: workbenchOne, exported: false },
+            { name: "workbenchTwo", value: workbenchTwo, exported: false },
           ]);
 
           expect(buildSnapshot()).toEqual({
@@ -1509,7 +1513,7 @@ describe("buildSnapshot", () => {
           track(Workbench.$opened, "$opened");
           trackFields(workbenchOne, 1);
           trackFields(workbenchTwo, 2);
-          ownBindings(FROM, [["workbenchOne", workbenchOne]]);
+          ownBindings(FROM, [{ name: "workbenchOne", value: workbenchOne, exported: false }]);
 
           expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
             1, 2, 3, 4, 5,
@@ -1534,7 +1538,7 @@ describe("buildSnapshot", () => {
 
           endFrame(FROM, hidden, "hidden");
           track(editor.$value, "$value");
-          ownBindings(FROM, [["hidden", hidden]]);
+          ownBindings(FROM, [{ name: "hidden", value: hidden, exported: false }]);
 
           expect(buildSnapshot()).toEqual({
             [HOME]: {
@@ -1575,7 +1579,7 @@ describe("buildSnapshot", () => {
           endFrame(FROM, $draft, "$draft");
           track($draft, "$draft");
           track($timeline, "$timeline");
-          ownBindings(FROM, [["$draft", $draft]]);
+          ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
           expect(buildSnapshot()).toEqual({
             [HOME]: { "$draft [store]": { "(value)": "", "$timeline [store]": ["a"] } },
@@ -1599,8 +1603,8 @@ describe("buildSnapshot", () => {
           track($timeline, "$timeline");
           track(scratch.$open, "$open");
           ownBindings(FROM, [
-            ["$draft", $draft],
-            ["byId", byId],
+            { name: "$draft", value: $draft, exported: false },
+            { name: "byId", value: byId, exported: false },
           ]);
 
           expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([0, 1, 2]);
@@ -1624,9 +1628,9 @@ describe("buildSnapshot", () => {
         track(panel.$open, "$open");
         track($typed, "$typed");
         ownBindings(FROM, [
-          ["drafts", [first, second]],
-          ["byId", new Map([["scratch", panel]])],
-          ["$typed", $typed],
+          { name: "drafts", value: [first, second], exported: false },
+          { name: "byId", value: new Map([["scratch", panel]]), exported: false },
+          { name: "$typed", value: $typed, exported: false },
         ]);
 
         expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([
@@ -1696,7 +1700,7 @@ describe("buildSnapshot", () => {
 
         madeIn("makeEditor", editorOne.$value, "$value");
         ownField(FROM, editorOne.$value, editorOne);
-        ownBindings(FROM, [["editorOne", editorOne]]);
+        ownBindings(FROM, [{ name: "editorOne", value: editorOne, exported: false }]);
 
         expect(buildSnapshot()).toEqual({
           [HOME]: {
@@ -1711,7 +1715,7 @@ describe("buildSnapshot", () => {
 
         madeIn("withUndo", $canUndo, "$canUndo");
         track($draft, "$draft");
-        ownBindings(FROM, [["$draft", $draft]]);
+        ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
         expect(buildSnapshot()).toEqual({
           [HOME]: { "$draft [store]": { "(value)": "", "$canUndo [store]": false } },
@@ -1730,7 +1734,7 @@ describe("buildSnapshot", () => {
         const $hits = atom(0);
 
         madeIn("makeHits", $hits, "$hits");
-        ownBindings(FROM, [["$hits", $hits, true]]);
+        ownBindings(FROM, [{ name: "$hits", value: $hits, exported: true }]);
 
         expect(buildSnapshot()).toEqual({ [HOME]: { "$hits [store]": 0 } });
       });
@@ -1744,8 +1748,8 @@ describe("buildSnapshot", () => {
         track($draft, "$draft");
         track($canUndo, "$canUndo", "vendor/withUndo.ts");
         ownBindings(FROM, [
-          ["$draft", $draft, true],
-          ["$canUndo", $canUndo, true],
+          { name: "$draft", value: $draft, exported: true },
+          { name: "$canUndo", value: $canUndo, exported: true },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -1765,8 +1769,8 @@ describe("buildSnapshot", () => {
         track($draft2, "$draft2");
         trackNumbered($canUndo, "$canUndo", 2, "computed");
         ownBindings(FROM, [
-          ["$draft2", $draft2, true],
-          ["$undoable", $canUndo, true],
+          { name: "$draft2", value: $draft2, exported: true },
+          { name: "$undoable", value: $canUndo, exported: true },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -1784,8 +1788,8 @@ describe("buildSnapshot", () => {
         track($draft, "$draft");
         track($canUndo, "$canUndo");
         ownBindings(FROM, [
-          ["$draft", $draft, true],
-          ["$canUndo", $canUndo, true],
+          { name: "$draft", value: $draft, exported: true },
+          { name: "$canUndo", value: $canUndo, exported: true },
         ]);
         $canUndo.set(true);
 
@@ -1803,9 +1807,9 @@ describe("buildSnapshot", () => {
 
         track($typed, "$typed");
         ownBindings(FROM, [
-          ["$typed", $typed, false],
-          ["$value", $typed, true],
-          ["$alias", $typed, false],
+          { name: "$typed", value: $typed, exported: false },
+          { name: "$value", value: $typed, exported: true },
+          { name: "$alias", value: $typed, exported: false },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -1819,8 +1823,8 @@ describe("buildSnapshot", () => {
 
         track($typed, "$typed");
         ownBindings(FROM, [
-          ["$value", $typed, true],
-          ["$alias", $typed, false],
+          { name: "$value", value: $typed, exported: true },
+          { name: "$alias", value: $typed, exported: false },
         ]);
 
         expect(buildSnapshot()).toEqual({ [HOME]: { "$alias [store]": "", "$value [store]": "" } });
@@ -1836,8 +1840,8 @@ describe("buildSnapshot", () => {
         ownBindings(
           { home: "vendor/withUndo.ts", external: true, moduleKey: "vendor/withUndo.ts" },
           [
-            ["$draft", $draft, true],
-            ["$canUndo", $canUndo, true],
+            { name: "$draft", value: $draft, exported: true },
+            { name: "$canUndo", value: $canUndo, exported: true },
           ],
         );
 
@@ -1853,8 +1857,8 @@ describe("buildSnapshot", () => {
         track($draft, "$draft");
         trackStores("cart", { $canUndo });
         ownBindings(FROM, [
-          ["$draft", $draft, true],
-          ["$undoable", $canUndo, true],
+          { name: "$draft", value: $draft, exported: true },
+          { name: "$undoable", value: $canUndo, exported: true },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -1873,8 +1877,8 @@ describe("buildSnapshot", () => {
         track($draft, "$draft");
         trackStores("cart", { $canUndo });
         ownBindings(FROM, [
-          ["$draft", $draft, true],
-          ["$canUndo", $canUndo, true],
+          { name: "$draft", value: $draft, exported: true },
+          { name: "$canUndo", value: $canUndo, exported: true },
         ]);
         untrack("cart");
 
@@ -1891,9 +1895,9 @@ describe("buildSnapshot", () => {
         track($history, "$history", "vendor/withUndo.ts");
         track(atom(4), "$typed");
         ownBindings(FROM, [
-          ["$draft", $draft, true],
-          ["$canUndo", $canUndo, true],
-          ["$entries", $history, true],
+          { name: "$draft", value: $draft, exported: true },
+          { name: "$canUndo", value: $canUndo, exported: true },
+          { name: "$entries", value: $history, exported: true },
         ]);
 
         expect(drawnSlots()).toBe(listEntries().length + 2);
@@ -1909,8 +1913,8 @@ describe("buildSnapshot", () => {
 
         track($draft, "$draft");
         ownBindings(FROM, [
-          ["$draft1", $draft, true],
-          ["$draft2", $draft, true],
+          { name: "$draft1", value: $draft, exported: true },
+          { name: "$draft2", value: $draft, exported: true },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -1926,8 +1930,8 @@ describe("buildSnapshot", () => {
         const other = { home: "src/aliases.ts", external: false, moduleKey: "src/aliases.ts" };
 
         track($draft, "$draft");
-        ownBindings(FROM, [["$draft1", $draft, true]]);
-        ownBindings(other, [["$draft2", $draft, true]]);
+        ownBindings(FROM, [{ name: "$draft1", value: $draft, exported: true }]);
+        ownBindings(other, [{ name: "$draft2", value: $draft, exported: true }]);
 
         expect(buildSnapshot()).toEqual({
           "src/aliases.ts": { "$draft2 [store]": "" },
@@ -1942,8 +1946,8 @@ describe("buildSnapshot", () => {
 
         track($width, "$width", HOME, "atom", null, "makeLayout");
         ownBindings(FROM, [
-          ["bounds", bounds, true],
-          ["layout", layout, true],
+          { name: "bounds", value: bounds, exported: true },
+          { name: "layout", value: layout, exported: true },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -1962,8 +1966,8 @@ describe("buildSnapshot", () => {
 
         track($w, "$w", HOME, "atom", null, "makeShared");
         ownBindings(FROM, [
-          ["a", a, true],
-          ["b", b, true],
+          { name: "a", value: a, exported: true },
+          { name: "b", value: b, exported: true },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -1986,8 +1990,8 @@ describe("buildSnapshot", () => {
         track(editor.$value, "$value", HOME, "atom", null, "makeEditor");
         ownField(FROM, editor.$value, editor);
         ownBindings(FROM, [
-          ["drafts", drafts, true],
-          ["pool", pool, true],
+          { name: "drafts", value: drafts, exported: true },
+          { name: "pool", value: pool, exported: true },
         ]);
 
         expect(buildSnapshot()).toEqual({
@@ -2011,7 +2015,7 @@ describe("buildSnapshot", () => {
         beginFrame();
         noteBirth($loose);
         endFrame(FROM, outer, "outer");
-        ownBindings(FROM, [["outer", outer, true]]);
+        ownBindings(FROM, [{ name: "outer", value: outer, exported: true }]);
 
         expect(buildSnapshot()).toEqual({ [HOME]: { outer: { inner: { "$loose [store]": 0 } } } });
       });
@@ -2024,7 +2028,7 @@ describe("buildSnapshot", () => {
         beginFrame();
         noteBirth($loose);
         endFrame(FROM, model, "model");
-        ownBindings(FROM, [["model", model, true]]);
+        ownBindings(FROM, [{ name: "model", value: model, exported: true }]);
 
         expect(buildSnapshot()).toEqual({ [HOME]: { model: { "$loose [store]": 0 } } });
       });
@@ -2038,7 +2042,7 @@ describe("buildSnapshot", () => {
         track(router, "router");
         track($route, "$route", "node_modules/@nanostores/router/index.js");
         trackStores("debug", { $route });
-        ownBindings(FROM, [["router", router, true]]);
+        ownBindings(FROM, [{ name: "router", value: router, exported: true }]);
 
         expect(buildSnapshot()).toEqual({
           debug: { "$route [store]": "/" },
@@ -2053,7 +2057,7 @@ describe("buildSnapshot", () => {
         track(router, "router");
         track($route, "$route", "node_modules/@nanostores/router/index.js");
         trackStores("debug", { route: $route });
-        ownBindings(FROM, [["router", router, true]]);
+        ownBindings(FROM, [{ name: "router", value: router, exported: true }]);
 
         expect(buildSnapshot()).toEqual({
           debug: { "route [store]": "/" },
@@ -2067,7 +2071,7 @@ describe("buildSnapshot", () => {
 
         track(router, "router");
         trackStores("debug", { route: $route });
-        ownBindings(FROM, [["router", router, true]]);
+        ownBindings(FROM, [{ name: "router", value: router, exported: true }]);
 
         expect(buildSnapshot()).toEqual({
           debug: { "route [store]": stale("/") },
@@ -2084,7 +2088,7 @@ describe("buildSnapshot", () => {
         track($route, "$route");
         track($params, "$params");
         trackStores("debug", { $route });
-        ownBindings(FROM, [["router", router, true]]);
+        ownBindings(FROM, [{ name: "router", value: router, exported: true }]);
 
         expect(buildSnapshot()).toEqual({
           debug: { "$route [store]": { "(value)": "/", "$params [store]": { id: "1" } } },
@@ -2099,7 +2103,7 @@ describe("buildSnapshot", () => {
         track($draft, "$draft");
         track($canUndo, "$canUndo", "vendor/withUndo.ts");
         trackStores("debug", { $canUndo });
-        ownBindings(FROM, [["$draft", $draft, true]]);
+        ownBindings(FROM, [{ name: "$draft", value: $draft, exported: true }]);
 
         expect(drawnSlots()).toBe(listEntries().length + 1);
         expect(numbersIn(buildSnapshot()).sort((left, right) => left - right)).toEqual([1, 1, 2]);
