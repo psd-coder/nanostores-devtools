@@ -16,6 +16,13 @@ import {
 } from "./registry.ts";
 import { hasHooks, keepHooks } from "./unhook.ts";
 
+const STORE_FIELDS = ["lc", "listen", "off", "set", "notify"] as const;
+
+/** Every field `isStore` reads, as a plain data property, so a test can break exactly one. */
+function fakeStore(): Record<string, unknown> {
+  return { lc: 0, listen: () => () => {}, off: () => {}, set: () => {}, notify: () => {} };
+}
+
 function plugin(
   overrides: Partial<Registration> & Pick<Registration, "store" | "name">,
 ): Registration {
@@ -70,11 +77,15 @@ describe("registry", () => {
       expect(isStore(batched(atom(1), (one) => one + 1))).toBe(true);
     });
 
-    it.each(["listen", "lc"])("never calls a %s getter the app wrote", (key) => {
+    it("turns away a wrapper that hit `listen` and `lc` by accident", () => {
+      expect(isStore({ listen: () => () => {}, lc: 3 })).toBe(false);
+    });
+
+    it.each(STORE_FIELDS)("never calls a %s getter the app wrote", (key) => {
       const get = vi.fn(() => {
         throw new Error("app code ran");
       });
-      const decoy = { listen: () => () => {}, lc: 0 };
+      const decoy = fakeStore();
 
       Object.defineProperty(decoy, key, { get, configurable: true });
 
@@ -82,11 +93,11 @@ describe("registry", () => {
       expect(get).not.toHaveBeenCalled();
     });
 
-    it.each(["listen", "lc"])("never calls a %s getter the app put on a prototype", (key) => {
+    it.each(STORE_FIELDS)("never calls a %s getter the app put on a prototype", (key) => {
       const get = vi.fn(() => {
         throw new Error("app code ran");
       });
-      const prototype = {};
+      const prototype = fakeStore();
 
       Object.defineProperty(prototype, key, { get, configurable: true });
 
@@ -94,15 +105,13 @@ describe("registry", () => {
       expect(get).not.toHaveBeenCalled();
     });
 
-    it("reads both keys off a prototype when they are data properties", () => {
-      const prototype = { listen: () => () => {}, lc: 0 };
-
-      expect(isStore(Object.create(prototype) as object)).toBe(true);
+    it("reads every key off a prototype when they are data properties", () => {
+      expect(isStore(Object.create(fakeStore()) as object)).toBe(true);
     });
 
     it("refuses an instance getter that shadows a data property further up", () => {
       const get = vi.fn(() => () => {});
-      const store = Object.create({ listen: () => () => {}, lc: 0 }) as object;
+      const store = Object.create(fakeStore()) as object;
 
       Object.defineProperty(store, "listen", { get, configurable: true });
 

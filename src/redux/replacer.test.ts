@@ -1081,7 +1081,13 @@ describe("createReplacer", () => {
 
     it("never calls a value getter on an object that only looks like a store", () => {
       const get = vi.fn(() => "app code ran");
-      const lookalike = { listen: () => () => {}, lc: 1 };
+      const lookalike = {
+        lc: 1,
+        listen: () => () => {},
+        off: () => {},
+        set: () => {},
+        notify: () => {},
+      };
 
       Object.defineProperty(lookalike, "value", { get, enumerable: true });
 

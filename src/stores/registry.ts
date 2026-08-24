@@ -153,22 +153,29 @@ function entryPlace(registration: Registration): EntryPlace {
   };
 }
 
+const STORE_METHODS = ["listen", "off", "set", "notify"] as const;
+
 /**
  * Shape, not `instanceof`: a store is a plain object, and two copies of nanostores make two.
  *
- * Both keys are read through a descriptor, because this runs against every value the walk meets and
- * a plain read would run a getter the app wrote. Every store nanostores builds keeps `listen` and
- * `lc` as its own data properties, so refusing an accessor costs nothing there and only turns away
- * an object that put its own code behind either name.
+ * The five fields are the ones devtools touches: `lc` is the mount count it reads, and the four
+ * functions are the ones a lifecycle helper replaces. So the rule checks what we are about to use.
+ *
+ * `lc` is read first because it is a rare key name, so almost every value is turned away before a
+ * second key is read. Every key goes through a descriptor, because this runs against every value the
+ * walk meets and a plain read would run a getter the app wrote. Every store nanostores builds keeps
+ * all five as its own data properties, so refusing an accessor costs nothing there.
  */
 export function isStore(value: unknown): value is Store {
   if (typeof value !== "object" || value === null) {
     return false;
   }
 
-  return (
-    typeof chainValue(value, "listen") === "function" && typeof chainValue(value, "lc") === "number"
-  );
+  if (typeof chainValue(value, "lc") !== "number") {
+    return false;
+  }
+
+  return STORE_METHODS.every((key) => typeof chainValue(value, key) === "function");
 }
 
 export function registerStore(registration: Registration): StoreEntry {
