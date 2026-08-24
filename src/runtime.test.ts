@@ -850,7 +850,7 @@ describe("adopt", () => {
 });
 
 describe("own", () => {
-  it("places the stores a bound store holds, and registers nothing new", () => {
+  it("places the stores a bound store holds, and registers the ones nothing found", () => {
     const scope = fileScope(MODULE_ID, HOME, CAP, false);
     const $canUndo = atom(false);
     const $draft = Object.assign(atom<unknown>(""), { $canUndo });
@@ -859,7 +859,17 @@ describe("own", () => {
     scope.own([{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerOf($canUndo)).toBe($draft);
-    expect(names()).toEqual(["$draft"]);
+    expect(names()).toEqual(["$draft", "$canUndo"]);
+  });
+
+  it("walks a binding no deeper than the plugin's own option asked for", () => {
+    const scope = fileScope(MODULE_ID, HOME, CAP, false, 1);
+    const $deep = atom(false);
+    const held = { inner: { $deep } };
+
+    scope.own([{ name: "held", value: held, exported: false }]);
+
+    expect(names()).toEqual([]);
   });
 
   it("lets a binding rename a numbered store, and keeps the site's name for its owner", () => {

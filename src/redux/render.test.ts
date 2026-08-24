@@ -1170,13 +1170,20 @@ describe("buildSnapshot", () => {
       });
     });
 
-    it("leaves a store flat when nothing registered its owner", () => {
+    it("registers the owner it walked through, so the store is drawn under it", () => {
       const $canUndo = atom(false);
 
       ownBindings(FROM, [{ name: "$draft", value: holder("", { $canUndo }), exported: false }]);
       track($canUndo, "$canUndo");
 
-      expect(buildSnapshot()).toEqual({ [HOME]: { "$canUndo [store]": false } });
+      expect(buildSnapshot()).toEqual({
+        [HOME]: {
+          "$draft [store]": {
+            "(value)": labelled("not mounted, may be stale", { "(value)": "" }),
+            "$canUndo [store]": false,
+          },
+        },
+      });
     });
 
     it("draws every registry entry exactly once", () => {
@@ -1357,7 +1364,9 @@ describe("buildSnapshot", () => {
         members.forEach((member, index) => {
           track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
         });
-        ownBindings(FROM, [{ name: "many", value: members, exported: false }]);
+        ownBindings(FROM, [
+          { name: "many", value: members, exported: false, maxMembers: MAX_MEMBERS },
+        ]);
 
         const held = heldBy("many");
 
@@ -1379,7 +1388,9 @@ describe("buildSnapshot", () => {
         members.forEach((member, index) => {
           track(member.$open, index === 0 ? "$open" : `$open #${index + 1}`);
         });
-        ownBindings(FROM, [{ name: "many", value: members, exported: false }]);
+        ownBindings(FROM, [
+          { name: "many", value: members, exported: false, maxMembers: MAX_MEMBERS },
+        ]);
 
         const held = heldBy("many");
 

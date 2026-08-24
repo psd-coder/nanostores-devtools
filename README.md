@@ -475,6 +475,7 @@ all three.
 | `adoptFactories`   | `true`                    | wrap named calls we do not recognise: `true` or `false`       |
 | `storeTypes`       | the packages we ship      | which kind a package's export makes                           |
 | `maxStoresPerSite` | `50`                      | live stores one creation site may hold, 1 or more             |
+| `maxDepth`         | `10`                      | steps into a top-level binding the scan walks, 1 or more      |
 | `projectRoot`      | Vite's own workspace root | what a file outside the Vite root is measured from, Vite only |
 
 `adoptFactories` is what catches a codebase that wraps store creation. A call whose result is
@@ -505,8 +506,12 @@ adoption, and your build still runs.
 
 `maxStoresPerSite` caps how many live stores one source line may hold, which matters for a factory
 inside a loop. It drops unmounted stores first, the oldest of those first, and never the store just
-made. `projectRoot` is a Vite option; under webpack and Rspack the wider root is always found by
-climbing up from `context`.
+made.
+
+`maxDepth` is how far the scan walks into a top-level binding to find the stores under it, counting
+a property, an index and a `Map` key alike. Ten steps by default, which is deeper than state is
+usually nested. `projectRoot` is a Vite option; under webpack and Rspack the wider root is always
+found by climbing up from `context`.
 
 [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-plugin-option-costs)
 has what each one costs.
@@ -540,9 +545,10 @@ type BundlerPluginOptions = {
   // package name, then export name, then the kind that export makes
   storeTypes?: Record<string, Record<string, ThrottleTarget["type"]>>;
   maxStoresPerSite?: number;
+  maxDepth?: number;
 };
 
-// what `/vite` takes: the same four, plus one
+// what `/vite` takes: the same five, plus one
 type VitePluginOptions = BundlerPluginOptions & {
   projectRoot?: string;
 };

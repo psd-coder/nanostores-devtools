@@ -58,6 +58,7 @@ export function fileScope(
   home: string,
   maxStoresPerSite: number,
   external: boolean,
+  maxDepth?: number,
 ): FileScope {
   /**
    * Where a node this module names is drawn, which every placement it asks for is handed, and the
@@ -137,12 +138,11 @@ export function fileScope(
     },
 
     /**
-     * The end of the module body, where every top-level binding holds its value. It places the
-     * stores a binding holds and registers nothing, so where a store is drawn is the only thing
-     * this can change.
+     * The end of the module body, where every top-level binding holds its value. It registers
+     * every store it can reach from one, and places it under the name that reached it.
      */
     own(bindings) {
-      ownBindings(module, bindings);
+      ownBindings(module, bindings, maxDepth);
     },
 
     /**

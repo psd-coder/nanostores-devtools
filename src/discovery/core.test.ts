@@ -4,6 +4,7 @@ import {
   createDiscovery,
   type DiscoveryOptions,
   resolveAdoption,
+  resolveMaxDepth,
   resolveStoreCap,
 } from "./core.ts";
 import type { ModuleKeys } from "./module-keys.ts";
@@ -29,6 +30,31 @@ describe("resolveStoreCap", () => {
 
       expect(cap).toBe(50);
       expect(warning).toContain("maxStoresPerSite");
+      expect(warning).toContain(String(value));
+    }
+  });
+});
+
+describe("resolveMaxDepth", () => {
+  it("keeps a whole number of one or more, and Infinity, which walks a binding to the end", () => {
+    expect(resolveMaxDepth(1)).toEqual({ depth: 1, warning: undefined });
+    expect(resolveMaxDepth(Number.POSITIVE_INFINITY)).toEqual({
+      depth: Number.POSITIVE_INFINITY,
+      warning: undefined,
+    });
+  });
+
+  /** Nothing is the answer, so the number lives in the walk alone and nothing here repeats it. */
+  it("names no depth without a warning when the option is unset", () => {
+    expect(resolveMaxDepth(undefined)).toEqual({ depth: undefined, warning: undefined });
+  });
+
+  it("refuses every number no count of steps can be made of, and names option and value", () => {
+    for (const value of [-1, 0, 2.5, Number.NaN, Number.NEGATIVE_INFINITY]) {
+      const { depth, warning } = resolveMaxDepth(value);
+
+      expect(depth).toBeUndefined();
+      expect(warning).toContain("maxDepth");
       expect(warning).toContain(String(value));
     }
   });
@@ -84,6 +110,15 @@ describe("createDiscovery", () => {
     expect(first.warnings).toHaveLength(1);
     expect(first.warnings[0]).toContain(`"@nanostores-devtools:ignored"`);
     expect(second.warnings).toEqual([]);
+  });
+
+  it("writes the walk depth into the injected line only where the option named one", async () => {
+    const code = `import { atom } from "nanostores";\nconst $a = atom(0);\n`;
+    const plain = await discovery().run(code, KEYS);
+    const deep = await discovery({ maxDepth: 4 }).run(code, KEYS);
+
+    expect(plain.result.changed && plain.result.code).toContain(`"stores", 50, false)`);
+    expect(deep.result.changed && deep.result.code).toContain(`"stores", 50, false, 4)`);
   });
 
   it("raises a refused storeTypes entry on the first file only", async () => {

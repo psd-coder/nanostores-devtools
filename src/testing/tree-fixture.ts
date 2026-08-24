@@ -378,7 +378,7 @@ export const sidebar = createPanel();
 /** A \`Set\` has no keys, so its members are named by insertion order. */
 export const pool = new Set([createPanel(), createPanel()]);
 
-/** More members than the walk draws, so the tree has to say what it left out and lose no store. */
+/** More members than anyone reads one by one, and the walk still gives every one of them a node. */
 export const many = Array.from({ length: 30 }, () => createPanel());
 `,
 

@@ -333,27 +333,12 @@ describe("the fixture drawn by the shipped code", () => {
     expect(Object.keys(homeOf(WORKSPACE_HOME))).toContain("panel");
   });
 
-  it("says what a capped collection left out, and loses none of its stores", () => {
+  it("walks a long collection whole, giving every member a node of its own", () => {
     const many = inside(homeOf(WORKSPACE_HOME), "many");
-    const walked = Object.fromEntries(
-      Array.from({ length: 25 }, (_, index) => [`[${index}]`, PANEL_NODE]),
-    );
-    const past = Object.fromEntries(
-      Array.from({ length: 5 }, (_, index) => [
-        [`open [store] #${30 + index}`, false],
-        [`width [store] #${30 + index}`, 320],
-      ]).flat(),
-    );
 
-    expect(many).toEqual({
-      ...walked,
-      ...past,
-      "…": labelled(
-        "5 more members past the 25 walked; their stores are listed here without a node of " +
-          "their own",
-        {},
-      ),
-    });
+    expect(many).toEqual(
+      Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`[${index}]`, PANEL_NODE])),
+    );
   });
 
   it("draws nothing for a store nothing else names, so its file is no home at all", () => {
@@ -419,8 +404,8 @@ describe("the draw-once invariant", () => {
   }
 
   it("draws every store it draws at all once per reference the developer wrote", () => {
-    /** One note, whatever else happens: silence would read as "this is all of it". */
-    expect(JSON.stringify(buildSnapshot()).split('"…"').length - 1).toBe(1);
+    /** No note anywhere: nothing in the fixture asks for a number, so nothing is left out. */
+    expect(JSON.stringify(buildSnapshot()).split('"…"').length - 1).toBe(0);
     expect(listEntries()).toHaveLength(109);
 
     const counts = countPlacements();

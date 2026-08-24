@@ -19,6 +19,7 @@ function transform(code: string, overrides: Overrides = {}): StoreTransform {
     home: MODULE_KEY,
     external: false,
     maxStoresPerSite: 50,
+    maxDepth: undefined,
     adoptFactories: true,
     storeTypes: resolveStoreTypes(undefined).types,
     parser,
@@ -1029,7 +1030,7 @@ describe("the binding scan", () => {
     expect(ownCall(result)).toBe(`__nsdt.own([{name:"$real",value:$real,exported:false}]);`);
   });
 
-  it("leaves a destructured binding out", () => {
+  it("lists every name a pattern binds", () => {
     const result = transform(
       `import { atom } from "nanostores";\n` +
         `const { $one, $two } = makePair();\n` +
@@ -1037,7 +1038,28 @@ describe("the binding scan", () => {
         `const $plain = atom(0);\n`,
     );
 
-    expect(ownCall(result)).toBe(`__nsdt.own([{name:"$plain",value:$plain,exported:false}]);`);
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"$one",value:$one,exported:false}, ` +
+        `{name:"$two",value:$two,exported:false}, ` +
+        `{name:"$first",value:$first,exported:false}, ` +
+        `{name:"$plain",value:$plain,exported:false}]);`,
+    );
+  });
+
+  it("takes the name a pattern binds under, never the key it reads", () => {
+    const result = transform(
+      `import { atom } from "nanostores";\n` +
+        `export const { user: $u, ...rest } = read();\n` +
+        `const [, [$nested] = []] = rows();\n` +
+        `const $plain = atom(0);\n`,
+    );
+
+    expect(ownCall(result)).toBe(
+      `__nsdt.own([{name:"$u",value:$u,exported:true}, ` +
+        `{name:"rest",value:rest,exported:true}, ` +
+        `{name:"$nested",value:$nested,exported:false}, ` +
+        `{name:"$plain",value:$plain,exported:false}]);`,
+    );
   });
 
   it("leaves out an import, a class, a function and a binding inside a block", () => {

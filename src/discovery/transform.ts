@@ -3,6 +3,7 @@ import type {
   ArrayExpression,
   AssignmentTargetMaybeDefault,
   BindingPattern,
+  BindingRestElement,
   CallExpression,
   ChainElement,
   ChainExpression,
@@ -30,6 +31,11 @@ export type TransformInput = {
   /** Whether the file is somebody else's. Handed in, because no path spelling settles it. */
   external: boolean;
   maxStoresPerSite: number;
+  /**
+   * How many steps into a binding the scan walks, or nothing at all where the developer named no
+   * number and the walk keeps its own.
+   */
+  maxDepth: number | undefined;
   /** How far adoption reaches: `true` for every named call, `false` for none. */
   adoptFactories: boolean;
   /** The kind a known package's export returns, which an adoption site carries instead of none. */
@@ -465,8 +471,11 @@ export function transformStores(input: TransformInput): StoreTransform {
    * A declaration standing in the module body, which is the only place a top-level binding is
    * made. An ambient one is skipped: `declare const $a: Atom` is a normal declarator in the AST
    * but binds nothing once the types are stripped, so listing it would throw a `ReferenceError`
-   * and take the module down. A destructured binding needs no case of its own, because its `id`
-   * is not an `Identifier`.
+   * and take the module down.
+   *
+   * Every name a pattern binds is listed, so `const { $user, $cart } = makeThings()` reaches the
+   * scan as two bindings. A frame is opened for a plain identifier alone: it closes on the one
+   * value the initializer returned, and a pattern takes that value apart into several.
    */
   function readBindings(statement: TopLevel): void {
     const exportedHere = statement.type === "ExportNamedDeclaration";
@@ -481,17 +490,15 @@ export function transformStores(input: TransformInput): StoreTransform {
     }
 
     for (const declarator of declared.declarations) {
-      if (declarator.id.type !== "Identifier") {
-        continue;
+      for (const name of boundNames(declarator.id)) {
+        bound.push(name);
+
+        if (exportedHere) {
+          exported.add(name);
+        }
       }
 
-      bound.push(declarator.id.name);
-
-      if (exportedHere) {
-        exported.add(declarator.id.name);
-      }
-
-      if (declarator.init !== null) {
+      if (declarator.id.type === "Identifier" && declarator.init !== null) {
         readFrame(declarator.id.name, declarator.init);
       }
     }
@@ -738,11 +745,13 @@ function binding(name: string, exported: boolean): string {
  * module that accepted the update, and a store file imported by an accepting module never sees it.
  */
 function header(input: TransformInput): string {
+  /** The depth is written only where an option named one, so the walk's own default stands alone. */
   const args = [
     JSON.stringify(input.moduleKey),
     JSON.stringify(input.home),
     input.maxStoresPerSite,
     input.external,
+    ...(input.maxDepth === undefined ? [] : [input.maxDepth]),
   ].join(", ");
 
   return (
@@ -828,6 +837,38 @@ function typeOf(
 
 function exportName(name: ModuleExportName): string {
   return "name" in name ? name.name : String(name.value);
+}
+
+/**
+ * Every name one declarator binds. A pattern binds as many as the developer wrote, and each of
+ * them is a top-level name the scan can start at: `const { $user, $cart } = makeThings()` binds two
+ * stores that nothing else in the file ever names.
+ *
+ * A default takes the name of what it stands in for, and a rest element the name it gathers into.
+ * A key is never a name: `const { user: $u } = …` binds `$u`.
+ */
+function boundNames(pattern: BindingPattern | BindingRestElement | null): string[] {
+  switch (pattern?.type) {
+    case undefined:
+      return [];
+    case "Identifier":
+      return [pattern.name];
+    case "AssignmentPattern":
+      return boundNames(pattern.left);
+    case "RestElement":
+      return boundNames(pattern.argument);
+    case "ObjectPattern":
+      return pattern.properties.flatMap((property) =>
+        boundNames(property.type === "RestElement" ? property.argument : property.value),
+      );
+    case "ArrayPattern":
+      return pattern.elements.flatMap((element) => boundNames(element));
+    default: {
+      const unreachable: never = pattern;
+
+      throw new Error(`unhandled binding pattern: ${JSON.stringify(unreachable)}`);
+    }
+  }
 }
 
 function keyName(key: NodePropertyKey, computed: boolean): string | null {

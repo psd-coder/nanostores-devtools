@@ -391,3 +391,356 @@ describe("a store made outside the Vite root", () => {
     expect(Object.keys(buildSnapshot())).toEqual([APP_HOME, LINKED_HOME]);
   });
 });
+
+/**
+ * Everything the held rule adds. Not one of these stores is named by a wrapper: the package file
+ * sits under `node_modules`, which is never transformed, so the only thing that reaches its stores
+ * is a top-level binding of the developer's own and the walk down from it.
+ */
+const PKG = `${FIXTURE_DIR}/node_modules/pkg/index.js`;
+const HELD_HOME = "fixture/held.js";
+const HELD = `${FIXTURE_DIR}/held.js`;
+
+const HELD_FILES: Record<string, string> = {
+  [PKG]:
+    `import { atom } from "nanostores";\n` +
+    `export const $ready = atom(true);\n` +
+    `export const $a = atom("a");\n` +
+    `export const $b = atom("b");\n` +
+    `export const $s = atom("deep");\n` +
+    `export function createClient() {\n  return { $value: atom("v") };\n}\n` +
+    `export function makeThings() {\n  return { $user: atom("u"), $cart: atom("c") };\n}\n` +
+    `export class Thing {\n  constructor(value) {\n    Object.assign(this, atom(value));\n  }\n}\n`,
+  [HELD]:
+    `import { $ready, $a, $b, $s, createClient, makeThings, Thing } from "${PKG}";\n` +
+    `export const $d = $ready;\n` +
+    `export const client = createClient();\n` +
+    `export const group = { $a, $b };\n` +
+    `const { $user, $cart } = makeThings();\n` +
+    `export { $user, $cart };\n` +
+    `export const $x = new Thing("t");\n` +
+    `export const app = { a: { b: { c: $s } } };\n`,
+};
+
+/** A store no creator call named, so nothing worked its kind out and the value is not trusted. */
+function unknownStore(value: unknown): unknown {
+  return labelled("not mounted, may be stale", { "(value)": value });
+}
+
+async function devServer(files: Record<string, string>, entry: string): Promise<ViteDevServer> {
+  const server = await createServer({
+    configFile: false,
+    logLevel: "silent",
+    root: PROJECT_ROOT,
+    plugins: [nanostoresDevtools(), memoryFixture(files)],
+    resolve: {
+      alias: {
+        "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts`,
+        "nanostores-devtools": `${PROJECT_ROOT}/src/index.ts`,
+      },
+    },
+  });
+
+  await server.ssrLoadModule(entry);
+
+  return server;
+}
+
+describe("a store nothing but a binding of the developer's own reaches", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(HELD_FILES, HELD);
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  function held(): Record<string, unknown> {
+    return buildSnapshot()[HELD_HOME] ?? {};
+  }
+
+  it("draws a package store the file rebound, and the file with it", () => {
+    expect(held()["$d [store]"]).toEqual(unknownStore(true));
+  });
+
+  it("draws a store sitting on what a call returned, under the binding that took it", () => {
+    expect(held()["client"]).toEqual({ "$value [store]": unknownStore("v") });
+  });
+
+  it("draws an object gathering imported stores as a node holding both", () => {
+    expect(held()["group"]).toEqual({
+      "$a [store]": unknownStore("a"),
+      "$b [store]": unknownStore("b"),
+    });
+  });
+
+  it("draws every name a destructured declaration binds, each at the file's own level", () => {
+    expect(held()["$user [store]"]).toEqual(unknownStore("u"));
+    expect(held()["$cart [store]"]).toEqual(unknownStore("c"));
+  });
+
+  it("draws a store a `new` expression built, which no wrapper ever visits", () => {
+    expect(held()["$x [store]"]).toEqual(unknownStore("t"));
+  });
+
+  it("draws a store nested deeper than the three levels the walk used to stop at", () => {
+    expect(held()["app"]).toEqual({ a: { b: { "c [store]": unknownStore("deep") } } });
+  });
+
+  it("gives every store it found one entry, at the file that holds it", () => {
+    expect(listEntries().map((entry) => entry.home)).toEqual(Array(8).fill(HELD_HOME));
+  });
+});
+
+/**
+ * A store that lands in a binding while the module body is still running is found by the scan at
+ * the end of that body. The same three shapes in a callback are not, and never will be.
+ */
+const LATE_HOME = "fixture/late.js";
+const LATE = `${FIXTURE_DIR}/late.js`;
+const CALLBACK_HOME = "fixture/callback.js";
+const CALLBACK = `${FIXTURE_DIR}/callback.js`;
+
+const LANDING_FILES: Record<string, string> = {
+  [LATE]:
+    `import { atom } from "nanostores";\n` +
+    `export const list = [];\n` +
+    `for (const n of [1, 2]) list.push(atom(n));\n` +
+    `export let $late;\n` +
+    `$late = atom("late");\n` +
+    `export const $m = new Map();\n` +
+    `$m.set("a", atom("m"));\n`,
+  [CALLBACK]:
+    `import { atom } from "nanostores";\n` +
+    `export const later = [];\n` +
+    `export let $never;\n` +
+    `export const $map = new Map();\n` +
+    `queueMicrotask(() => {\n` +
+    `  later.push(atom(1));\n` +
+    `  $never = atom(2);\n` +
+    `  $map.set("a", atom(3));\n` +
+    `});\n`,
+};
+
+describe("a store that lands in a binding while the module body still runs", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(LANDING_FILES, LATE);
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  function late(): Record<string, unknown> {
+    return buildSnapshot()[LATE_HOME] ?? {};
+  }
+
+  it("draws every store pushed into an array at module level", () => {
+    expect(late()["list"]).toEqual(labelled("Array", { "[0] [store]": 1, "[1] [store]": 2 }));
+  });
+
+  it("draws a store assigned to a binding declared above it", () => {
+    expect(late()["$late [store]"]).toBe("late");
+  });
+
+  it("draws a store put into a `Map`, under the key it was put in at", () => {
+    expect(late()["$m"]).toEqual(labelled("Map", { '["a"] [store]': "m" }));
+  });
+});
+
+describe("a store that lands in a binding after the module body finished", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(LANDING_FILES, CALLBACK);
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("draws none of the three shapes the same file draws at module level", async () => {
+    /** The callback really ran: what follows is a store nobody drew, not a store nobody made. */
+    const loaded = await server.ssrLoadModule(CALLBACK);
+
+    expect(loaded["later"]).toHaveLength(1);
+    expect(buildSnapshot()[CALLBACK_HOME]).toBeUndefined();
+    expect(listEntries()).toEqual([]);
+  });
+});
+
+const MANY_HOME = "fixture/many.js";
+const MANY = `${FIXTURE_DIR}/many.js`;
+
+describe("a binding holding thousands of stores", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [MANY]:
+          `import { atom } from "nanostores";\n` +
+          `export const all = [];\n` +
+          `for (let index = 0; index < 5000; index += 1) all.push(atom(index));\n`,
+      },
+      MANY,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("draws all of them, because nothing asked for a number", () => {
+    const all = buildSnapshot()[MANY_HOME]?.["all"] as { data: Record<string, unknown> };
+
+    expect(Object.keys(all.data)).toHaveLength(5000);
+    expect(all.data["[4999] [store]"]).toBe(4999);
+    expect(listEntries()).toHaveLength(5000);
+  });
+});
+
+const SPREAD_HOME = "fixture/spread.js";
+const SPREAD = `${FIXTURE_DIR}/spread.js`;
+
+describe("a spread copy of a store, held by a binding of its own", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [SPREAD]:
+          `import { atom } from "nanostores";\n` +
+          `export const $live = atom(1);\n` +
+          `export const copy = { ...$live };\n`,
+      },
+      SPREAD,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /**
+   * Nothing in an object's shape tells a copy from the store it came from, so the copy draws a row
+   * of its own. That row is frozen at the value the spread took, which is a true picture of code
+   * that is already wrong.
+   */
+  it("draws a row of its own, and keeps its value while the original moves", () => {
+    const live = entryNamed("$live")?.store;
+
+    if (live === undefined || !("set" in live)) {
+      throw new Error("the fixture no longer holds a store this test can write to");
+    }
+
+    live.set(2);
+
+    expect(buildSnapshot()[SPREAD_HOME]).toEqual({
+      "$live [store]": 2,
+      "copy [store]": unknownStore(1),
+    });
+  });
+});
+
+const EXPLICIT = `${FIXTURE_DIR}/explicit.js`;
+
+describe("a store the developer registered by hand", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [EXPLICIT]:
+          `import { atom } from "nanostores";\n` +
+          `import { trackStores } from "nanostores-devtools";\n` +
+          `export const $counter = atom(0);\n` +
+          `export const box = { $counter };\n` +
+          `trackStores("cart", { $counter });\n`,
+      },
+      EXPLICIT,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /**
+   * The developer said where the store belongs, so the scan yields: it keeps the one entry, in the
+   * group, under the name the group gave it. What the scan adds is the references it found, which
+   * draw as repeats of a store that is still rooted where it was put.
+   */
+  it("keeps its group, its name and its flat placement, whatever the scan walked to", () => {
+    expect(listEntries()).toHaveLength(1);
+    expect(listEntries()[0]).toMatchObject({ name: "$counter", home: "cart", origin: "explicit" });
+    expect(buildSnapshot()).toEqual({
+      cart: { "$counter [store]": 0 },
+      "fixture/explicit.js": { "$counter [store]": 0, box: { "$counter [store]": 0 } },
+    });
+  });
+});
+
+const KEPT_HOME = "fixture/kept.js";
+const KEPT = `${FIXTURE_DIR}/kept.js`;
+
+describe("the rows that were already right", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [`${FIXTURE_DIR}/makers.js`]:
+          `import { atom } from "nanostores";\n` +
+          `export function persistentAtom(key, initial) {\n  return atom(initial);\n}\n` +
+          `export function userStore(id) {\n  return atom(id);\n}\n`,
+        [KEPT]:
+          `import { atom } from "nanostores";\n` +
+          `import * as ns from "nanostores";\n` +
+          `import * as api from "./makers.js";\n` +
+          `import { persistentAtom, userStore } from "./makers.js";\n` +
+          `export const $one = atom(0);\n` +
+          `export const theme = persistentAtom("t", "dark");\n` +
+          `export const $u = api.userStore(7);\n` +
+          `export const $nsx = ns.atom(0);\n` +
+          `export const holder = { $user: userStore(1) };\n` +
+          `export const byId = Object.fromEntries([["r1"], ["r2"]].map(([id]) => [id, atom(id)]));\n`,
+      },
+      KEPT,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /** Six shapes the panel drew right before the scan registered anything, drawn the same after. */
+  it("draws exactly what it drew before the scan started registering", () => {
+    expect(buildSnapshot()[KEPT_HOME]).toEqual({
+      "$one [store]": 0,
+      "theme [store]": "dark",
+      "$u [store]": 7,
+      "$nsx [store]": unknownStore(0),
+      holder: { "$user [store]": 1 },
+      byId: { "r1 [store]": "r1", "r2 [store]": "r2" },
+    });
+  });
+});

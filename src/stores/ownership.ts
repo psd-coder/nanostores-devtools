@@ -12,7 +12,7 @@ import {
 } from "../global.ts";
 import { makeLabel } from "./labels.ts";
 import { claimBindingFile, type NameSource } from "./names.ts";
-import { getEntry, isStore, renameEntry } from "./registry.ts";
+import { getEntry, isStore, registerStore, renameEntry } from "./registry.ts";
 import { describeError, warnOnce } from "../utils/warn.ts";
 
 /**
@@ -33,10 +33,18 @@ const STORE_KEYS: ReadonlySet<string> = new Set([
   "off",
 ]);
 
-/** How many steps into a binding the walk takes, counting a property, an index and a key alike. */
-const MAX_DEPTH = 3;
+/**
+ * How many steps into a binding the walk takes, counting a property, an index and a key alike,
+ * where the plugin's `maxDepth` option names no other number. Ten is past the depth a developer
+ * nests state on purpose, so what it stops is a shape nobody meant the panel to draw.
+ */
+const MAX_DEPTH = 10;
 
-/** How many members of one collection become nodes of their own. */
+/**
+ * How many members of one collection become nodes of their own, where a binding asks for a number
+ * at all. A binding that asks for none is walked whole: how many stores it holds is the
+ * developer's business, and drawing 25 of 5000 says the panel found 25.
+ */
 export const MAX_MEMBERS = 25;
 
 /**
@@ -76,18 +84,33 @@ type Members = { read: true; drawn: Member[]; past: Member[] } | { read: false; 
  * been through, which ends a cycle. The binding is the name the developer can look up, so it is
  * what a warning about anything found below it says.
  */
-type Scan = { module: ModuleHome; binding: string; seen: Set<object> };
+type Scan = {
+  module: ModuleHome;
+  binding: string;
+  seen: Set<object>;
+  maxDepth: number;
+  maxMembers: number | undefined;
+};
 
 /**
  * The module's own top-level bindings, at the end of its body. A binding holding a store places
  * what that store holds; a binding holding anything else becomes a node, and so does every member
  * of it, which is how an array's members nest under the array.
  *
- * No store is registered here. A store is born once and has one entry, which is what makes two
- * names for one store resolve to one store, so this decides where the tree draws it and what the
- * entry it already has is called.
+ * **A store the walk reaches is registered here**, under the name that holds it, so a store no
+ * wrapper could name still draws. A store the registry already knows keeps its entry: a store is
+ * born once and has one entry, which is what makes two names for one store resolve to one store.
+ *
+ * **Two passes, and not one.** Every binding claims its name first, and only then is any of them
+ * walked. A top-level binding beats the key of an object holding the same store, so one pass would
+ * let a walk started earlier in the file name the store after where it was found, and the order
+ * the developer wrote their bindings in would decide.
  */
-export function ownBindings(module: ModuleHome, bindings: readonly Binding[]): void {
+export function ownBindings(
+  module: ModuleHome,
+  bindings: readonly Binding[],
+  maxDepth: number = MAX_DEPTH,
+): void {
   if (placesNothing(module)) {
     return;
   }
@@ -96,9 +119,17 @@ export function ownBindings(module: ModuleHome, bindings: readonly Binding[]): v
     if (isStore(value)) {
       claimName(module, value, name, exported);
     }
+  }
 
+  for (const { name, value, maxMembers } of bindings) {
     if (canHold(value)) {
-      walk({ module, binding: name, seen: new Set() }, value, name, undefined, 0);
+      walk(
+        { module, binding: name, seen: new Set(), maxDepth, maxMembers },
+        value,
+        name,
+        undefined,
+        0,
+      );
     }
   }
 }
@@ -257,9 +288,7 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
 function claimName(module: ModuleHome, store: Store, name: string, exported: boolean): void {
   const devtools = getDevtoolsGlobal();
 
-  if (getEntry(store) === undefined) {
-    return;
-  }
+  registerFound(module, store, name);
 
   const written: BoundName = {
     name,
@@ -285,6 +314,37 @@ function sameBinding(one: BoundName, other: BoundName): boolean {
 }
 
 /**
+ * The store the scan has just reached, born here where the registry has never seen it. That is a
+ * store no wrapper could name: one an installed package made, one a call put on the object it
+ * returned, one a `new` expression built. The name it takes is the one that reaches it, which is
+ * the top-level binding or the key of the value holding it.
+ *
+ * A store a wrapper already registered keeps that entry, with the line, the kind and the throttle
+ * comment only the creation site knows. The walk renames it and nothing more.
+ *
+ * The kind comes from `creations`, where a creator call with no name of its own filed it, so a
+ * store the plugin wrapped without being able to name it still draws as the type it is.
+ */
+function registerFound(module: ModuleHome, store: Store, name: string): void {
+  if (getEntry(store) !== undefined) {
+    return;
+  }
+
+  registerStore({
+    store,
+    name,
+    home: module.home,
+    type: getDevtoolsGlobal().creations.get(store) ?? "unknown",
+    origin: "plugin",
+    external: module.external,
+    fn: null,
+  });
+
+  /** Only this list makes the module's own reload drop what its scan registered. */
+  scopeOf(module.moduleKey).owned.add(store);
+}
+
+/**
  * The binding the entry takes: the last exported one, or the last one at all. The list is in scan
  * order, which is source order inside a module body and import order across modules, so a build
  * that changed nothing draws the same name.
@@ -304,13 +364,13 @@ function walk(
   owner: object | undefined,
   depth: number,
 ): void {
-  if (depth >= MAX_DEPTH || scan.seen.has(value)) {
+  if (depth >= scan.maxDepth || scan.seen.has(value)) {
     return;
   }
 
   scan.seen.add(value);
 
-  const members = membersOf(value);
+  const members = membersOf(value, scan.maxMembers);
 
   if (!members.read) {
     warnRefused(scan, name, members.reason);
@@ -333,6 +393,7 @@ function walk(
 
   for (const [key, member] of members.drawn) {
     if (isStore(member)) {
+      registerFound(scan.module, member, key);
       recordOwner(scan.module, member, value, "scan", key);
     }
 
@@ -342,7 +403,7 @@ function walk(
   }
 
   for (const [, member] of members.past) {
-    placeStores(scan.module, member, value, depth + 1);
+    placeStores(scan, member, value, depth + 1);
   }
 }
 
@@ -367,18 +428,18 @@ function warnRefused(scan: Scan, name: string, reason: string): void {
  * itself, keeping the names the registry gave them. Dropping them would read as "this is all of
  * it", which is worse than a long list, because the developer stops looking.
  */
-function placeStores(module: ModuleHome, value: unknown, owner: object, depth: number): void {
+function placeStores(scan: Scan, value: unknown, owner: object, depth: number): void {
   if (isStore(value)) {
-    recordOwner(module, value, owner, "scan");
+    recordOwner(scan.module, value, owner, "scan");
 
     return;
   }
 
-  if (depth >= MAX_DEPTH || !canHold(value)) {
+  if (depth >= scan.maxDepth || !canHold(value)) {
     return;
   }
 
-  const members = membersOf(value);
+  const members = membersOf(value, scan.maxMembers);
 
   if (!members.read) {
     return;
@@ -386,7 +447,7 @@ function placeStores(module: ModuleHome, value: unknown, owner: object, depth: n
 
   for (const [, member] of members.drawn) {
     if (isStore(member)) {
-      recordOwner(module, member, owner, "scan");
+      recordOwner(scan.module, member, owner, "scan");
     }
   }
 }
@@ -417,7 +478,7 @@ function frameHolder(module: ModuleHome, value: unknown, name: string | null): o
 
 /** How many members a cap left out, which a value that could not be read has none of. */
 function skippedCount(value: object): number {
-  const members = membersOf(value);
+  const members = membersOf(value, undefined);
 
   return members.read ? members.past.length : 0;
 }
@@ -604,18 +665,24 @@ function canHold(value: unknown): value is object {
  * answer. One guard here covers all four shapes: the value gives up nothing at all, the walk keeps
  * the bindings beside it, and the reason travels back so one warning can name what refused.
  */
-function membersOf(value: object): Members {
+function membersOf(value: object, limit: number | undefined): Members {
   try {
     if (Array.isArray(value)) {
-      return capped(indexed(value));
+      return capped(indexed(value), limit);
     }
 
     if (value instanceof Map) {
-      return capped(walked((visit) => Map.prototype.forEach.call(value, visit), keyName));
+      return capped(
+        walked((visit) => Map.prototype.forEach.call(value, visit), keyName),
+        limit,
+      );
     }
 
     if (value instanceof Set) {
-      return capped(walked((visit) => Set.prototype.forEach.call(value, visit), position));
+      return capped(
+        walked((visit) => Set.prototype.forEach.call(value, visit), position),
+        limit,
+      );
     }
 
     return { read: true, drawn: propertiesOf(value), past: [] };
@@ -625,11 +692,16 @@ function membersOf(value: object): Members {
 }
 
 /**
- * Only a collection is capped. A plain object's keys are as many as the developer wrote, so a long
- * one is a thing they can see in their own source, while a collection's length is data.
+ * Only a collection is capped, and only where the binding named a number. A collection's length is
+ * data, so a developer who knows theirs is long can say how much of it to draw; nobody else is
+ * guessing on their behalf.
  */
-function capped(members: Member[]): Members {
-  return { read: true, drawn: members.slice(0, MAX_MEMBERS), past: members.slice(MAX_MEMBERS) };
+function capped(members: Member[], limit: number | undefined): Members {
+  if (limit === undefined) {
+    return { read: true, drawn: members, past: [] };
+  }
+
+  return { read: true, drawn: members.slice(0, limit), past: members.slice(limit) };
 }
 
 /**
@@ -762,8 +834,8 @@ function recordOwner(
  * without end.
  *
  * It searches every edge rather than one chain, because with several owners and several parents
- * there is no one chain to walk. `MAX_DEPTH` and `MAX_MEMBERS` bound how much graph a scan can
- * build, so the search is over a graph the developer's own source shapes.
+ * there is no one chain to walk. The walk depth bounds how much graph a scan can build, so the
+ * search is over a graph the developer's own source shapes.
  */
 function reaches(devtools: DevtoolsGlobal, from: object, wanted: object): boolean {
   const pending: object[] = [from];

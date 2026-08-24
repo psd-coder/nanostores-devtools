@@ -142,8 +142,25 @@ describe("ownBindings", () => {
     expect($canUndo.lc).toBe(0);
   });
 
-  it("walks three levels down and stops there", () => {
+  it("walks as deep as it was told to and stops there", () => {
     const $fourth = atom(4);
+    const $third = holder(3, { $fourth });
+    const $second = holder(2, { $third });
+    const $first = holder(1, { $second });
+    const $draft = holder(0, { $first });
+
+    ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }], 3);
+
+    expect(ownerOf($first)).toBe($draft);
+    expect(ownerOf($second)).toBe($first);
+    expect(ownerOf($third)).toBe($second);
+    expect(ownerOf($fourth)).toBeUndefined();
+  });
+
+  it("walks well past three levels where nothing named a depth", () => {
+    const $sixth = atom(6);
+    const $fifth = holder(5, { $sixth });
+    const $fourth = holder(4, { $fifth });
     const $third = holder(3, { $fourth });
     const $second = holder(2, { $third });
     const $first = holder(1, { $second });
@@ -151,10 +168,7 @@ describe("ownBindings", () => {
 
     ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
-    expect(ownerOf($first)).toBe($draft);
-    expect(ownerOf($second)).toBe($first);
-    expect(ownerOf($third)).toBe($second);
-    expect(ownerOf($fourth)).toBeUndefined();
+    expect(ownerOf($sixth)).toBe($fifth);
   });
 
   it("gives a node held by two containers a parent for each of them", () => {
@@ -262,12 +276,34 @@ describe("ownBindings", () => {
     expect(listEntries().map((entry) => entry.name)).toEqual(["$draft", "$canUndo"]);
   });
 
-  it("leaves a store nothing registered out of the registry", () => {
+  /** A one-pass scan would name it after the key it was found at, so source order would decide. */
+  it("names a store after its binding, wherever that binding stands in the list", () => {
+    const $s = atom(0);
+
+    ownBindings(FROM, [
+      { name: "box", value: { inner: $s }, exported: false },
+      { name: "$s", value: $s, exported: false },
+    ]);
+
+    expect(listEntries()[0]).toMatchObject({ name: "$s", ownerName: "$s" });
+  });
+
+  it("registers a store nothing else found, under the key that holds it", () => {
     const $draft = holder("", { $canUndo: atom(false) });
 
     ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
-    expect(listEntries()).toEqual([]);
+    expect(listEntries().map((entry) => entry.name)).toEqual(["$draft", "$canUndo"]);
+  });
+
+  it("leaves the entry a wrapper already made alone, and only renames it", () => {
+    const $canUndo = atom(false);
+
+    track($canUndo, "$canUndo", "makeDraft");
+    ownBindings(FROM, [{ name: "$undoable", value: $canUndo, exported: false }]);
+
+    expect(listEntries()).toHaveLength(1);
+    expect(listEntries()[0]).toMatchObject({ name: "$undoable", type: "atom", fn: "makeDraft" });
   });
 
   describe("the name a binding gives a store", () => {
@@ -341,12 +377,13 @@ describe("ownBindings", () => {
       expect(namedByBinding($canUndo)).toBe(false);
     });
 
-    it("claims no store the registry never took", () => {
+    it("registers a store the registry never took, and claims the name for it", () => {
       const $loose = atom(false);
 
       ownBindings(FROM, [{ name: "$loose", value: $loose, exported: true }]);
 
-      expect(namedByBinding($loose)).toBe(false);
+      expect(listEntries()[0]).toMatchObject({ name: "$loose", home: HOME, origin: "plugin" });
+      expect(namedByBinding($loose)).toBe(true);
     });
   });
 
@@ -635,7 +672,7 @@ describe("a node", () => {
     const past = panel();
     const many = [...Array.from({ length: MAX_MEMBERS + 1 }, panel), past];
 
-    ownBindings(FROM, [{ name: "many", value: many, exported: false }]);
+    ownBindings(FROM, [{ name: "many", value: many, exported: false, maxMembers: MAX_MEMBERS }]);
 
     expect(nodeInfoOf(many)?.skipped).toBe(2);
     expect(nodeInfoOf(past)).toBeUndefined();
@@ -1196,13 +1233,13 @@ describe("the creation frame", () => {
     expect(ownerOf($made)).toBe(editor);
   });
 
-  it("counts what a capped collection left out, as the walk over it does", () => {
+  it("leaves nothing out of a long collection, as the walk over it does", () => {
     const many = Array.from({ length: MAX_MEMBERS + 2 }, () => ({ $open: atom(false) }));
 
     beginFrame();
     endFrame(FROM, many, "many");
 
-    expect(nodeInfoOf(many)?.skipped).toBe(2);
+    expect(nodeInfoOf(many)?.skipped).toBe(0);
   });
 
   it("refuses a node edge that would loop, whatever the expression returned", () => {

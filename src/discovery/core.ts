@@ -11,6 +11,12 @@ export type DiscoveryOptions = {
   adoptFactories?: boolean | undefined;
   maxStoresPerSite?: number | undefined;
   /**
+   * How many steps into a top-level binding the scan walks, counting a property, an index and a
+   * key alike. Left out, the walk keeps its own depth, which is deeper than state is usually
+   * nested.
+   */
+  maxDepth?: number | undefined;
+  /**
    * Packages the plugin should read a kind off, laid over the built-in map per package and per
    * export, so adding a package or correcting one export restates nothing else.
    */
@@ -63,6 +69,32 @@ export function resolveStoreCap(value: number | undefined): StoreCap {
   };
 }
 
+/** How deep the scan walks, and what the developer is told when their number is refused. */
+export type WalkDepth = { depth: number | undefined; warning: string | undefined };
+
+/**
+ * Nothing is an answer here as well: it says the walk keeps the depth it carries, so the number
+ * lives in one place instead of being restated by everything that passes it on. `Infinity` says
+ * walk it all, and every other number a walk cannot take is refused rather than rounded.
+ */
+export function resolveMaxDepth(value: number | undefined): WalkDepth {
+  if (value === undefined) {
+    return { depth: undefined, warning: undefined };
+  }
+
+  if (value === Number.POSITIVE_INFINITY || (Number.isSafeInteger(value) && value >= 1)) {
+    return { depth: value, warning: undefined };
+  }
+
+  return {
+    depth: undefined,
+    warning:
+      `maxDepth is ${value} in your devtools options, which is no number of steps, so the plugin ` +
+      `walks its own depth instead. Pass a whole number of 1 or more, or Infinity to walk a ` +
+      `binding as deep as it goes.`,
+  };
+}
+
 /** What adoption is held to, and what the developer is told when their setting is refused. */
 export type AdoptionSetting = { adopt: boolean; warning: string | undefined };
 
@@ -99,11 +131,12 @@ export function resolveAdoption(value: unknown): AdoptionSetting {
  */
 export function createDiscovery(input: DiscoveryInput): Discovery {
   const { cap, warning: capWarning } = resolveStoreCap(input.maxStoresPerSite);
+  const { depth, warning: depthWarning } = resolveMaxDepth(input.maxDepth);
   const { adopt, warning: adoptWarning } = resolveAdoption(input.adoptFactories);
   /** Merged once for the whole run: the map is the same for every file the plugin is offered. */
   const { types: storeTypes, warnings: typeWarnings } = resolveStoreTypes(input.storeTypes);
   /** All are settled before the first file, so every run raises them and the set below dedupes. */
-  const optionWarnings = [capWarning, adoptWarning, ...typeWarnings].filter(
+  const optionWarnings = [capWarning, depthWarning, adoptWarning, ...typeWarnings].filter(
     (warning) => warning !== undefined,
   );
   /**
@@ -125,6 +158,7 @@ export function createDiscovery(input: DiscoveryInput): Discovery {
         home: keys.home,
         external: keys.external,
         maxStoresPerSite: cap,
+        maxDepth: depth,
         adoptFactories: adopt,
         storeTypes,
         parser: await parser,

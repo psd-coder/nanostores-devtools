@@ -761,6 +761,17 @@ cap, because you wrote each one by hand.
 a warning that names the option and your value, and the plugin keeps 50 per site instead. `0`, a
 number below zero, a fraction and `NaN` each say something that no count of stores can be made of.
 
+**`maxDepth` bounds the binding scan.** The scan runs at the end of every module body, starts at
+each top-level binding the module makes, and walks into what that binding holds, counting a
+property, an index and a `Map` key alike. Ten steps by default, which is deeper than state is
+usually nested. A store past that number is not drawn under the binding, and not registered by the
+scan at all.
+
+**It takes a whole number of 1 or more, or `Infinity` to walk a binding as deep as it goes.**
+Anything else is refused with a warning that names the option and your value, and the walk keeps its
+own depth. This is not `maxValueDepth`: that one caps how much of one value a row carries, while
+this one decides which stores exist at all.
+
 **`storeTypes` gives an adopted store its kind, and nothing else.** It maps a package name to that
 package's store-making exports, and each export to the kind it returns. We ship entries for the
 packages on the Smart Stores list in the nanostores README, read from each package's own source, so
