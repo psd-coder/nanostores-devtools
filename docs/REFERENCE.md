@@ -45,70 +45,46 @@ its own variable name. It is the same plugin under Vite, webpack and Rspack, and
 in two ways:
 
 - **By callee.** The plugin sees a call whose function came from an import of `"nanostores"`,
-  including renamed imports. This is the way that gives a store its kind. It works at any depth:
-  variable declarations, object properties, class fields, array elements, and calls inside
-  factories, loops and methods.
-- **By adoption.** The plugin also adopts a call whose result is stored under a name, no matter
+  including renamed imports. This is the way that gives a store its kind. It sees the call wherever
+  it is written, a factory, a loop or a class field included, and the store is drawn where your own
+  code holds it.
+- **By adoption.** The plugin also adopts a call your module body holds under a name, no matter
   which function made the call. This catches a codebase that wraps store creation, such as
   `const theme = persistentAtom("theme", "dark")` in a file that never imports `"nanostores"`.
   Adoption gives the store a name, and a kind only when the call names an export that the
-  [package map](#what-each-plugin-option-costs) knows. A call written inside another call is
-  adopted as well, because what it returns is yours either way.
+  [package map](#what-each-plugin-option-costs) knows. A call whose function your file imported is
+  wrapped even where no name holds it, and that wrapper only records the kind, so the panel can
+  still read it if the store lands somewhere you do hold.
 
-**A store created inside a binding's initializer, under no name of its own, takes the binding's
-name and a number.**
+**A store is named where your own code holds it, and nowhere else.** A call handed straight to
+another call is nobody's, and so is one written inside a function, a loop body or a block:
 
 ```js
 const $pointerEnd = merged([eventAtom(root, "up"), eventAtom(root, "cancel")]);
-const $candidate = filtered(computed([$username, $format], pick), long, "");
 ```
 
-```
-$pointerEnd [store]                 <- what merged returned
-$pointerEnd unassigned 1 [store]    <- eventAtom(root, "up")
-$pointerEnd unassigned 2 [store]    <- eventAtom(root, "cancel")
-$candidate [store]                  <- what filtered returned
-$candidate unassigned 1 [computed]  <- the computed written inside it
-```
+`$pointerEnd` is the store `merged` returned, and it is drawn. The two `eventAtom` calls are handed
+away, so nothing in your source can point at either one and neither is drawn. What they leave behind
+is their kind, which the panel reads back if one of them ends up somewhere you do hold.
 
-The number counts them in source order, and it is what tells them apart. Without it, two stores
-written on one line would share a name, a file and a line, which is the whole identity of a store,
-and the second one would quietly take the first one's place in the registry.
-
-An array is the one exception, and only where the array is the value that the binding holds:
+An array a binding holds is different, because an index on it is something you can type:
 
 ```js
 const $totals = [atom(0), atom(1)]; // $totals[0], $totals[1]
 ```
 
-There `$totals[0]` is something you can type to get that store back. In `merged([…])` the array is
-handed away and `$pointerEnd` is the atom that came out, so an index on it would point at nothing.
-
-**A call that no name reaches at all is drawn under the name of the function that made it**, as
-long as the file imported that function:
-
-```jsx
-return <Name value={useStore(userStore(id))} />;
-```
-
-Nothing names `userStore(id)` here: it is bound to nothing, it is no property, and the function
-around it ends the reach of every name. This is a store made where it is used rather than where it
-is declared. It is drawn as `userStore`, in the file where the call is written, and two such calls
-on one line are told apart by number, the way any two stores on one line are.
-
-Two cases stay out of this. A function the file declares itself is a helper of your own, and a
-member call such as `api.userStore(id)` names no import either. Without that limit, every call in
-every function body would carry a wrapper.
+The same for a property of an object a binding holds: `const config = { $x: atom(0) }` names `$x`,
+while `foo({ $x: atom(0) })` hands the whole object away and names nothing.
 
 A codebase that does not use the `$` prefix gets all of this too. Adoption reads the name that a
 call stands under, and the prefix is no part of that name.
 
 **`adoptFactories` has two settings**, and the wide rule above is the default:
 
-| setting             | what adoption reaches                                                          |
-| ------------------- | ------------------------------------------------------------------------------ |
-| `true`, the default | a call standing under any name, and a call named after the callee that made it |
-| `false`             | nothing: only the calls the plugin recognises are wrapped                      |
+| setting             | what adoption reaches                                     |
+| ------------------- | --------------------------------------------------------- |
+| `true`, the default | a call the module body holds under a name                 |
+| `false`             | nothing: only the calls the plugin recognises are wrapped |
 
 **A setting we cannot read is refused.** We warn, naming the option, your value and the two settings
 above, and the plugin adopts the default way instead. Only a plain JavaScript config can pass a

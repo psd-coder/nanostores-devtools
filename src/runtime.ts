@@ -129,9 +129,18 @@ export function fileScope(
       return store;
     },
 
+    /**
+     * The same two branches the creator wrap has. A call nothing holds carries no name, and what it
+     * leaves behind is the kind alone, for the binding scan to read back if a walk ever reaches the
+     * store.
+     */
     adopt(value, site) {
-      if (isStore(value) && site.name !== null) {
-        take(site, value, site.name, adoptedType(value, site));
+      if (isStore(value)) {
+        if (site.name === null) {
+          getDevtoolsGlobal().creations.set(value, adoptedType(value, site));
+        } else {
+          take(site, value, site.name, adoptedType(value, site));
+        }
       }
 
       return value;

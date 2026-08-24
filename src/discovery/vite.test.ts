@@ -235,10 +235,9 @@ describe("a file that imports no nanostores creator", () => {
 });
 
 /**
- * The two cases parsing every file is there for: `workspace.ts` imports no nanostores and binds no
- * `$` name, so nothing in the text of it says it holds stores at all. Only the scan appended to its
- * body puts the factory results under `panel` and reaches the instance it hides in a `WeakMap`.
- * Unparsed, none of these five stores would be drawn anywhere.
+ * The case parsing every file is there for: `workspace.ts` imports no nanostores and binds no `$`
+ * name, so nothing in the text of it says it holds stores at all. Only the scan appended to its
+ * body puts the factory results under a binding. Unparsed, none of these stores would be drawn.
  */
 const WORKSPACE_HOME = "fixture/workspace.ts";
 const WORKSPACE = `${FIXTURE_DIR}/workspace.ts`;
@@ -283,6 +282,14 @@ describe("a file that says nothing about stores in its own text", () => {
     resetDevtoolsGlobal();
   });
 
+  /**
+   * Both factory results hold a store keyed `open` and one keyed `width`, and they stay apart
+   * because the scan registers each under the whole path that reached it: `panel.open` is not
+   * `sidebar.open`.
+   *
+   * `hidden` draws nothing. A `WeakMap` gives up no members, so no walk reaches the instance inside
+   * it, and after the gate no wrapper names a store made in a class field either.
+   */
   it("attributes what it binds, and draws every registry entry exactly once", async () => {
     await load();
 
@@ -290,10 +297,9 @@ describe("a file that says nothing about stores in its own text", () => {
       [WORKSPACE_HOME]: {
         panel: panelNode(320),
         sidebar: panelNode(240),
-        hidden: labelled("WeakMap", { "ref#1": labelled("Editor", { "$value [store]": "draft" }) }),
       },
     });
-    expect(listEntries()).toHaveLength(5);
+    expect(listEntries()).toHaveLength(4);
   });
 });
 
@@ -741,6 +747,131 @@ describe("the rows that were already right", () => {
       "$nsx [store]": unknownStore(0),
       holder: { "$user [store]": 1 },
       byId: { "r1 [store]": "r1", "r2 [store]": "r2" },
+    });
+  });
+});
+
+const GONE_HOME = "fixture/gone.js";
+const GONE = `${FIXTURE_DIR}/gone.js`;
+
+/**
+ * Every shape the gate takes off the panel, in one file. Each of them runs: the point is not that
+ * no store was made, it is that a store nothing in the source holds is drawn nowhere.
+ */
+const GONE_FILES: Record<string, string> = {
+  [`${FIXTURE_DIR}/factories.js`]:
+    `import { atom } from "nanostores";\n` +
+    `export function userStore(id) {\n  return atom(id);\n}\n` +
+    `export function init() {\n  return atom("i");\n}\n` +
+    `export function make() {\n  return atom("m");\n}\n`,
+  [GONE]:
+    `import { atom } from "nanostores";\n` +
+    `import { userStore, init, make } from "./factories.js";\n` +
+    `export const seen = [];\n` +
+    `seen.push(String(userStore(1)));\n` +
+    `init();\n` +
+    `function inside() {\n  const $x = atom("in");\n  return String($x);\n}\n` +
+    `seen.push(inside());\n` +
+    `function returned() {\n  return { $x: atom("r") };\n}\n` +
+    `seen.push(String(returned().$x));\n` +
+    `const reader = {\n  get $x() {\n    return make();\n  },\n};\n` +
+    `seen.push(String(reader.$x));\n` +
+    `{\n  const $x = atom("block");\n  seen.push(String($x));\n}\n` +
+    `class Loose {\n  $x = make();\n}\n` +
+    `seen.push(String(new Loose().$x));\n` +
+    `export default make();\n`,
+};
+
+describe("a store the developer wrote nothing that holds", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(GONE_FILES, GONE);
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("draws none of them, and registers none of them", async () => {
+    const loaded = await server.ssrLoadModule(GONE);
+
+    /** Six stores really were made: what follows is a store nobody drew, not a store nobody made. */
+    expect(loaded["seen"]).toHaveLength(6);
+    expect(buildSnapshot()[GONE_HOME]).toBeUndefined();
+    expect(listEntries()).toEqual([]);
+  });
+});
+
+const LOOP_HOME = "fixture/loop.js";
+const LOOP = `${FIXTURE_DIR}/loop.js`;
+
+describe("a `const` in a top-level loop body", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [LOOP]:
+          `import { atom } from "nanostores";\n` +
+          `export const list = [];\n` +
+          `for (const n of [1, 2]) {\n  const $x = atom(n);\n  list.push($x);\n}\n`,
+      },
+      LOOP,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /** The binding dies with the turn that made it, so the array it was pushed into is the holder. */
+  it("registers nothing of its own, and draws its stores under the array that kept them", () => {
+    expect(buildSnapshot()[LOOP_HOME]).toEqual({
+      list: labelled("Array", { "[0] [store]": 1, "[1] [store]": 2 }),
+    });
+    expect(listEntries()).toHaveLength(2);
+  });
+});
+
+const SAME_HOME = "fixture/same.js";
+const SAME = `${FIXTURE_DIR}/same.js`;
+
+describe("the rows the gate reaches by another route", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [SAME]:
+          `import { atom } from "nanostores";\n` +
+          `const first = true;\n` +
+          `export const $ternary = first ? atom(1) : atom(2);\n` +
+          `function makeLocal() {\n  return atom("local");\n}\n` +
+          `export const $local = makeLocal();\n` +
+          `class Box {\n  $v = atom("v");\n}\n` +
+          `export const box = new Box();\n`,
+      },
+      SAME,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /** A ternary, a local factory and a class field on a held instance: all three drew before. */
+  it("draws exactly what it drew before the gate", () => {
+    expect(buildSnapshot()[SAME_HOME]).toEqual({
+      "$ternary [store]": 1,
+      "$local [store]": "local",
+      box: labelled("Box", { "$v [store]": "v" }),
     });
   });
 });

@@ -2,7 +2,6 @@ import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { resetDevtoolsGlobal } from "../global.ts";
-import { ownerLinksOf } from "../tree/placement.ts";
 import { listEntries, type StoreEntry } from "../stores/registry.ts";
 import { buildSnapshot } from "../redux/render.ts";
 import { nanostoresDevtools, type VitePluginOptions } from "../discovery/vite.ts";
@@ -183,10 +182,10 @@ describe("the fixture drawn by the shipped code", () => {
 
     /**
      * The four above sit on the atom `withUndo` gave back, so the binding scan reaches them
-     * through `$draft`. `$timeline` is the closure it kept, and only the frame ever reached it.
+     * through `$draft`. `$timeline` is the closure it kept: nothing the app holds leads to it, so
+     * after the gate it is not registered at all and the library's own file has no entry left.
      */
-    expect(entryNamed("$timeline").home).toBe(UNDO_HOME);
-    expect(ownerLinksOf(entryNamed("$timeline").store)).toEqual([]);
+    expect(listEntries().filter((entry) => entry.home === UNDO_HOME)).toEqual([]);
   });
 
   it("draws none of the second instance's closure either", () => {
@@ -197,8 +196,8 @@ describe("the fixture drawn by the shipped code", () => {
       "$history [computed]": NEVER_COMPUTED,
       "$position [computed]": NEVER_COMPUTED,
     });
-    /** The registry still holds it and still numbers it; only the tree has no place for it. */
-    expect(entryNamed("$timeline", 2)).toMatchObject({ home: UNDO_HOME });
+    /** The second instance keeps its own closure store the same way: nowhere in the registry. */
+    expect(listEntries().filter((entry) => entry.home === UNDO_HOME)).toEqual([]);
   });
 
   it("keeps the developer's name for an alias, and a repeat on its owner", () => {
@@ -212,7 +211,11 @@ describe("the fixture drawn by the shipped code", () => {
   it("does not lose the chosen name when the alias renames the store", () => {
     const model = homeOf(MODEL_HOME);
 
-    expect(entryNamed("$undoable")).toMatchObject({ home: MODEL_HOME, ownerName: "$canUndo" });
+    /**
+     * The binding is what registers the store now, so `ownerName` is the binding's own name rather
+     * than the property's. The tree key beside it still reads `$canUndo`, off the owner link.
+     */
+    expect(entryNamed("$undoable")).toMatchObject({ home: MODEL_HOME, ownerName: "$undoable" });
     expect(model["$undoable [computed]"]).toEqual(NEVER_COMPUTED);
     expect(into(model, "$draft2 [store]")).toHaveProperty(["$canUndo [computed]"]);
   });
@@ -270,8 +273,12 @@ describe("the fixture drawn by the shipped code", () => {
     expect(into(editor, "editorOne")["__serializedType__"]).toBe("Editor");
   });
 
-  it("gives a static field to the class, keyed by the class name and carrying no label", () => {
-    expect(homeOf(EDITOR_HOME)["Editor"]).toEqual({ "$opened [store]": 0 });
+  /**
+   * A static field's store is reached by nothing: the field carries no name after the gate, and a
+   * class declaration is no binding the scan lists, so no walk starts at the class.
+   */
+  it("draws nothing for a static field, which no binding of the developer's reaches", () => {
+    expect(homeOf(EDITOR_HOME)["Editor"]).toBeUndefined();
   });
 
   it("walks an array by index, and nests a node inside a node", () => {
@@ -310,13 +317,12 @@ describe("the fixture drawn by the shipped code", () => {
     expect(entryNamed("$width").ownerName).toBe("$width");
   });
 
-  it("gives an unenumerable holder its binding back, and numbers refs across the file", () => {
-    expect(homeOf(EDITOR_HOME)["hidden"]).toEqual(
-      labelled("WeakMap", {
-        "ref#1": labelled("Editor", EDITOR_NODE),
-        "ref#2": labelled("Viewer", { "$zoom [store]": 1 }),
-      }),
-    );
+  /**
+   * A `WeakMap` gives up no members, so the two instances inside it are reached by nothing, and a
+   * class field names no store of its own any more. What it holds is drawn nowhere at all.
+   */
+  it("draws nothing for a holder nothing can enumerate", () => {
+    expect(homeOf(EDITOR_HOME)["hidden"]).toBeUndefined();
   });
 
   it("attributes a factory result once the parse gate is widened", () => {
@@ -341,9 +347,10 @@ describe("the fixture drawn by the shipped code", () => {
     );
   });
 
-  it("draws nothing for a store nothing else names, so its file is no home at all", () => {
+  /** `track()` hands back a function, so nothing the app holds leads to the store it made. */
+  it("draws nothing for a store nothing else names, and registers nothing either", () => {
     expect(buildSnapshot()[TRACKER_HOME]).toBeUndefined();
-    expect(listEntries().some((entry) => entry.home === TRACKER_HOME)).toBe(true);
+    expect(listEntries().some((entry) => entry.home === TRACKER_HOME)).toBe(false);
   });
 
   it("keeps a module-level library store flat, and sorts every external file last", () => {
@@ -406,32 +413,27 @@ describe("the draw-once invariant", () => {
   it("draws every store it draws at all once per reference the developer wrote", () => {
     /** No note anywhere: nothing in the fixture asks for a number, so nothing is left out. */
     expect(JSON.stringify(buildSnapshot()).split('"…"').length - 1).toBe(0);
-    expect(listEntries()).toHaveLength(109);
+    expect(listEntries()).toHaveLength(102);
 
     const counts = countPlacements();
     const placements = [...counts.values()];
 
-    /** One label per entry, so a label two entries shared would drop the count below 109. */
-    expect(counts.size).toBe(109);
+    /** One label per entry, so a label two entries shared would drop the count below 102. */
+    expect(counts.size).toBe(102);
     /**
-     * The stores the tree draws nowhere. `track()` keeps its own in a closure and hands back a
-     * function, so nothing places it and what the function returned holds no state to see it by.
-     * Both `$timeline`s are `withUndo`'s working state: the frame caught them, and a frame places
-     * nothing born in somebody else's file, because a store that file hands over is adopted at the
-     * call site and reached through a property instead.
+     * Nothing is registered and drawn nowhere. Every store the registry holds is one a name of the
+     * developer's own reaches, so the tree has a place for all of them. The stores that used to sit
+     * in this list are the ones the held rule took out: `withUndo`'s own `$timeline` and the one
+     * `track()` keeps in a closure are made inside a function body and registered by nothing.
      */
-    expect([...counts].filter(([, times]) => times === 0).map(([label]) => label)).toEqual([
-      `${UNDO_HOME}/$timeline`,
-      `${UNDO_HOME}/$timeline #2`,
-      `${TRACKER_HOME}/$hits`,
-    ]);
+    expect([...counts].filter(([, times]) => times === 0).map(([label]) => label)).toEqual([]);
     /**
      * Draw-once: a store is drawn once for each reference the developer wrote and never twice for
      * one. A name they bound and a container they put it in are both references, so a store with a
-     * flat name and one owner draws twice, and one with three references draws three times. 106 of
-     * the 109 draw at all, and 119 counts every repeat beside them.
+     * flat name and one owner draws twice, and one with three references draws three times. All 102
+     * draw at all, and 115 counts every repeat beside them.
      */
-    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(119);
+    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(115);
     expect(
       [...counts]
         .filter(([, times]) => times > 1)
@@ -456,10 +458,10 @@ describe("the draw-once invariant", () => {
 });
 
 /**
- * Today's number, not a fixed one. `model.ts` calls a factory that builds five stores inside
- * `vendor/withUndo.ts`, and reloading `model.ts` wipes only what `model.ts` registered, so the
- * library's own entries pile up. Open decision 1 in the spec is the change that would fix it, and
- * it has not been approved, so this records what the count is instead.
+ * The registry holds still across a reload. `model.ts` calls a factory that builds five stores
+ * inside `vendor/withUndo.ts`, and those are registered by the scan `model.ts` runs, at
+ * `model.ts`, so the module's own `clear()` drops every one of them. Nothing is registered in the
+ * library's own file any more, so nothing is left there to pile up.
  */
 describe("reloading a module", () => {
   let server: ViteDevServer;
@@ -485,7 +487,7 @@ describe("reloading a module", () => {
     await server.ssrLoadModule(MODEL, { fixStacktrace: false });
   }
 
-  it("grows the registry by seven entries on every reload", async () => {
+  it("holds the same entries after every reload", async () => {
     await server.ssrLoadModule(MODEL);
 
     const totals = [listEntries().length];
@@ -495,13 +497,11 @@ describe("reloading a module", () => {
       totals.push(listEntries().length);
     }
 
-    expect(totals).toEqual([20, 27, 34, 41]);
-    /** The pile-up sits in the files the factories live in, never in the module reloaded. */
+    expect(totals).toEqual([17, 17, 17, 17]);
+    /** Two homes, and the library's own file is not one of them. */
     expect(countByHome()).toEqual({
-      [MODEL_HOME]: 11,
+      [MODEL_HOME]: 15,
       [SHARED_HOME]: 2,
-      [TRACKER_HOME]: 4,
-      [UNDO_HOME]: 24,
     });
   });
 });
@@ -524,10 +524,10 @@ describe("an await, a helper and two functions of one name", () => {
     resetDevtoolsGlobal();
   });
 
-  it("opens no frame across an await, and still places the store by its binding", () => {
+  it("places a store made inside an awaited call by the binding that took the result", () => {
     expect(homeOf(REMOTE_HOME)).toEqual({ remote: { "$ready [store]": true } });
-    /** The frame is gone, so the enclosing function is all that was left to fall back on. */
-    expect(entryNamed("$ready").fn).toBe("loadRemote");
+    /** The call is inside a function, so the scan is what named it: the path, and no function. */
+    expect(entryNamed("remote.$ready").fn).toBeNull();
   });
 
   it("draws a store a helper made and a binding adopted flat, not under the helper", () => {
@@ -536,16 +536,14 @@ describe("an await, a helper and two functions of one name", () => {
   });
 
   /**
-   * The frame keeps its full reach inside the developer's own files. `$layout` is a closure of
-   * `makeBoard`, so no walk at the end of the module body finds it, and only the frame does. It
-   * also draws a plain object and nothing else, exactly as a node does, so the `[store]` on the key
-   * is the whole of what tells the two apart.
+   * `$layout` is a closure of `makeBoard`, so no walk at the end of the module body finds it and no
+   * name in the source holds it. It is the developer's own store and it is still drawn nowhere: a
+   * store a function keeps to itself is theirs to register by hand. What `$board` draws is its own
+   * value, a plain object that reads exactly like a node, so the `[store]` on the key is the whole
+   * of what tells the two apart.
    */
-  it("places a store this file kept in a closure, holding an object like a node", () => {
-    expect(homeOf(HELPERS_HOME)["$board [store]"]).toEqual({
-      "(value)": "2 columns",
-      "$layout [store]": { columns: 2, gap: 8 },
-    });
+  it("draws nothing for a store this file kept in a closure, and draws the value it handed back", () => {
+    expect(homeOf(HELPERS_HOME)["$board [store]"]).toEqual("2 columns");
   });
 
   it("draws nothing for the stores two functions of one name kept in a closure", () => {
@@ -605,7 +603,7 @@ describe("the line a creation site records", () => {
       .filter((entry) => entry.name === "$dup")
       .map((entry) => entry.place);
 
-    expect(places, WRONG_LINE).toEqual(["makeOne, line 16", "makeTwo, line 20"]);
+    expect(places, WRONG_LINE).toEqual(["line 16", "line 20"]);
   });
 
   it("spells that line into the name the panel and the warnings read", () => {
@@ -614,8 +612,8 @@ describe("the line a creation site records", () => {
       .map((entry) => entry.label);
 
     expect(labels, WRONG_LINE).toEqual([
-      `${SITES_HOME}/$dup (makeOne, line 16)`,
-      `${SITES_HOME}/$dup (makeTwo, line 20)`,
+      `${SITES_HOME}/$dup (line 16)`,
+      `${SITES_HOME}/$dup (line 20)`,
     ]);
   });
 

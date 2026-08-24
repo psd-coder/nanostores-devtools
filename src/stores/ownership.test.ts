@@ -288,12 +288,12 @@ describe("ownBindings", () => {
     expect(listEntries()[0]).toMatchObject({ name: "$s", ownerName: "$s" });
   });
 
-  it("registers a store nothing else found, under the key that holds it", () => {
+  it("registers a store nothing else found, under the whole path that reached it", () => {
     const $draft = holder("", { $canUndo: atom(false) });
 
     ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
 
-    expect(listEntries().map((entry) => entry.name)).toEqual(["$draft", "$canUndo"]);
+    expect(listEntries().map((entry) => entry.name)).toEqual(["$draft", "$draft.$canUndo"]);
   });
 
   it("leaves the entry a wrapper already made alone, and only renames it", () => {

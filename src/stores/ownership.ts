@@ -53,6 +53,9 @@ export const MAX_MEMBERS = 25;
  */
 const UNNAMED = "ref";
 
+/** A name that can stand after a dot, which is what decides whether a path part is bracketed. */
+const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
 /**
  * One top-level name the module binds, and what the developer asked for about it. `exported` is
  * what settles a race between two bindings holding one store.
@@ -126,6 +129,7 @@ export function ownBindings(
       walk(
         { module, binding: name, seen: new Set(), maxDepth, maxMembers },
         value,
+        name,
         name,
         undefined,
         0,
@@ -314,10 +318,28 @@ function sameBinding(one: BoundName, other: BoundName): boolean {
 }
 
 /**
+ * A name the developer could type, made of the part that reached the value and the key of the
+ * member under it. A key a collection gave is already bracketed and joins straight; a bare key
+ * takes a dot, unless it is no identifier, and then it is bracketed so the whole path stays
+ * something the reader can look up in their own source.
+ */
+function joined(path: string, key: string): string {
+  if (key.startsWith("[")) {
+    return `${path}${key}`;
+  }
+
+  return IDENTIFIER.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
+}
+
+/**
  * The store the scan has just reached, born here where the registry has never seen it. That is a
  * store no wrapper could name: one an installed package made, one a call put on the object it
- * returned, one a `new` expression built. The name it takes is the one that reaches it, which is
- * the top-level binding or the key of the value holding it.
+ * returned, one a `new` expression built. The name it takes is the whole chain that reached it: the
+ * top-level binding, then every key the walk went through.
+ *
+ * The whole chain, and not the last key alone, because the last key alone is not one name. Two
+ * bindings holding one shape both hold a member called `open`, and one name in the registry holds
+ * one store, so the second would take the first one's place and the first would draw nowhere.
  *
  * A store a wrapper already registered keeps that entry, with the line, the kind and the throttle
  * comment only the creation site knows. The walk renames it and nothing more.
@@ -355,12 +377,14 @@ export function primaryName(names: readonly BoundName[]): BoundName | undefined 
 
 /**
  * The walk itself. `owner` is what holds this value: a store, a node, or nothing at all at the top
- * of a binding, where the value is drawn at its file level and needs no owner.
+ * of a binding, where the value is drawn at its file level and needs no owner. `path` is the whole
+ * chain that reached it, which is the name a store found under it is registered by.
  */
 function walk(
   scan: Scan,
   value: object,
   name: string,
+  path: string,
   owner: object | undefined,
   depth: number,
 ): void {
@@ -392,13 +416,15 @@ function walk(
   }
 
   for (const [key, member] of members.drawn) {
+    const reached = joined(path, key);
+
     if (isStore(member)) {
-      registerFound(scan.module, member, key);
+      registerFound(scan.module, member, reached);
       recordOwner(scan.module, member, value, "scan", key);
     }
 
     if (canHold(member)) {
-      walk(scan, member, key, value, depth + 1);
+      walk(scan, member, key, reached, value, depth + 1);
     }
   }
 

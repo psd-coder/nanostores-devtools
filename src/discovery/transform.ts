@@ -13,6 +13,7 @@ import type {
   ImportDeclaration,
   ModuleExportName,
   NewExpression,
+  ObjectExpression,
   PropertyKey as NodePropertyKey,
   Program,
   VisitorObject,
@@ -73,10 +74,12 @@ const CREATORS: ReadonlyMap<string, StoreType> = new Map<string, StoreType>([
 ]);
 
 /**
- * A name frame carries what a store born under it is called; a function frame ends that reach.
- * `self` is whether `this` here is still the class a field initializer runs for.
+ * A name frame carries what a store born under it is called. A function frame and a block frame
+ * both say the call under them is not held: a binding made there dies where it was made, so no
+ * name outside can reach the store. `self` is whether `this` here is still the class a field
+ * initializer runs for.
  */
-type Frame = { fn: boolean; name: string | null; self: boolean };
+type Frame = { fn: boolean; block: boolean; name: string | null; self: boolean };
 
 /**
  * One call the transform wraps, the runtime function it hands the call to, and whether it hands
@@ -110,9 +113,6 @@ type Keyed = { key: NodePropertyKey; computed: boolean };
  * same node type stands in a destructuring pattern, where what it holds is a pattern instead.
  */
 type Written = Expression | BindingPattern | AssignmentTargetMaybeDefault;
-
-/** A key that also holds a value, so the value's own offset can carry the key's name. */
-type Valued = Keyed & { value: Written | null };
 
 /** One statement standing at the top level of a module body, taken off the program that holds it. */
 type TopLevel = Program["body"][number];
@@ -187,8 +187,6 @@ export function transformStores(input: TransformInput): StoreTransform {
   /** Which of them the developer exported, which is the name the app knows a store by. */
   const exported = new Set<string>();
   const initializers: FramedInit[] = [];
-  /** How many unassigned stores a binding's initializer has already held, keyed by the binding. */
-  const unassigned = new Map<string, number>();
   /** Where an `await` stands, which drops the frame around it once the walk has been through. */
   const awaits: number[] = [];
   /** The statements a throttle comment stands over, so every site inside one carries the flag. */
@@ -222,12 +220,30 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   function pushName(name: string | null, self = currentSelf()): void {
-    stack.push({ fn: false, name, self });
+    stack.push({ fn: false, block: false, name, self });
   }
 
   /** A function of its own binds `this` again, which only an arrow leaves alone. */
   function pushFn(name: string | null, self = false): void {
-    stack.push({ fn: true, name: name ?? currentName(), self });
+    stack.push({ fn: true, block: false, name: name ?? currentName(), self });
+  }
+
+  /**
+   * A scope a statement of its own opens: a block, a loop head, a `switch` body, a static block.
+   * A `const` written in one is gone by the next line, so nothing the module body binds holds what
+   * a call there made.
+   */
+  function pushBlock(): void {
+    stack.push({ fn: false, block: true, name: null, self: currentSelf() });
+  }
+
+  /**
+   * A class field initializer runs like a function of its own: nothing at the field says whether an
+   * instance is ever held, and the store follows the instance instead. It carries no name, so a
+   * store born deeper inside it is not named after the field either.
+   */
+  function pushField(node: Keyed): void {
+    stack.push({ fn: true, block: false, name: null, self: !node.computed });
   }
 
   function pop(): void {
@@ -284,7 +300,7 @@ export function transformStores(input: TransformInput): StoreTransform {
    * developer can type and get that store back. An array standing in an argument is nobody's value:
    * `merged([eventAtom(a), eventAtom(b)])` hands the whole array over and keeps the atom it built,
    * so an index off the binding would point at a member `$pointerEnd` does not have. Those members
-   * fall through to `callName`, which numbers them as unassigned instead.
+   * are named by nothing, so the gate turns them away.
    */
   function readArray(node: ArrayExpression): void {
     if (!namedValues.has(node.start)) {
@@ -301,38 +317,45 @@ export function transformStores(input: TransformInput): StoreTransform {
   }
 
   /**
-   * The name a store this call makes is known by, or `null` where nothing reaches it.
-   *
-   * A binding, a property, or an index of an array one of those holds names the call outright. Every
-   * other call is written inside somebody's initializer and bound to nothing, so it has no name of
-   * its own: it takes the binding's, plus a number saying which one it is in source order.
-   *
-   * That number is what keeps two of them apart. A label is the home, the name, the file, the line
-   * and the site's own count, and `combine(atom(1), atom(2))` gave both atoms every one of those,
-   * so the second quietly took the first one's place in the registry.
-   *
-   * Counted here rather than at the visit, so it runs 1, 2, 3 with no gaps: a call that books no
-   * store never asks.
+   * A property names what it holds only where the object above it is named, the same guard an
+   * array member already has. `const config = { $x: atom(0) }` is held, so `$x` names the call.
+   * `foo({ $x: atom(0) })` hands the whole object away, so nothing there is anybody's to point at.
    */
-  function callName(start: number): string | null {
-    const named = namedValues.get(start);
-
-    if (named !== undefined) {
-      return named;
+  function readObject(node: ObjectExpression): void {
+    if (!namedValues.has(node.start)) {
+      return;
     }
 
-    const base = currentName();
+    const named = namedValues.get(node.start) !== null;
 
-    return base === null ? null : numbered(base);
+    for (const property of node.properties) {
+      if (property.type === "Property") {
+        const key = keyName(property.key, property.computed);
+
+        namedValues.set(bared(property.value).start, named ? key : null);
+      }
+    }
   }
 
-  /** The name a call with none of its own takes, plus which one it is under that binding. */
-  function numbered(base: string): string {
-    const next = (unassigned.get(base) ?? 0) + 1;
+  /**
+   * The one gate, asked by both wrappers: the name a store this call makes is known by, or `null`
+   * where the developer wrote nothing that holds it.
+   *
+   * A call passes on two counts. It sits directly in the module body, with no function frame and
+   * no block frame anywhere under it, because a binding made inside either one dies there. And
+   * something the developer wrote names its own offset: a binding, a property of a held object, or
+   * an index of a held array.
+   *
+   * A call that fails carries no name at all. It is still wrapped, so its kind is filed for the
+   * scan to read back, and it registers nothing: a store nobody holds is a store nobody can point
+   * at in their own source.
+   */
+  function heldName(start: number): string | null {
+    if (stack.some((frame) => frame.fn || frame.block)) {
+      return null;
+    }
 
-    unassigned.set(base, next);
-
-    return `${base} unassigned ${next}`;
+    return namedValues.get(start) ?? null;
   }
 
   /**
@@ -403,6 +426,7 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     const callee = node.callee.type === "Identifier" ? node.callee.name : undefined;
     const type = callee === undefined ? undefined : creators.get(callee);
+    const name = heldName(node.start);
 
     if (type !== undefined) {
       open.push(node.start);
@@ -410,7 +434,7 @@ export function transformStores(input: TransformInput): StoreTransform {
         start: node.start,
         end: node.end,
         call: "store",
-        site: siteAt(node.start, callName(node.start), type),
+        site: siteAt(node.start, name, type),
         self: currentSelf(),
       });
 
@@ -421,43 +445,24 @@ export function transformStores(input: TransformInput): StoreTransform {
       return;
     }
 
-    const named = namedValues.get(node.start);
-    const base = named === undefined ? currentName() : named;
-    const kind = packagedType(callee);
-
     /**
-     * The name is the whole gate: a codebase that never writes the `$` prefix makes stores all the
-     * same, and a call standing in an argument is adopted as much as one bound straight to a name.
-     * What it hands back is the developer's either way, and the name it carries says where they
-     * wrote it. `adopt` hands a value that is no store straight back, so a call that builds
-     * anything else costs one wrapper and nothing more.
+     * A call that initializes a held binding is adopted under that name: it carries the line, the
+     * throttle comment and the kind the package map gives, none of which the scan at the end of the
+     * body can work out, and it registers early enough to catch the writes of a module loaded after
+     * the panel connected. A codebase that never writes the `$` prefix gets all of that too, because
+     * the name a call stands under is the whole of what is read.
      *
-     * A call the package map knows carries that package's kind rather than none. It stays an
-     * adoption all the same: the map says what a store is, never where one is, and the runtime
-     * keeps a kind the store already carries over the one the map offers.
+     * A call whose callee the file imported is wrapped as well, with no name. What it hands back may
+     * be a store, and then the wrapper is the one thing that knows the kind: the scan finds the store
+     * later and reads that kind back. `adopt` hands a value that is no store straight back, so a call
+     * that builds anything else costs one wrapper and nothing more.
      */
-    if (base !== null) {
-      adopt(node, named === undefined ? numbered(base) : base, kind);
-
-      return;
-    }
-
-    /**
-     * A store made where it is used rather than where it is declared: `useStore(userStore(id))`
-     * inside a component binds nothing, is nobody's property, and the function around it ends the
-     * reach of every name. The call that made it is the only name left, so the store takes that
-     * one, and the runtime numbers the stores of one site apart.
-     *
-     * Only a callee the file imported, which is also where that name comes from. A callee the file
-     * declares itself is a helper of its own, and a member call names no import either. Without
-     * that limit every call in every function body would carry a wrapper.
-     */
-    if (callee !== undefined && imports.has(callee)) {
-      adopt(node, callee, kind);
+    if (name !== null || (callee !== undefined && imports.has(callee))) {
+      adopt(node, name, packagedType(callee));
     }
   }
 
-  function adopt(node: CallExpression, name: string, kind: StoreType | undefined): void {
+  function adopt(node: CallExpression, name: string | null, kind: StoreType | undefined): void {
     adopts.push({
       start: node.start,
       end: node.end,
@@ -603,25 +608,30 @@ export function transformStores(input: TransformInput): StoreTransform {
     pushName(keyName(node.key, node.computed));
   }
 
-  function pushValued(node: Valued, self = currentSelf()): void {
-    const name = keyName(node.key, node.computed);
-
-    pushName(name, self);
-
-    if (node.value !== null) {
-      namedValues.set(bared(node.value).start, name);
-    }
-  }
-
   function pushDeclared(node: { id: { name: string } | null }): void {
     pushFn(node.id?.name ?? null);
   }
 
   new input.parser.Visitor({
     ArrayExpression: readArray,
+    ObjectExpression: readObject,
     AwaitExpression(node) {
       awaits.push(node.start);
     },
+    BlockStatement: pushBlock,
+    "BlockStatement:exit": pop,
+    StaticBlock: pushBlock,
+    "StaticBlock:exit": pop,
+    /** The head of a loop binds per turn, and it stands outside the block the body opens. */
+    ForStatement: pushBlock,
+    "ForStatement:exit": pop,
+    ForInStatement: pushBlock,
+    "ForInStatement:exit": pop,
+    ForOfStatement: pushBlock,
+    "ForOfStatement:exit": pop,
+    /** A `switch` body is a scope of its own, and it is no `BlockStatement`. */
+    SwitchStatement: pushBlock,
+    "SwitchStatement:exit": pop,
     CallExpression: readCall,
     "CallExpression:exit"(node) {
       if (open.at(-1) === node.start) {
@@ -639,17 +649,15 @@ export function transformStores(input: TransformInput): StoreTransform {
       }
     },
     "VariableDeclarator:exit": pop,
-    Property: pushValued,
+    Property: pushKey,
     "Property:exit": pop,
     /**
      * A field initializer runs with `this` bound to the new instance, and a static one with `this`
      * bound to the class, so a store made in either can be handed what holds it. A computed key is
-     * left out, key and value alike: the key runs in the scope around the class, where `this` is
-     * something else or nothing at all, and the field it names is no name the tree can draw.
+     * left out: the key runs in the scope around the class, where `this` is something else or
+     * nothing at all.
      */
-    PropertyDefinition(node) {
-      pushValued(node, !node.computed);
-    },
+    PropertyDefinition: pushField,
     "PropertyDefinition:exit": pop,
     MethodDefinition: pushKey,
     "MethodDefinition:exit": pop,
@@ -667,9 +675,13 @@ export function transformStores(input: TransformInput): StoreTransform {
    * Callee matching runs first and keeps the type, so adoption drops a name it already took. A
    * wrap under some other name inside the same call is a store handed to that call, not the store
    * the call returns, and both belong in the tree.
+   *
+   * Two calls with no name at all are not the same name. Each of them files the kind of a different
+   * store, and dropping the outer one would lose the kind of what the call handed back.
    */
   const adopted = adopts.filter(
     (adopt) =>
+      adopt.site.name === null ||
       !wraps.some(
         (wrap) =>
           wrap.site.name === adopt.site.name && wrap.start >= adopt.start && wrap.end <= adopt.end,

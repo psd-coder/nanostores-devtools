@@ -859,7 +859,7 @@ describe("own", () => {
     scope.own([{ name: "$draft", value: $draft, exported: false }]);
 
     expect(ownerOf($canUndo)).toBe($draft);
-    expect(names()).toEqual(["$draft", "$canUndo"]);
+    expect(names()).toEqual(["$draft", "$draft.$canUndo"]);
   });
 
   it("walks a binding no deeper than the plugin's own option asked for", () => {

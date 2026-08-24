@@ -197,7 +197,8 @@ describe("callee matching", () => {
     );
   });
 
-  it("names an object property, a class field and an array element", () => {
+  /** A class field is the one of the three that carries no name: nothing there is held yet. */
+  it("names a property of a held object and an element of a held array, and no class field", () => {
     const result = transform(
       `import { atom } from "nanostores";\n` +
         `export const stores = { $count: atom(0) };\n` +
@@ -207,15 +208,11 @@ describe("callee matching", () => {
         `export const list = [atom(1), atom(2)];\n`,
     );
 
-    expect(metas(result).map((meta) => meta.name)).toEqual([
-      "$count",
-      "$items",
-      "list[0]",
-      "list[1]",
-    ]);
+    expect(metas(result).map((meta) => meta.name)).toEqual(["$count", null, "list[0]", "list[1]"]);
   });
 
-  it("instruments a store inside a factory, a loop, a block and a method", () => {
+  /** Every one of the four sits under a function frame or a block frame, so none is named. */
+  it("names no store made inside a factory, a loop, a block or a method", () => {
     const result = transform(
       `import { atom } from "nanostores";\n` +
         `export function makeCart() {\n` +
@@ -236,10 +233,10 @@ describe("callee matching", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: "$items", fn: "makeCart", line: 3, type: "atom" },
-      { name: "$each", fn: null, line: 7, type: "atom" },
-      { name: "$blocked", fn: null, line: 10, type: "atom" },
-      { name: "$inside", fn: "load", line: 14, type: "atom" },
+      { name: null, fn: "makeCart", line: 3, type: "atom" },
+      { name: null, fn: null, line: 7, type: "atom" },
+      { name: null, fn: null, line: 10, type: "atom" },
+      { name: null, fn: "load", line: 14, type: "atom" },
     ]);
   });
 
@@ -301,7 +298,7 @@ describe("`this` in a class field", () => {
     );
 
     expect(output(result)).toContain(
-      `$value = __nsdt.store(atom(""), {"name":"$value","fn":null,"line":3,"type":"atom"}, this);`,
+      `$value = __nsdt.store(atom(""), {"name":null,"fn":null,"line":3,"type":"atom"}, this);`,
     );
   });
 
@@ -316,10 +313,10 @@ describe("`this` in a class field", () => {
 
     expect(output(result)).toContain(
       `static $opened = __nsdt.store(atom(false), ` +
-        `{"name":"$opened","fn":null,"line":3,"type":"atom"}, this);`,
+        `{"name":null,"fn":null,"line":3,"type":"atom"}, this);`,
     );
     expect(output(result)).toContain(
-      `$value = __nsdt.store(atom(""), {"name":"$value","fn":null,"line":4,"type":"atom"}, this);`,
+      `$value = __nsdt.store(atom(""), {"name":null,"fn":null,"line":4,"type":"atom"}, this);`,
     );
   });
 
@@ -329,7 +326,7 @@ describe("`this` in a class field", () => {
     );
 
     expect(output(result)).toContain(
-      `#hidden = __nsdt.store(atom(0), {"name":"#hidden","fn":null,"line":3,"type":"atom"}, this);`,
+      `#hidden = __nsdt.store(atom(0), {"name":null,"fn":null,"line":3,"type":"atom"}, this);`,
     );
   });
 
@@ -339,7 +336,7 @@ describe("`this` in a class field", () => {
     );
 
     expect(output(result)).toContain(
-      `__nsdt.store(atom(0), {"name":null,"fn":"make","line":3,"type":"atom"}, this)`,
+      `__nsdt.store(atom(0), {"name":null,"fn":null,"line":3,"type":"atom"}, this)`,
     );
   });
 
@@ -385,6 +382,73 @@ describe("`this` in a class field", () => {
   });
 });
 
+/**
+ * The one test both wrappers ask: a call is named where the module body holds it, and carries no
+ * name anywhere else. What passes registers a store; what fails files a kind and nothing more.
+ */
+describe("the gate", () => {
+  const IMPORT = `import { atom } from "nanostores";\n`;
+
+  it("names a call the module body binds", () => {
+    expect(metas(transform(`${IMPORT}const $c = atom(0);\n`)).map((meta) => meta.name)).toEqual([
+      "$c",
+    ]);
+  });
+
+  it("names a property of a held object, and nothing in an object handed to a call", () => {
+    const held = transform(`${IMPORT}const config = { $x: atom(0) };\n`);
+    const argument = transform(`${IMPORT}foo({ $x: atom(0) });\n`);
+
+    expect(metas(held).map((meta) => meta.name)).toEqual(["$x"]);
+    expect(metas(argument).map((meta) => meta.name)).toEqual([null]);
+  });
+
+  it("names nothing under a nested block, an `if` or a `switch`", () => {
+    const result = transform(
+      `${IMPORT}{\n  const $bare = atom(0);\n}\n` +
+        `if (ready) {\n  const $conditional = atom(1);\n}\n` +
+        `switch (mode) {\n  case "on": {\n    const $case = atom(2);\n  }\n}\n`,
+    );
+
+    expect(metas(result).map((meta) => meta.name)).toEqual([null, null, null]);
+  });
+
+  it("names nothing in a loop, head and body alike", () => {
+    const result = transform(
+      `${IMPORT}for (const key of keys) {\n  const $each = atom(key);\n}\n` +
+        `for (let $counted = atom(0); false; ) {\n}\n` +
+        `for (const key in things) {\n  const $keyed = atom(key);\n}\n`,
+    );
+
+    expect(metas(result).map((meta) => meta.name)).toEqual([null, null, null]);
+  });
+
+  it("names nothing in a class field or a static block", () => {
+    const result = transform(
+      `${IMPORT}class Cart {\n  $items = atom([]);\n` +
+        `  static {\n    const $set = atom(0);\n  }\n}\n`,
+    );
+
+    expect(metas(result).map((meta) => meta.name)).toEqual([null, null]);
+  });
+
+  /**
+   * Two calls with no name are not one name. The outer wrapper is what files the kind of the value
+   * the call handed back, and the inner one files the kind of the store written inside it.
+   */
+  it("keeps both wrappers where a nameless adoption stands around a nameless creator", () => {
+    const result = transform(
+      `${IMPORT}import { wrap } from "./wrap.ts";\n` +
+        `export function Row() {\n  return wrap(atom(0));\n}\n`,
+    );
+
+    expect(metas(result)).toEqual([
+      { name: null, fn: "Row", line: 4, type: "atom" },
+      { name: null, fn: "Row", line: 4, type: "unknown" },
+    ]);
+  });
+});
+
 describe("adoption", () => {
   it("wraps a $-named binding assigned from a call it did not instrument", () => {
     const result = transform(
@@ -409,12 +473,12 @@ describe("adoption", () => {
     expect(ownCall(result)).toBe(`__nsdt.own([{name:"theme",value:theme,exported:false}]);`);
   });
 
-  it("numbers a call standing in an argument under a plain name", () => {
+  /** The inner call is nobody's: it is handed straight to `persistent`, and no import names it. */
+  it("leaves a call standing in an argument alone, and adopts the one the binding holds", () => {
     const result = transform(`const theme = persistent(fallback("dark"));\n`);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt(persistent(__nsdt.adopt(fallback("dark"), ` +
-        `{"name":"theme unassigned 1","fn":null,"line":1,"type":"unknown"})), ` +
+      `__nsdt.adopt(persistent(fallback("dark")), ` +
         `{"name":"theme","fn":null,"line":1,"type":"unknown"})`,
     );
   });
@@ -434,21 +498,18 @@ describe("adoption", () => {
   });
 
   /**
-   * The store the call hands back takes the binding, and the one written inside it is numbered.
-   * A wrapper that hands its own argument back meets both, and the second renames the first, which
-   * is what keeps the type the creator knew.
+   * The store the call hands back takes the binding. The creator written inside it carries no name:
+   * it files its kind and nothing more, which is what a wrapper handing its own argument back needs
+   * for the type the creator knew to reach the store the binding holds.
    */
-  it("numbers the creator inside a call and keeps the binding for what the call returns", () => {
+  it("files the kind of the creator inside a call, and keeps the binding for what it returns", () => {
     const result = transform(
       `import { atom } from "nanostores";\nconst $c = withLogging(atom(0));\n`,
     );
 
     expect(output(result)).toContain(
-      `__nsdt.store(atom(0), {"name":"$c unassigned 1","fn":null,"line":2,"type":"atom"})`,
-    );
-    expect(output(result)).toContain(
       `__nsdt.adopt(withLogging(__nsdt.store(atom(0), ` +
-        `{"name":"$c unassigned 1","fn":null,"line":2,"type":"atom"})), ` +
+        `{"name":null,"fn":null,"line":2,"type":"atom"})), ` +
         `{"name":"$c","fn":null,"line":2,"type":"unknown"})`,
     );
   });
@@ -458,36 +519,25 @@ describe("adoption", () => {
       `import { atom } from "nanostores";\nconst $store = createStore({ initial: atom(0) });\n`,
     );
 
+    /** The object stands in an argument, so its property names nothing either. */
     expect(output(result)).toContain(
-      `{"name":"initial","fn":null,"line":2,"type":"atom"}) }), ` +
+      `{"name":null,"fn":null,"line":2,"type":"atom"}) }), ` +
         `{"name":"$store","fn":null,"line":2,"type":"unknown"})`,
     );
   });
 
   /**
-   * A call standing in an argument is adopted too. What it hands back is the developer's, and on a
-   * util that builds a store of its own it is the only thing that ever reaches it: `filtered(...)`
-   * and `latched(...)` in the examples each hold a `computed` written right there.
+   * Two calls in one initializer, and the binding holds what the outer one returned. Neither inner
+   * call is wrapped: nothing names them and the file imported no callee of theirs, so a store one
+   * of them made is one the developer can point at only through what `combine` handed back.
    */
-  it("adopts a call standing in an argument, numbered after the binding", () => {
-    const result = transform(`const $theme = persistent(fallback("dark"));\n`);
-
-    expect(output(result)).toContain(
-      `__nsdt.adopt(persistent(__nsdt.adopt(fallback("dark"), ` +
-        `{"name":"$theme unassigned 1","fn":null,"line":1,"type":"unknown"})), ` +
-        `{"name":"$theme","fn":null,"line":1,"type":"unknown"})`,
-    );
-  });
-
-  it("numbers two calls in one initializer in source order, so neither takes the other's label", () => {
+  it("wraps only the call the binding holds, whatever stands in its arguments", () => {
     const result = transform(`const $pair = combine(fallback("a"), fallback("b"));\n`);
 
-    expect(output(result)).toContain(
-      `{"name":"$pair unassigned 1","fn":null,"line":1,"type":"unknown"}`,
-    );
-    expect(output(result)).toContain(
-      `{"name":"$pair unassigned 2","fn":null,"line":1,"type":"unknown"}`,
-    );
+    expect(metas(result)).toEqual([
+      { name: "$pair", fn: null, line: 1, type: "unknown" },
+      { name: "$pair", fn: null, line: 1, type: "unknown" },
+    ]);
   });
 
   it("keeps the index where the array is the value the binding holds", () => {
@@ -502,20 +552,20 @@ describe("adoption", () => {
   });
 
   /** `$pointerEnd` is the atom `merged` built, and it holds no member at `[0]` to point at. */
-  it("numbers an array's members where the array only stands in an argument", () => {
+  it("names none of an array's members where the array only stands in an argument", () => {
     const result = transform(
       `import { atom } from "nanostores";\nconst $pointerEnd = merged([atom(0), atom(1)]);\n`,
     );
 
     expect(metas(result)).toEqual([
-      { name: "$pointerEnd unassigned 1", fn: null, line: 2, type: "atom" },
-      { name: "$pointerEnd unassigned 2", fn: null, line: 2, type: "atom" },
+      { name: null, fn: null, line: 2, type: "atom" },
+      { name: null, fn: null, line: 2, type: "atom" },
       { name: "$pointerEnd", fn: null, line: 2, type: "unknown" },
       { name: "$pointerEnd", fn: null, line: 2, type: "unknown" },
     ]);
   });
 
-  it("names an object property, a class field and an array element", () => {
+  it("names a property of a held object and an element of a held array, and no class field", () => {
     const result = transform(
       `export const stores = { $count: persistentAtom("count") };\n` +
         `export class Cart {\n` +
@@ -524,20 +574,16 @@ describe("adoption", () => {
         `export const $list = [persistentAtom("a"), persistentAtom("b")];\n`,
     );
 
-    expect(metas(result).map((meta) => meta.name)).toEqual([
-      "$count",
-      "$items",
-      "$list[0]",
-      "$list[1]",
-    ]);
+    expect(metas(result).map((meta) => meta.name)).toEqual(["$count", "$list[0]", "$list[1]"]);
   });
 
-  it("takes the enclosing function, so two lines making one name stay apart", () => {
+  /** No import brings `persistentAtom` in here, so the call inside the function is left alone. */
+  it("wraps nothing for a call inside a function body that no import names", () => {
     const result = transform(
       `export function makeCart() {\n  const $items = persistentAtom("items");\n}\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "$items", fn: "makeCart", line: 2, type: "unknown" }]);
+    expect(metas(result)).toEqual([]);
   });
 
   it("skips a $ binding nested inside an instrumented creation site", () => {
@@ -664,11 +710,15 @@ describe("a call no name reaches", () => {
   const IMPORTED = `import { userStore } from "./stores.ts";\n`;
   const IN_A_COMPONENT = `${IMPORTED}export function Row(id) {\n  return userStore(id);\n}\n`;
 
-  it("adopts it under its callee, where the file imported that callee", () => {
+  /**
+   * The wrapper stays, because what the call hands back may be a store and this is the only place
+   * its kind can be read. The name does not: nothing the developer wrote holds the result.
+   */
+  it("wraps it with no name, where the file imported the callee", () => {
     const result = transform(IN_A_COMPONENT);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt(userStore(id), {"name":"userStore","fn":"Row","line":3,"type":"unknown"})`,
+      `__nsdt.adopt(userStore(id), {"name":null,"fn":"Row","line":3,"type":"unknown"})`,
     );
   });
 
@@ -680,20 +730,19 @@ describe("a call no name reaches", () => {
     );
 
     expect(metas(result)).toEqual([
-      { name: "userStore", fn: "Row", line: 4, type: "unknown" },
-      { name: "useStore", fn: "Row", line: 4, type: "unknown" },
+      { name: null, fn: "Row", line: 4, type: "unknown" },
+      { name: null, fn: "Row", line: 4, type: "unknown" },
     ]);
   });
 
-  /** One site, which is the unit the runtime numbers its stores under and caps. */
-  it("gives two calls on one line the same site, so their numbers tell them apart", () => {
+  it("wraps two calls on one line the same way, and names neither", () => {
     const result = transform(
       `${IMPORTED}export function Row() {\n  return [userStore(1), userStore(2)];\n}\n`,
     );
 
     expect(metas(result)).toEqual([
-      { name: "userStore", fn: "Row", line: 3, type: "unknown" },
-      { name: "userStore", fn: "Row", line: 3, type: "unknown" },
+      { name: null, fn: "Row", line: 3, type: "unknown" },
+      { name: null, fn: "Row", line: 3, type: "unknown" },
     ]);
   });
 
@@ -702,16 +751,16 @@ describe("a call no name reaches", () => {
       `import userStore from "./stores.ts";\nexport function Row(id) {\n  return userStore(id);\n}\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "userStore", fn: "Row", line: 3, type: "unknown" }]);
+    expect(metas(result)).toEqual([{ name: null, fn: "Row", line: 3, type: "unknown" }]);
   });
 
-  it("writes the name the file wrote, and reads the kind off the export behind it", () => {
+  it("reads the kind off the export behind the name the file wrote", () => {
     const result = transform(
       `import { persistentAtom as stored } from "@nanostores/persistent";\n` +
         `export function themeFor(key) {\n  return stored(key, "dark");\n}\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "stored", fn: "themeFor", line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: null, fn: "themeFor", line: 3, type: "atom" }]);
   });
 
   it("leaves a callee the file declares itself alone, which is a helper of its own", () => {
@@ -799,7 +848,7 @@ describe("an optional chain", () => {
     const result = transform(`import { atom } from "nanostores";\nconst x = a?.b(atom(0)).c;\n`);
 
     expect(output(result)).toContain(
-      `a?.b(__nsdt.store(atom(0), {"name":"x unassigned 1","fn":null,"line":2,"type":"atom"})).c;`,
+      `a?.b(__nsdt.store(atom(0), {"name":null,"fn":null,"line":2,"type":"atom"})).c;`,
     );
     expect(evaluate(result, "x", { atom: () => ({}), a: null })).toBeUndefined();
   });
@@ -921,7 +970,7 @@ describe("the package map", () => {
         `export function make() {\n  return { theme: persistentAtom("theme", "dark") };\n}\n`,
     );
 
-    expect(metas(result)).toEqual([{ name: "theme", fn: "make", line: 3, type: "atom" }]);
+    expect(metas(result)).toEqual([{ name: null, fn: "make", line: 3, type: "atom" }]);
   });
 
   it("takes no kind at all with adoption turned off", () => {
@@ -1473,9 +1522,7 @@ describe("the creation frame", () => {
 
     expect(output(result)).toContain(
       `const $draft = ${OPENED}__nsdt.adopt(pipe(__nsdt.store(atom(""), ` +
-        `{"name":"$draft unassigned 1","fn":null,"line":2,"type":"atom"}), ` +
-        `__nsdt.adopt(withUndo(), ` +
-        `{"name":"$draft unassigned 2","fn":null,"line":2,"type":"unknown"})), ` +
+        `{"name":null,"fn":null,"line":2,"type":"atom"}), withUndo()), ` +
         `{"name":"$draft","fn":null,"line":2,"type":"unknown"})), ` +
         `{"name":"$draft","fn":null,"line":2,"type":"unknown"});`,
     );

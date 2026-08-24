@@ -129,17 +129,12 @@ new store every time it runs, which is how a factory or a loop behaves. The unit
 repeats and for the per-site bound.
 
 **Adoption** — the second way the plugin gets a store, for calls whose callee it cannot
-recognise. A call whose result is stored under any name is wrapped, with or without a `$` prefix,
-and a call that no name reaches is wrapped under the function that made it. At runtime the bridge renames whatever comes back if it is
-already a registered store, registers it as `unknown` if nothing instrumented made it, and ignores
-it if it is not a store at all. It always carries a name, and it carries a type as well where the
-package to kind map behind the `storeTypes` option knows the package the call was imported from.
-
-**Unassigned store** — one written inside a binding's initializer and stored under no name of its
-own, `eventAtom(root, "up")` inside `merged([…])`. It takes the binding's name and a number that
-counts them in source order, `$pointerEnd unassigned 1`. The number is what tells two of them apart,
-because two written on one line share every other part of a store's identity. An array names its
-members by index instead, but only where the array is the value the binding holds.
+recognise. A call the module body holds under a name is wrapped and carries that name, with or
+without a `$` prefix, and so is a call whose callee the file imported, which carries no name at all.
+At runtime the bridge renames whatever comes back if it is already a registered store, registers it
+as `unknown` if nothing instrumented made it, and ignores it if it is not a store at all. A wrapper
+with no name registers nothing and files the kind alone. It carries a type where the package to kind
+map behind the `storeTypes` option knows the package the call was imported from.
 
 **Own fields** — what a value holds itself, and the first reading of every value the bridge draws: a
 property that is own, enumerable, named by a string, and holding a plain value. An inherited field,
@@ -179,6 +174,12 @@ was reached, so a window from another realm is read as an ordinary object of its
 **Callee matching** — the first way, and the one that reads a type off the call itself: the call
 names something the file imported from `nanostores`, renamed imports included. Adoption only handles
 what this misses, and it has a type of its own from the package to kind map.
+
+**The gate** — the one test both wrappers ask before a call carries a name: the call sits directly
+in the module body, with no function and no block around it, and something the developer wrote names
+its own place. A call that passes registers a store. A call that fails carries no name, registers
+nothing, and files its kind alone, for the **binding scan** to read back if a walk ever reaches the
+store.
 
 Three mechanisms decide where a store is drawn. Adoption and callee matching decide whether a
 store reaches the tree at all; these three decide its **owner** once it is in. A store none of them

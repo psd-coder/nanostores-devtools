@@ -456,24 +456,21 @@ export const readTwo = secondRound();
  * are dropped once the bundler's own TypeScript transform has been through, so a walk that ran
  * after it would record a line several above the real one.
  *
- * Two functions make a store of one name, and a name two sites claim is what makes each of them
- * show its place, so the recorded line can be read straight off what the model hands out.
+ * Two held bindings hold a store of one name, and a name two sites claim is what makes each of
+ * them show its place, so the recorded line can be read straight off what the model hands out.
  */
 import { atom } from "nanostores";
 
 // @nanostores-devtools:throttle 250
 export const $frame = atom<number>(0);
 
-export function makeOne() {
-  return { $dup: atom<number>(1) };
-}
+export const one = {
+  $dup: atom<number>(1),
+};
 
-export function makeTwo() {
-  return { $dup: atom<number>(2) };
-}
-
-export const one = makeOne();
-export const two = makeTwo();
+export const two = {
+  $dup: atom<number>(2),
+};
 `,
 };
 
