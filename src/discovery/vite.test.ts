@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { build, createServer, type Plugin, type ViteDevServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { resetDevtoolsGlobal } from "../global.ts";
+import { peekDevtoolsGlobal, resetDevtoolsGlobal } from "../global.ts";
 import { listEntries, type StoreEntry } from "../stores/registry.ts";
 import { buildSnapshot } from "../redux/render.ts";
 import { labelled, panelNode } from "../testing/shapes.ts";
@@ -1147,5 +1147,158 @@ describe("a store an untransformed package handed back through a promise", () =>
         .map((entry) => entry.name)
         .sort(),
     ).toEqual(["$read", "$session"]);
+  });
+});
+
+/**
+ * A creation site is keyed by the name a call stands under plus its line, and a property names its
+ * call by the bare key rather than by the path. So two creator calls under one key name on one
+ * source line are one site holding two stores, and the second one is numbered. The same code over
+ * two lines is two sites, each holding one store and each numbered 1.
+ */
+const SITE_HOME = "fixture/site.ts";
+const SITE = `${FIXTURE_DIR}/site.ts`;
+
+const ONE_LINE = `export const panels = { left: { $open: atom(false) }, right: { $open: atom(true) } };\n`;
+
+const TWO_LINES =
+  `export const panels = {\n` +
+  `  left: { $open: atom(false) },\n` +
+  `  right: { $open: atom(true) },\n` +
+  `};\n`;
+
+const BOTH_PANELS = {
+  panels: {
+    left: { "$open [store]": false },
+    right: { "$open [store]": true },
+  },
+};
+
+describe("two creator calls under one key name", () => {
+  let server: ViteDevServer;
+
+  async function load(body: string): Promise<void> {
+    resetDevtoolsGlobal();
+    server = await devServer({ [SITE]: `import { atom } from "nanostores";\n${body}` }, SITE);
+  }
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /** One site made both, so the second store is told from the first by its number alone. */
+  it("draws both stores from one line, and numbers the second one", async () => {
+    await load(ONE_LINE);
+
+    expect(entryNamed("panels.left.$open")).toMatchObject({
+      number: 1,
+      place: null,
+      label: `${SITE_HOME}/panels.left.$open`,
+    });
+    expect(entryNamed("panels.right.$open")).toMatchObject({
+      number: 2,
+      place: null,
+      label: `${SITE_HOME}/panels.right.$open #2`,
+    });
+    expect(buildSnapshot()[SITE_HOME]).toEqual(BOTH_PANELS);
+  });
+
+  /** The same code over two lines: two sites, so both stores are the first of their own site. */
+  it("makes two sites of the same shape written over two lines, each numbered 1", async () => {
+    await load(TWO_LINES);
+
+    expect(entryNamed("panels.left.$open")).toMatchObject({
+      number: 1,
+      place: "line 3",
+      label: `${SITE_HOME}/panels.left.$open (line 3)`,
+    });
+    expect(entryNamed("panels.right.$open")).toMatchObject({
+      number: 1,
+      place: "line 4",
+      label: `${SITE_HOME}/panels.right.$open (line 4)`,
+    });
+    expect(buildSnapshot()[SITE_HOME]).toEqual(BOTH_PANELS);
+  });
+
+  /**
+   * A third site takes `$open` on the next line, which makes the name ambiguous. The two-store site
+   * is re-qualified by line, and it is `redisplay` walking the site's own list that carries the new
+   * part to both stores it had already registered.
+   */
+  it("re-qualifies both stores of the site once a later site takes the same name", async () => {
+    await load(`${ONE_LINE}export const more = { $open: atom(false) };\n`);
+
+    expect(entryNamed("panels.left.$open")).toMatchObject({
+      number: 1,
+      place: "line 2",
+      label: `${SITE_HOME}/panels.left.$open (line 2)`,
+    });
+    expect(entryNamed("panels.right.$open")).toMatchObject({
+      number: 2,
+      place: "line 2",
+      label: `${SITE_HOME}/panels.right.$open (line 2) #2`,
+    });
+    expect(entryNamed("more.$open")).toMatchObject({
+      number: 1,
+      place: "line 3",
+      label: `${SITE_HOME}/more.$open (line 3)`,
+    });
+  });
+});
+
+const PAIR_HOME = "fixture/pair.ts";
+const PAIR = `${FIXTURE_DIR}/pair.ts`;
+
+/** Every site of every module this run made, so a test can read what one site is holding. */
+function sitesMade(): { name: string; line: number; made: number; held: number }[] {
+  const scopes = peekDevtoolsGlobal()?.scopes.values() ?? [];
+
+  return [...scopes].flatMap((scope) =>
+    [...scope.sites.values()].map((state) => ({
+      name: state.name,
+      line: state.line,
+      made: state.made,
+      held: state.stores.length,
+    })),
+  );
+}
+
+describe("one store handed to two same-named keys on one line", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [PAIR]:
+          `import { atom, type Atom } from "nanostores";\n` +
+          `let cached: Atom<number> | null = null;\n` +
+          `function same(): Atom<number> { cached ??= atom(0); return cached; }\n` +
+          `export const pair = { a: { $s: same() }, b: { $s: same() } };\n`,
+      },
+      PAIR,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /**
+   * Both keys reach the one site, and the dedupe guard in `take` catches the second arrival. What
+   * the site made and what it holds is where that shows, so the test reads the site state itself.
+   */
+  it("holds the store once at the site both keys reach", () => {
+    expect(sitesMade()).toEqual([{ name: "$s", line: 4, made: 1, held: 1 }]);
+  });
+
+  it("draws the one store under both keys, and gives it one entry", () => {
+    expect(buildSnapshot()[PAIR_HOME]).toEqual({
+      "cached [store]": 0,
+      pair: { a: { "$s [store]": 0 }, b: { "$s [store]": 0 } },
+    });
+    expect(listEntries().map((entry) => entry.name)).toEqual(["cached"]);
   });
 });
