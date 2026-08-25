@@ -189,10 +189,15 @@ export function transformStores(input: TransformInput): StoreTransform {
   const adopts: Injection[] = [];
   const stack: Frame[] = [];
   /**
-   * Where a named binding's value starts, past every wrapper around it, and the name it is bound
-   * to. An array element has no key of its own, so it is named where the array itself is named.
+   * The whole span of a named binding's value, past every wrapper around it, and the name it is
+   * bound to. An array element has no key of its own, so it is named where the array itself is
+   * named.
+   *
+   * The span rather than the start, because a call whose callee is itself a call starts where that
+   * inner call starts: `query("rows").limit(10)` and `query("rows")` share their first character,
+   * and only the outer one is what the binding holds.
    */
-  const namedValues = new Map<number, string | null>();
+  const namedValues = new Map<string, string | null>();
   const open: number[] = [];
   const lines = lineStarts(input.code);
   /** The module's top-level bindings, in source order, for the scan the runtime walks at load. */
@@ -310,15 +315,15 @@ export function transformStores(input: TransformInput): StoreTransform {
    * are named by nothing, so the gate turns them away.
    */
   function readArray(node: ArrayExpression): void {
-    if (!namedValues.has(node.start)) {
+    if (!namedValues.has(spanKey(node))) {
       return;
     }
 
-    const base = namedValues.get(node.start) ?? null;
+    const base = namedValues.get(spanKey(node)) ?? null;
 
     node.elements.forEach((element, index) => {
       if (element !== null && element.type !== "SpreadElement") {
-        namedValues.set(bared(element).start, base === null ? null : `${base}[${index}]`);
+        namedValues.set(spanKey(bared(element)), base === null ? null : `${base}[${index}]`);
       }
     });
   }
@@ -329,17 +334,17 @@ export function transformStores(input: TransformInput): StoreTransform {
    * `foo({ $x: atom(0) })` hands the whole object away, so nothing there is anybody's to point at.
    */
   function readObject(node: ObjectExpression): void {
-    if (!namedValues.has(node.start)) {
+    if (!namedValues.has(spanKey(node))) {
       return;
     }
 
-    const named = namedValues.get(node.start) !== null;
+    const named = namedValues.get(spanKey(node)) !== null;
 
     for (const property of node.properties) {
       if (property.type === "Property") {
         const key = keyName(property.key, property.computed);
 
-        namedValues.set(bared(property.value).start, named ? key : null);
+        namedValues.set(spanKey(bared(property.value)), named ? key : null);
       }
     }
   }
@@ -350,19 +355,19 @@ export function transformStores(input: TransformInput): StoreTransform {
    *
    * A call passes on two counts. It sits directly in the module body, with no function frame and
    * no block frame anywhere under it, because a binding made inside either one dies there. And
-   * something the developer wrote names its own offset: a binding, a property of a held object, or
+   * something the developer wrote names its own span: a binding, a property of a held object, or
    * an index of a held array.
    *
    * A call that fails carries no name at all. It is still wrapped, so its kind is filed for the
    * scan to read back, and it registers nothing: a store nobody holds is a store nobody can point
    * at in their own source.
    */
-  function heldName(start: number): string | null {
+  function heldName(node: Span): string | null {
     if (stack.some((frame) => frame.fn || frame.block)) {
       return null;
     }
 
-    return namedValues.get(start) ?? null;
+    return namedValues.get(spanKey(node)) ?? null;
   }
 
   /**
@@ -441,7 +446,7 @@ export function transformStores(input: TransformInput): StoreTransform {
 
     const callee = node.callee.type === "Identifier" ? node.callee.name : undefined;
     const type = callee === undefined ? undefined : creators.get(callee);
-    const name = heldName(node.start);
+    const name = heldName(node);
 
     if (type !== undefined) {
       open.push(node.start);
@@ -662,7 +667,7 @@ export function transformStores(input: TransformInput): StoreTransform {
       if (node.init !== null) {
         const name = node.id.type === "Identifier" ? node.id.name : null;
 
-        namedValues.set(bared(node.init).start, name);
+        namedValues.set(spanKey(bared(node.init)), name);
       }
     },
     "VariableDeclarator:exit": pop,
@@ -812,6 +817,11 @@ function chainLink(node: Expression): ChainElement | undefined {
     node.type === "TSNonNullExpression"
     ? node
     : undefined;
+}
+
+/** A span as one map key, which tells two nodes apart where they start at the same character. */
+function spanKey(node: Span): string {
+  return `${node.start}:${node.end}`;
 }
 
 function bared(node: Written): Written {

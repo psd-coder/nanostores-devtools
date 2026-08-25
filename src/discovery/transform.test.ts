@@ -700,7 +700,7 @@ describe("an awaited call", () => {
 
     expect(output(result)).toContain(
       `const $x = __nsdt.adopt(await __nsdt.adopt(load(), ` +
-        `{"name":"$x","line":2,"type":"unknown"})(1), {"name":"$x","line":2,"type":"unknown"});`,
+        `{"name":null,"line":2,"type":"unknown"})(1), {"name":"$x","line":2,"type":"unknown"});`,
     );
   });
 
@@ -714,6 +714,36 @@ describe("an awaited call", () => {
       `const $x = __nsdt.adopt(await wrap(__nsdt.adopt(await load(), ` +
         `{"name":null,"line":3,"type":"unknown"})), {"name":"$x","line":3,"type":"unknown"});`,
     );
+  });
+});
+
+/**
+ * `load()(1)` is two calls starting at the same character, and the binding holds only the outer
+ * one. A builder such as `query("rows").limit(10)` is the same shape through a member callee, and
+ * there both calls really do hand back a store.
+ */
+describe("a call whose callee is itself a call", () => {
+  const LOADED = `import { load } from "./load.ts";\n`;
+
+  it("names the outer call and leaves the inner one nameless", () => {
+    const result = transform(`${LOADED}const $x = load()(1);\n`);
+
+    expect(output(result)).toContain(
+      `const $x = __nsdt.adopt(__nsdt.adopt(load(), ` +
+        `{"name":null,"line":2,"type":"unknown"})(1), {"name":"$x","line":2,"type":"unknown"});`,
+    );
+  });
+
+  it("does the same where an await stands over the pair", () => {
+    const result = transform(`${LOADED}const $x = await load()(1);\n`);
+
+    expect(metas(result).map((site) => site.name)).toEqual([null, "$x"]);
+  });
+
+  it("names only the outer call of a builder chain, where the callee is a member", () => {
+    const result = transform(`${LOADED}const $rows = load("rows").limit(10);\n`);
+
+    expect(metas(result).map((site) => site.name)).toEqual([null, "$rows"]);
   });
 });
 
@@ -848,10 +878,10 @@ describe("an optional chain", () => {
   });
 
   it("wraps a call standing under every `?.`, which the chain runs whatever happens", () => {
-    const result = transform(`const x = f()?.b().c;\n`);
+    const result = transform(`import { f } from "./f.ts";\nconst x = f()?.b().c;\n`);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt(f(), {"name":"x","line":1,"type":"unknown"})?.b().c;`,
+      `__nsdt.adopt(f(), {"name":null,"line":2,"type":"unknown"})?.b().c;`,
     );
   });
 
@@ -871,19 +901,24 @@ describe("an optional chain", () => {
   });
 
   it("wraps a call outside the parentheses that ended the chain", () => {
-    const result = transform(`const x = (a?.b)().c;\n`);
+    const result = transform(`const x = (a?.b)();\n`);
 
     expect(output(result)).toContain(
-      `__nsdt.adopt((a?.b)(), {"name":"x","line":1,"type":"unknown"}).c;`,
+      `__nsdt.adopt((a?.b)(), {"name":"x","line":1,"type":"unknown"});`,
     );
   });
 
-  it("wraps a chain that is not optional the way it always did", () => {
-    const result = transform(`const x = a.b().c;\n`);
+  /**
+   * The binding holds `.c` of what the call handed back, never the call itself, so the name lands
+   * on the member expression and no call takes it. A callee the file never imported then leaves
+   * nothing to wrap either, whether or not the chain that reached it was optional.
+   */
+  it("names no call where the binding reads a member off the one the chain ends on", () => {
+    const result = transform(`const x = a.b().c;\nconst y = (a?.b)().c;\n`);
 
-    expect(output(result)).toContain(
-      `__nsdt.adopt(a.b(), {"name":"x","line":1,"type":"unknown"}).c;`,
-    );
+    expect(output(result)).toContain(`const x = a.b().c;`);
+    expect(output(result)).toContain(`const y = (a?.b)().c;`);
+    expect(metas(result)).toEqual([]);
   });
 });
 

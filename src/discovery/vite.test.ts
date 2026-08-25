@@ -1247,6 +1247,53 @@ describe("two creator calls under one key name", () => {
   });
 });
 
+/**
+ * A builder hands back a store at every step, and `query("rows")` starts at the same character as
+ * `query("rows").limit(10)` that stands over it. Only the last step is the value the key holds, so
+ * only that step is named, only that store registers, and the site holds one store rather than
+ * two. The steps before it are throwaways the key never reaches, and they draw nowhere.
+ */
+const BUILDER_HOME = "fixture/builder.ts";
+const BUILDER = `${FIXTURE_DIR}/builder.ts`;
+
+describe("a builder whose every step hands back a store", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [`${FIXTURE_DIR}/query.ts`]:
+          `import { atom } from "nanostores";\n` +
+          `export function query(name) {\n` +
+          `  const $step = atom({ name, limit: 0 });\n` +
+          `  $step.limit = (limit) => atom({ name, limit });\n` +
+          `  return $step;\n` +
+          `}\n`,
+        [BUILDER]:
+          `import { query } from "./query.ts";\n` +
+          `export const rows = { $data: query("rows").limit(10) };\n`,
+      },
+      BUILDER,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("registers the step the key holds, and nothing under a number", () => {
+    expect(listEntries().map((entry) => entry.label)).toEqual([`${BUILDER_HOME}/rows.$data`]);
+  });
+
+  it("draws that one store under its key, and the first step nowhere", () => {
+    expect(buildSnapshot()[BUILDER_HOME]).toEqual({
+      rows: { "$data [store]": { name: "rows", limit: 10 } },
+    });
+  });
+});
+
 const PAIR_HOME = "fixture/pair.ts";
 const PAIR = `${FIXTURE_DIR}/pair.ts`;
 
