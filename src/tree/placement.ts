@@ -1,6 +1,6 @@
 import type { Store } from "nanostores";
 
-import { type BoundName, type NodeInfo, peekDevtoolsGlobal } from "../global.ts";
+import { type BoundName, type MemberCount, type NodeInfo, peekDevtoolsGlobal } from "../global.ts";
 import { getEntry, isStore, type StoreEntry } from "../stores/registry.ts";
 import { primaryName } from "../stores/ownership.ts";
 
@@ -104,4 +104,12 @@ export function drawnParents(info: NodeInfo): object[] {
 /** What the tree knows about a value it drew as a node, or nothing for a value it never walked. */
 export function nodeInfoOf(value: object): NodeInfo | undefined {
   return peekDevtoolsGlobal()?.nodes.get(value);
+}
+
+/**
+ * How many of a store's own members the walk drew and left out. A store the walk never looked
+ * inside had nothing cut, so it reads as none rather than as missing.
+ */
+export function memberCountOf(store: Store): MemberCount {
+  return peekDevtoolsGlobal()?.members.get(store) ?? { walked: 0, skipped: 0 };
 }

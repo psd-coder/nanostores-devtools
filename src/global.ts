@@ -152,6 +152,9 @@ export type NodeInfo = {
 /** What each walked value stands for in the tree. Weak, so devtools keeps no instance alive. */
 export type Nodes = WeakMap<object, NodeInfo>;
 
+/** How many of one value's members the walk drew, and how many its cap left out. */
+export type MemberCount = Pick<NodeInfo, "walked" | "skipped">;
+
 export type DevtoolsGlobal = {
   entries: Map<Store, StoreEntry>;
   /** Which store holds each name, keyed by the name key the registry builds. */
@@ -187,6 +190,11 @@ export type DevtoolsGlobal = {
   bound: WeakMap<Store, BoundName[]>;
   /** The nodes drawing has made, which hold stores the registry keeps no place for. */
   nodes: Nodes;
+  /**
+   * How many of each store's own members the walk drew and left out. A store holds a place of its
+   * own and never becomes a node, so `nodes` has nowhere to keep this.
+   */
+  members: WeakMap<Store, MemberCount>;
   session?: Session | undefined;
 };
 
@@ -227,6 +235,7 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     keyed: new WeakMap(),
     bound: new WeakMap(),
     nodes: new WeakMap(),
+    members: new WeakMap(),
   };
 
   holder()[GLOBAL_KEY] = created;

@@ -1,4 +1,5 @@
 import { DRAWN_UNDER_KEY, MORE_KEY, noted, VALUE_KEY } from "./keys.ts";
+import type { MemberCount } from "../global.ts";
 import { noteFor } from "./boxing.ts";
 import { keepBuilt, mark } from "./marker.ts";
 import { qualify } from "../stores/labels.ts";
@@ -46,25 +47,36 @@ function renderNodes(nodes: readonly TreeNode[]): Record<string, unknown> {
   return drawn;
 }
 
-/**
- * A store that owns nothing is drawn as v1 draws it: its name, its value. One that owns others
- * becomes a node holding its own value under `(value)`.
- *
- * Only a store that owns something is wrapped. A value with nothing under it would gain a nesting
- * level for nothing.
- */
 function renderNode(node: TreeNode): unknown {
   if (node.kind === "repeat") {
     return renderSlot(node);
   }
 
   if (node.kind === "store") {
-    return node.children.length === 0
-      ? renderSlot(node)
-      : keepBuilt({ [VALUE_KEY]: renderSlot(node), ...renderNodes(node.children) });
+    return renderStore(node);
   }
 
   return renderHolder(node);
+}
+
+/**
+ * A store that owns nothing and had nothing cut is drawn as v1 draws it: its name, its value. One
+ * that owns others, or whose own members a cap cut, becomes a node holding its value under
+ * `(value)`.
+ *
+ * Only such a store is wrapped. A value with nothing under it would gain a nesting level for
+ * nothing.
+ */
+function renderStore(node: StoreNode): unknown {
+  if (node.children.length === 0 && node.skipped === 0) {
+    return renderSlot(node);
+  }
+
+  const drawn = renderNodes(node.children);
+
+  noteLeftOut(drawn, node);
+
+  return keepBuilt({ [VALUE_KEY]: renderSlot(node), ...drawn });
 }
 
 function renderHolder(node: HolderNode): unknown {
@@ -89,15 +101,25 @@ function renderHeld(node: HolderNode): Record<string, unknown> {
 
   const drawn = renderNodes(node.children);
 
-  if (node.skipped > 0) {
-    /** Nothing is ever left out but by a cap, so the walked count is the number that cap named. */
-    drawn[MORE_KEY] = mark(
-      `${node.skipped} more members left out by \`@nanostores-devtools:max-members ${node.walked}\``,
-      {},
-    );
-  }
+  noteLeftOut(drawn, node);
 
   return drawn;
+}
+
+/**
+ * The one line a cap leaves behind, worded in one place, so a store says it the way an array and a
+ * plain object do. Nothing is ever left out but by a cap, so the walked count is the number that
+ * cap named.
+ */
+function noteLeftOut(drawn: Record<string, unknown>, counts: MemberCount): void {
+  if (counts.skipped === 0) {
+    return;
+  }
+
+  drawn[MORE_KEY] = mark(
+    `${counts.skipped} more members left out by \`@nanostores-devtools:max-members ${counts.walked}\``,
+    {},
+  );
 }
 
 function renderSlot(node: StoreNode | RepeatNode): unknown {

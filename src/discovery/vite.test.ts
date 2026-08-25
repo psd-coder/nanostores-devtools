@@ -652,6 +652,67 @@ describe("a binding a max-members comment stands over", () => {
   });
 });
 
+const STORE_CAP_HOME = "fixture/store-capped.js";
+const STORE_CAP = `${FIXTURE_DIR}/store-capped.js`;
+
+describe("a store the same comment caps", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [STORE_CAP]:
+          `import { atom } from "nanostores";\n` +
+          `// @nanostores-devtools:max-members 2\n` +
+          `export const $user = Object.assign(atom({ id: 1 }), {\n` +
+          `  $name: Object.assign(atom("nan"), {\n` +
+          `    $first: atom("na"), $last: atom("no"), $middle: atom("n"),\n` +
+          `  }),\n` +
+          `  $email: atom("n@n"),\n` +
+          `  $phone: atom("0"),\n` +
+          `});\n`,
+      },
+      STORE_CAP,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  it("draws its value, the members the comment named and a note that names the comment", () => {
+    const user = buildSnapshot()[STORE_CAP_HOME]?.["$user [store]"] as Record<string, unknown>;
+
+    expect(Object.keys(user)).toEqual(["(value)", "$email [store]", "$name [store]", "…"]);
+    expect(user["…"]).toEqual({
+      data: {},
+      __serializedType__: "1 more members left out by `@nanostores-devtools:max-members 2`",
+    });
+  });
+
+  /** The number bounds the whole binding, so a store held by a store takes the same two. */
+  it("caps a store a capped store holds, and words its note the same", () => {
+    const user = buildSnapshot()[STORE_CAP_HOME]?.["$user [store]"] as Record<string, unknown>;
+    const name = user["$name [store]"] as Record<string, unknown>;
+
+    expect(Object.keys(name)).toEqual(["(value)", "$first [store]", "$last [store]", "…"]);
+    expect(name["…"]).toEqual({
+      data: {},
+      __serializedType__: "1 more members left out by `@nanostores-devtools:max-members 2`",
+    });
+  });
+
+  it("registers no member past the number, at either depth", () => {
+    expect(
+      listEntries()
+        .map((entry) => entry.name)
+        .sort(),
+    ).toEqual(["$user", "$user.$email", "$user.$name", "$user.$name.$first", "$user.$name.$last"]);
+  });
+});
+
 const SPREAD_HOME = "fixture/spread.js";
 const SPREAD = `${FIXTURE_DIR}/spread.js`;
 

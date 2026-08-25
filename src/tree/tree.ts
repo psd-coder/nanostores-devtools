@@ -3,6 +3,7 @@ import {
   boundNames,
   drawnOwners,
   drawnParents,
+  memberCountOf,
   nodeInfoOf,
   placedByDeveloper,
 } from "./placement.ts";
@@ -38,6 +39,10 @@ export type StoreNode = {
   qualifier: NameParts | null;
   /** Which of several siblings that still want this name, or `null` for the only one. */
   ordinal: number | null;
+  /** Own members the ownership walk drew, so the note about the rest can name that number. */
+  walked: number;
+  /** Own members the ownership walk left out, `0` when it walked them all. */
+  skipped: number;
   slot: Slot;
   children: TreeNode[];
 };
@@ -447,6 +452,7 @@ function storeNode(
     name,
     qualifier,
     ordinal: null,
+    ...memberCountOf(held.entry.store),
     slot: staleNote(held.entry.store, held.entry),
   };
 

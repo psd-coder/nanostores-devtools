@@ -358,8 +358,17 @@ function walk(
     return;
   }
 
-  /** A store already holds a place of its own, so only another kind of value becomes a node. */
-  if (!isStore(value)) {
+  /**
+   * A store already holds a place of its own, so only another kind of value becomes a node. Its
+   * counts are still kept beside it, or a cap would cut a store's own members and say nothing.
+   * Written on every walk, so a reload that drops the comment clears the number it left behind.
+   */
+  if (isStore(value)) {
+    getDevtoolsGlobal().members.set(value, {
+      walked: members.drawn.length,
+      skipped: members.past.length,
+    });
+  } else {
     makeNode(scan.module, value, owner, {
       home: scan.module.home,
       external: scan.module.external,
