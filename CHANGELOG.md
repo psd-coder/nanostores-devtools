@@ -24,10 +24,12 @@ the end of the file, which registers every store it walks to under the whole cha
   `$all[0]/set`, and `$x/set` becomes `config.theme.$x/set`. The tree still draws one key per
   level. Where two chains of yours reach one store, the row heads with the first and the change
   lists the rest under `also`.
-- **A store replaced at the key that held it loses that key and draws flat at its own file.** It is
-  still drawn: one owner and one key name one store, so the store that was there before keeps its
-  entry and moves out from under the owner. A replacement written in the same file is the one case
-  that does vanish, because the new store takes the old one's name.
+- **A store replaced at the key that held it loses that key and draws flat at its own file.** One
+  owner and one key name one store, so the store that was there before keeps its entry and moves
+  out from under the owner. It survives if, and only if, it was registered before it lost the key.
+  A store built at a key the plugin names, `holder = { $x: atom(0) }`, is registered and stays. A
+  store only a member assignment ever put there, `holder.$x = atom(0)`, never had an entry, so
+  after a second assignment to that key it is drawn nowhere.
 - Nothing caps how many stores one creation site may hold any more.
 
 ### Removed
