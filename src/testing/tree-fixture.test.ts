@@ -325,6 +325,22 @@ describe("the fixture drawn by the shipped code", () => {
     expect(homeOf(EDITOR_HOME)["hidden"]).toBeUndefined();
   });
 
+  /**
+   * An instance nothing in the source names. The store its field holds is bound, so that draws
+   * flat, and the instance around it becomes a node the tree has to name itself: `ref`, tight
+   * against the number that says which one. The number runs across the whole file rather than per
+   * class, so an instance of a second class takes `#2`.
+   */
+  it("names a node nothing else names `ref`, and numbers it across the file", () => {
+    const editor = homeOf(EDITOR_HOME);
+
+    expect(editor["ref#1"]).toEqual(labelled("Editor", { "$solo [store]": "" }));
+    expect(editor["ref#2"]).toEqual(labelled("Viewer", { "$soloZoom [store]": 1 }));
+    /** The store keeps its flat slot under the binding, so the node is a second reference. */
+    expect(editor["$solo [store]"]).toBe("");
+    expect(editor["$soloZoom [store]"]).toBe(1);
+  });
+
   it("attributes a factory result once the parse gate is widened", () => {
     const workspace = homeOf(WORKSPACE_HOME);
 
@@ -413,13 +429,13 @@ describe("the draw-once invariant", () => {
   it("draws every store it draws at all once per reference the developer wrote", () => {
     /** No note anywhere: nothing in the fixture asks for a number, so nothing is left out. */
     expect(JSON.stringify(buildSnapshot()).split('"…"').length - 1).toBe(0);
-    expect(listEntries()).toHaveLength(103);
+    expect(listEntries()).toHaveLength(105);
 
     const counts = countPlacements();
     const placements = [...counts.values()];
 
-    /** One label per entry, so a label two entries shared would drop the count below 103. */
-    expect(counts.size).toBe(103);
+    /** One label per entry, so a label two entries shared would drop the count below 105. */
+    expect(counts.size).toBe(105);
     /**
      * Nothing is registered and drawn nowhere. Every store the registry holds is one a name of the
      * developer's own reaches, so the tree has a place for all of them. The stores that used to sit
@@ -430,10 +446,10 @@ describe("the draw-once invariant", () => {
     /**
      * Draw-once: a store is drawn once for each reference the developer wrote and never twice for
      * one. A name they bound and a container they put it in are both references, so a store with a
-     * flat name and one owner draws twice, and one with three references draws three times. All 103
-     * draw at all, and 116 counts every repeat beside them.
+     * flat name and one owner draws twice, and one with three references draws three times. All 105
+     * draw at all, and 120 counts every repeat beside them.
      */
-    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(116);
+    expect(placements.reduce((sum, times) => sum + times, 0)).toBe(120);
     expect(
       [...counts]
         .filter(([, times]) => times > 1)
@@ -446,6 +462,9 @@ describe("the draw-once invariant", () => {
       /** Bound flat, and held by two containers, so three references and three placements. */
       `${EDITOR_HOME}/$ratio x3`,
       `${EDITOR_HOME}/$scratch x2`,
+      /** Bound flat, and held by an instance nothing names, which is the node drawn as `ref#N`. */
+      `${EDITOR_HOME}/$solo x2`,
+      `${EDITOR_HOME}/$soloZoom x2`,
       `${EDITOR_HOME}/$width x2`,
       `${MODEL_HOME}/$canRedo x2`,
       `${MODEL_HOME}/$canUndo x2`,

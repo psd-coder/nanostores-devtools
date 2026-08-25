@@ -341,6 +341,14 @@ export const hidden = new WeakMap<object, Editor | Viewer>([
   [{}, new Editor("hidden")],
   [{}, new Viewer()],
 ]);
+
+/**
+ * An instance no binding holds. Only the store off its field is bound, so the walk starts at the
+ * store and the instance around it is named by nothing at all. Two of them, of two classes, because
+ * the number that tells such nodes apart runs across the whole file rather than per class.
+ */
+export const $solo = new Editor("solo").$value;
+export const $soloZoom = new Viewer().$zoom;
 `,
 
   [`${APP_DIR}/panel.ts`]: `
