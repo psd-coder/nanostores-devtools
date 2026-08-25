@@ -199,8 +199,11 @@ export type DevtoolsGlobal = {
 };
 
 /**
- * The marker is the shape of what sits behind the key, not the package version, so two
- * copies of the same major share one registry instead of drawing half a tree each.
+ * One key for a whole major, not one per shape and not one per package version, so two copies of
+ * the same major share one registry instead of drawing half a tree each. Whichever copy loads
+ * first makes the object, so a copy that knows a field added later can meet an object built
+ * without it. Both calls below fill in the fields the object behind the key lacks before they
+ * hand it back, which is what lets the shape grow behind this one key.
  *
  * That promise is what keeps the shape here: everything two copies must agree on sits behind this
  * one key, and this file states that shape in full, so one read shows the whole agreement. A type
@@ -208,21 +211,23 @@ export type DevtoolsGlobal = {
  */
 export const GLOBAL_KEY: unique symbol = Symbol.for("nanostores-devtools/v1");
 
-type GlobalHolder = { [GLOBAL_KEY]?: DevtoolsGlobal };
+/**
+ * What sits behind the key is whatever copy of the package got there first, so it holds the shape
+ * that copy shipped with and no more. Every field is read through `fill`, which makes it whole.
+ */
+type GlobalHolder = { [GLOBAL_KEY]?: Partial<DevtoolsGlobal> };
 
 /** The one cast in the package: `globalThis` cannot be typed with a symbol key any other way. */
 function holder(): GlobalHolder {
   return globalThis as GlobalHolder;
 }
 
-export function getDevtoolsGlobal(): DevtoolsGlobal {
-  const existing = holder()[GLOBAL_KEY];
-
-  if (existing) {
-    return existing;
-  }
-
-  const created: DevtoolsGlobal = {
+/**
+ * The whole shape, empty, in one list. A field written here is a field every copy of the package
+ * gets, on a global this copy made and on one an older copy left behind alike.
+ */
+function createGlobal(): DevtoolsGlobal {
+  return {
     entries: new Map(),
     byName: new Map(),
     nextId: 1,
@@ -237,8 +242,39 @@ export function getDevtoolsGlobal(): DevtoolsGlobal {
     nodes: new WeakMap(),
     members: new WeakMap(),
   };
+}
+
+/** The global this copy has already filled in, so a read costs one comparison and nothing more. */
+let filled: DevtoolsGlobal | undefined;
+
+/**
+ * The object behind the key with every field of today's shape on it. An older copy built it from
+ * the list it shipped with, so a field added since then is missing and the first read of it would
+ * throw. Filled in place and never replaced, because both copies hold this one object.
+ */
+function fill(existing: Partial<DevtoolsGlobal>): DevtoolsGlobal {
+  const known = filled;
+
+  if (known !== undefined && known === existing) {
+    return known;
+  }
+
+  filled = Object.assign(existing, { ...createGlobal(), ...existing });
+
+  return filled;
+}
+
+export function getDevtoolsGlobal(): DevtoolsGlobal {
+  const existing = holder()[GLOBAL_KEY];
+
+  if (existing) {
+    return fill(existing);
+  }
+
+  const created = createGlobal();
 
   holder()[GLOBAL_KEY] = created;
+  filled = created;
 
   return created;
 }
@@ -267,10 +303,14 @@ export function scopeOf(moduleKey: string): ModuleScope {
   return created;
 }
 
+/** Whatever sits behind the key, made whole, and nothing while no copy has made one yet. */
 export function peekDevtoolsGlobal(): DevtoolsGlobal | undefined {
-  return holder()[GLOBAL_KEY];
+  const existing = holder()[GLOBAL_KEY];
+
+  return existing === undefined ? undefined : fill(existing);
 }
 
 export function resetDevtoolsGlobal(): void {
+  filled = undefined;
   delete holder()[GLOBAL_KEY];
 }
