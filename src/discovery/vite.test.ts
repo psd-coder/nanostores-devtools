@@ -913,3 +913,102 @@ describe("the rows the gate reaches by another route", () => {
     });
   });
 });
+
+/**
+ * One owner and one key name one store. When a second store lands at a key another store already
+ * sits at, the first one loses its link to that owner. It keeps its entry, so whether it draws at
+ * all comes down to whether it had registered before it lost the key.
+ */
+const OWNER_HOME = "fixture/owner.js";
+const OWNER = `${FIXTURE_DIR}/owner.js`;
+const REPLACER = `${FIXTURE_DIR}/replacer.js`;
+const REPLACED_APP = `${FIXTURE_DIR}/replaced.js`;
+
+describe("a store another file replaced at the key that held it", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      {
+        [OWNER]:
+          `import { atom } from "nanostores";\n` + `export const holder = { $x: atom(0) };\n`,
+        [REPLACER]:
+          `import { atom } from "nanostores";\n` +
+          `import { holder } from "./owner.js";\n` +
+          `holder.$x = atom(1);\n` +
+          `export const box = holder;\n`,
+        [REPLACED_APP]: `import "./replacer.js";\n`,
+      },
+      REPLACED_APP,
+    );
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /**
+   * The replaced store registered under `holder.$x` while the first file's scan ran, so it still
+   * draws, flat, under the path it had then. `box` draws nothing: the first path to reach a store
+   * is the one that heads it, and import order must not move that row.
+   */
+  it("draws the store that is there now under the binding, and the old one flat beside it", () => {
+    expect(buildSnapshot()).toEqual({
+      [OWNER_HOME]: {
+        holder: { "$x [store]": 1 },
+        "holder.$x [store]": 0,
+      },
+    });
+  });
+});
+
+const REPLACED_HOME = "fixture/same-key.js";
+const REPLACED = `${FIXTURE_DIR}/same-key.js`;
+
+describe("a store the same file replaced at the key that held it", () => {
+  let server: ViteDevServer;
+
+  async function load(body: string): Promise<void> {
+    resetDevtoolsGlobal();
+    server = await devServer(
+      { [REPLACED]: `import { atom } from "nanostores";\n${body}` },
+      REPLACED,
+    );
+  }
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /**
+   * A key of an object literal under a held binding is a named creation site, so the first store
+   * was registered before the assignment took its key away. It keeps its own name and draws flat.
+   */
+  it("keeps the old store drawn when an object literal made it", async () => {
+    await load(`export const holder = { $x: atom(0) };\nholder.$x = atom(1);\n`);
+
+    expect(buildSnapshot()).toEqual({
+      [REPLACED_HOME]: {
+        "$x [store]": 0,
+        holder: { "$x [store]": 1 },
+      },
+    });
+  });
+
+  /**
+   * Both stores land by member assignment, which registers nothing on its own: only the scan at the
+   * end of the body registers, and by then the key holds the second store. The first never had an
+   * entry to keep.
+   */
+  it("draws the old store nowhere when a member assignment made it", async () => {
+    await load(
+      `const holder = {};\nholder.$x = atom(0);\nholder.$x = atom(1);\nexport { holder };\n`,
+    );
+
+    expect(buildSnapshot()).toEqual({ [REPLACED_HOME]: { holder: { "$x [store]": 1 } } });
+    expect(listEntries()).toHaveLength(1);
+  });
+});
