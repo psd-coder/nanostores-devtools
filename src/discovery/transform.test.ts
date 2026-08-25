@@ -662,6 +662,59 @@ describe("an awaited call", () => {
 
     expect(metas(result)).toEqual([{ name: "$x", line: 2, type: "unknown", throttle: 100 }]);
   });
+
+  /**
+   * The wrapper is handed the store the promise settled on. Inside the await it would be handed
+   * the promise, which is no store, and the call would file no kind at all.
+   */
+  it("writes the wrapper around the await, not inside it", () => {
+    const result = transform(AWAITED);
+
+    expect(output(result)).toContain(
+      `const $x = __nsdt.adopt(await load(), {"name":"$x","line":1,"type":"unknown"});`,
+    );
+  });
+
+  it("writes the wrapper around the call itself where no await stands over it", () => {
+    const result = transform(`const $x = load();\n`);
+
+    expect(output(result)).toContain(
+      `const $x = __nsdt.adopt(load(), {"name":"$x","line":1,"type":"unknown"});`,
+    );
+  });
+
+  it("writes the creator wrap around the await too", () => {
+    const result = transform(`import { atom } from "nanostores";\nconst $x = await atom(0);\n`);
+
+    expect(output(result)).toContain(
+      `const $x = __nsdt.store(await atom(0), {"name":"$x","line":2,"type":"atom"});`,
+    );
+  });
+
+  /**
+   * The two calls of a chain start at the same offset, and only the outer one ends where the
+   * await does. So the inner one keeps its own wrapper around itself.
+   */
+  it("gives the await to the call that ends where the await ends, not to the one under it", () => {
+    const result = transform(`import { load } from "./load.ts";\nconst $x = await load()(1);\n`);
+
+    expect(output(result)).toContain(
+      `const $x = __nsdt.adopt(await __nsdt.adopt(load(), ` +
+        `{"name":"$x","line":2,"type":"unknown"})(1), {"name":"$x","line":2,"type":"unknown"});`,
+    );
+  });
+
+  it("wraps each await of a nested pair around its own call", () => {
+    const result = transform(
+      `import { wrap } from "./wrap.ts";\nimport { load } from "./load.ts";\n` +
+        `const $x = await wrap(await load());\n`,
+    );
+
+    expect(output(result)).toContain(
+      `const $x = __nsdt.adopt(await wrap(__nsdt.adopt(await load(), ` +
+        `{"name":null,"line":3,"type":"unknown"})), {"name":"$x","line":3,"type":"unknown"});`,
+    );
+  });
 });
 
 describe("a call no name reaches", () => {

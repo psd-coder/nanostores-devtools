@@ -2,6 +2,7 @@ import { MagicString, type SourceMap } from "magic-string";
 import type {
   ArrayExpression,
   AssignmentTargetMaybeDefault,
+  AwaitExpression,
   BindingPattern,
   BindingRestElement,
   CallExpression,
@@ -207,6 +208,12 @@ export function transformStores(input: TransformInput): StoreTransform {
    * end offset, because every link of one chain starts where the chain itself starts.
    */
   const chained = new Set<number>();
+  /**
+   * The await standing over a call, keyed by where that call ends. The end tells the calls of one
+   * chain apart: `await load()(1)` is two calls starting at the same offset, and only the outer one
+   * ends where the await does.
+   */
+  const awaited = new Map<number, Span>();
 
   /** Whether this offset stands inside a statement the developer kept out of the devtools. */
   function isIgnored(start: number): boolean {
@@ -405,6 +412,14 @@ export function transformStores(input: TransformInput): StoreTransform {
     }
   }
 
+  /**
+   * The call under an await, found the way a name written over the await finds it. The await is
+   * visited before that call, so the span is written down before the wrapper asks for it.
+   */
+  function readAwait(node: AwaitExpression): void {
+    awaited.set(bared(node.argument).end, { start: node.start, end: node.end });
+  }
+
   function readCall(node: CallExpression): void {
     /** Ignored: no wrapper of any kind reaches a store this statement makes. */
     if (isIgnored(node.start)) {
@@ -431,8 +446,7 @@ export function transformStores(input: TransformInput): StoreTransform {
     if (type !== undefined) {
       open.push(node.start);
       wraps.push({
-        start: node.start,
-        end: node.end,
+        ...wrapSpan(node),
         call: "store",
         site: siteAt(node.start, name, type),
         self: currentSelf(),
@@ -464,12 +478,20 @@ export function transformStores(input: TransformInput): StoreTransform {
 
   function adopt(node: CallExpression, name: string | null, kind: StoreType | undefined): void {
     adopts.push({
-      start: node.start,
-      end: node.end,
+      ...wrapSpan(node),
       call: "adopt",
       site: siteAt(node.start, name, kind ?? "unknown"),
       self: false,
     });
+  }
+
+  /**
+   * Where the wrapper is written: around the await where the call stands under one, so what
+   * reaches the wrapper is the value the promise settled on rather than the promise. The line and
+   * the throttle comment are still read off the call, so a name over the await keeps naming it.
+   */
+  function wrapSpan(node: CallExpression): Span {
+    return awaited.get(node.end) ?? { start: node.start, end: node.end };
   }
 
   /**
@@ -626,6 +648,7 @@ export function transformStores(input: TransformInput): StoreTransform {
     /** A `switch` body is a scope of its own, and it is no `BlockStatement`. */
     SwitchStatement: pushBlock,
     "SwitchStatement:exit": pop,
+    AwaitExpression: readAwait,
     CallExpression: readCall,
     "CallExpression:exit"(node) {
       if (open.at(-1) === node.start) {

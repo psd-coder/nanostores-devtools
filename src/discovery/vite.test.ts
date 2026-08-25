@@ -1012,3 +1012,79 @@ describe("a store the same file replaced at the key that held it", () => {
     expect(listEntries()).toHaveLength(1);
   });
 });
+
+/**
+ * The package is a bare id with no file extension, which the plugin transforms nothing of. So no
+ * wrapper inside it files a kind, and the only kind a store from it can carry is the one the
+ * package map names for the call that handed it over.
+ */
+const ASYNC_PKG = "async-pkg";
+const AWAITED_HOME = "fixture/awaited.ts";
+const AWAITED_APP = `${FIXTURE_DIR}/awaited.ts`;
+
+const AWAITED_FILES: Record<string, string> = {
+  [ASYNC_PKG]:
+    `import { map } from "nanostores";\n` +
+    `export async function loadSession() {\n` +
+    `  return map({ user: "ada" });\n` +
+    `}\n` +
+    `export function readSession() {\n` +
+    `  return map({ user: "grace" });\n` +
+    `}\n` +
+    `export async function loadConfig() {\n` +
+    `  return { dark: true };\n` +
+    `}\n`,
+  [AWAITED_APP]:
+    `import { loadSession, readSession, loadConfig } from "${ASYNC_PKG}";\n` +
+    `export const $session = await loadSession();\n` +
+    `export const $read = readSession();\n` +
+    `export const config = await loadConfig();\n`,
+};
+
+describe("a store an untransformed package handed back through a promise", () => {
+  let server: ViteDevServer;
+
+  beforeEach(async () => {
+    resetDevtoolsGlobal();
+    server = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root: PROJECT_ROOT,
+      plugins: [
+        nanostoresDevtools({
+          storeTypes: { [ASYNC_PKG]: { loadSession: "map", readSession: "map" } },
+        }),
+        memoryFixture(AWAITED_FILES),
+      ],
+      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
+    });
+
+    await server.ssrLoadModule(AWAITED_APP);
+  });
+
+  afterEach(async () => {
+    await server.close();
+    resetDevtoolsGlobal();
+  });
+
+  /** The wrapper sits outside the await, so it is handed the store and not the promise. */
+  it("carries the kind the package map gives the call, rather than `unknown`", () => {
+    expect(entryNamed("$session")).toMatchObject({ home: AWAITED_HOME, type: "map" });
+  });
+
+  it("draws its value, because the kind settled what it holds", () => {
+    expect(buildSnapshot()[AWAITED_HOME]?.["$session [map]"]).toEqual({ user: "ada" });
+  });
+
+  it("changes nothing for the same package call written without an await", () => {
+    expect(entryNamed("$read")).toMatchObject({ home: AWAITED_HOME, type: "map" });
+  });
+
+  it("registers nothing for an awaited call that hands back no store", () => {
+    expect(
+      listEntries()
+        .map((entry) => entry.name)
+        .sort(),
+    ).toEqual(["$read", "$session"]);
+  });
+});
