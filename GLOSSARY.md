@@ -207,7 +207,8 @@ string.
 
 **Member** — one key and one value inside a value the **binding scan** walked. It is not a
 **binding**: a binding is a name the module's own source writes, while a member is a name the value
-carries.
+carries. A `max-members` comment can leave members out of that scan. When it caps a store's own
+members, the tree places the store value under `(value)` and adds `…` beside it.
 
 **`this` in a class field** — a field initializer runs with `this` bound to the new instance, so
 the transform hands it over and the instance is recorded as what holds the store. A static field's

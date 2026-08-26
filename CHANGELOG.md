@@ -16,7 +16,8 @@ the end of the file, which registers every store it walks to under the whole cha
 - The walk goes ten levels into a binding instead of three, and the new `maxDepth` plugin option
   moves that.
 - `// @nanostores-devtools:max-members <n>` caps how much of one binding the scan walks, at every
-  depth of it, and a member past the number is not registered at all.
+  depth of it. A member past the number is not reached by that scan. A cap on a store's own members
+  puts its value under `(value)` and adds a `…` note with the omitted count.
 
 ### Changed
 

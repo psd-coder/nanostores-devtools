@@ -425,7 +425,7 @@ The plugin reads a comment for the same thing, next to the store, where a rename
 `// @nanostores-devtools:no-throttle` keeps every row of a store that writes fast on purpose:
 
 ```ts
-// @nanostores-devtools:throttle 100
+// @nanostores-devtools:no-throttle
 const $frame = atom(0);
 ```
 
@@ -441,9 +441,10 @@ const $session = atom(readToken());
 ```
 
 **The fourth one caps one binding.** `// @nanostores-devtools:max-members 25` walks the first 25
-members of the binding below it and stops, at every depth of it. What it leaves out is not drawn and
-not registered, so nothing subscribes to it, and the panel says how many members it left out and
-names the comment, so you can find the line:
+members of the binding below it and stops, at every depth of it. What it leaves out is not drawn by
+that scan, and the panel says how many members it left out and names the comment, so you can find
+the line. When the capped value is a store, its value moves under `(value)` and `…` appears beside
+it:
 
 ```ts
 // @nanostores-devtools:max-members 25

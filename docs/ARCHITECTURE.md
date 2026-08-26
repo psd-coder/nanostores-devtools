@@ -152,15 +152,15 @@ the package to install.
 
 `transform.ts` is the largest file in the package. It walks the AST once and collects seven things:
 
-| what it collects                               | why                                                                                |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------- |
-| which local names came from `nanostores`       | so `atom`, `map`, `deepMap`, `computed` and `batched` can be found under any alias |
-| a name stack                                   | so a store knows the binding, property or index that names it                      |
-| a frame per function and per block             | so **the gate** can tell a call in the module body from one inside either          |
-| top-level bindings, and which are exported     | so a scan at the end of the body can register what each one holds                  |
-| `// @nanostores-devtools:throttle` comments    | so a store can be held to one row a second                                         |
-| `// @nanostores-devtools:ignore` comments      | so a store the developer ignored is never wrapped                                  |
-| `// @nanostores-devtools:max-members` comments | so one binding's walk stops at the number the developer wrote                      |
+| what it collects                                               | why                                                                                |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| which local names came from `nanostores`                       | so `atom`, `map`, `deepMap`, `computed` and `batched` can be found under any alias |
+| a name stack                                                   | so a store knows the binding, property or index that names it                      |
+| a frame per function and per block                             | so **the gate** can tell a call in the module body from one inside either          |
+| top-level bindings, and which are exported                     | so a scan at the end of the body can register what each one holds                  |
+| `// @nanostores-devtools:throttle` and `:no-throttle` comments | so a store can be held to one row a second, or kept out of automatic throttling    |
+| `// @nanostores-devtools:ignore` comments                      | so a store the developer ignored is never wrapped                                  |
+| `// @nanostores-devtools:max-members` comments                 | so one binding's walk stops at the number the developer wrote                      |
 
 It then rewrites the file with `magic-string`, which keeps a source map. Given this input:
 
@@ -245,12 +245,16 @@ What sits behind it:
 | `scopes`                                           | one record per instrumented module, keyed by module key                             |
 | `homeNames`                                        | which module took which name at which display home                                  |
 | `owners`                                           | `WeakMap<Store, OwnerLink[]>`, everything each store is drawn under                 |
+| `keyed`                                            | the store held at each key of an owner                                              |
 | `nodes`                                            | `WeakMap<object, NodeInfo>`, values that hold stores and have no value of their own |
+| `members`                                          | how many of a store's own members the scan drew and left out                        |
 | `bound`                                            | every top-level binding that names each store, and whether it was exported          |
 | `session`                                          | the one view watching the page, or nothing                                          |
 | `nextId`, `creations`, `changeListeners`, `warned` | the id counter, types waiting for a name, registry listeners, warning dedup         |
 
 Every map that could keep app objects alive is weak. Devtools holds nothing the app has let go.
+When a second copy of the package finds a global made by an older copy, `global.ts` fills missing
+fields in that same object before using it.
 
 ---
 
@@ -505,9 +509,9 @@ $total [computed] (a.ts, line 4) #2
  name     type       qualifier  ordinal
 ```
 
-`keys.ts` holds the four invented key names: `(value)`, `…`, `(valueOf)` and `(toString)`. A store
-that owns nothing is drawn as its value alone. One that owns others gets its own value under
-`(value)` and its children beside it.
+`keys.ts` holds the five invented key names: `(value)`, `…`, `(valueOf)`, `(toString)` and
+`(drawn under)`. A store that owns nothing and has no members left out is drawn as its value alone.
+One that owns others, or has members left out by `max-members`, gets its own value under `(value)`.
 
 `row.ts` writes the row's `type` and the changes the panel lists.
 

@@ -178,7 +178,7 @@ app/workspace.ts
 #### `(value)`: where a store's own value goes
 
 A store that owns nothing and carries no marker is drawn as v1 drew it: its name, then its value.
-**`(value)` is where that value goes when it cannot stay at the store's own key**, and two
+**`(value)` is where that value goes when it cannot stay at the store's own key**, and three
 different things send it there.
 
 **The store owns other stores.** Its own value moves under `(value)` so that its children can sit
@@ -188,6 +188,9 @@ readable.
 **The store carries a marker**, and the marker has nowhere else to ride. See
 [an unmounted `computed` shows an old value, or nothing](#an-unmounted-computed-shows-an-old-value-or-nothing)
 for that half.
+
+**The binding scan left members out.** A `max-members` comment can cap a store's own members. Its
+value moves under `(value)`, and `…` says how many members were not scanned.
 
 Two more keys are written with the same parentheses and mean something else: `(valueOf)` and
 `(toString)` name **which method answered** on a class instance that said how it reads itself. See
@@ -701,9 +704,9 @@ number.
 is capped too. Without that, a comment saying 25 would still leave 25 containers walked whole, and
 the developer who wrote it would see almost nothing change.
 
-**A member past the number is not registered at all.** It draws nowhere, nothing subscribes to it,
-and no timeline row is ever checked for it, which is the cost the comment exists to remove. The
-panel says what it left out under one key, `…`, and names the comment while it does:
+**A member past the number is not reached by the binding scan.** It has no placement from that
+binding and draws nowhere unless a creator or adoption wrapper already registered it under its own
+name. The panel says what it left out under one key, `…`, and names the comment while it does:
 
 ```
 4975 more members left out by `@nanostores-devtools:max-members 25`
