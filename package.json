@@ -12,7 +12,12 @@
   "license": "MIT",
   "author": "Pavel Grinchenko <psd-coder@evilmartians.com>",
   "repository": "psd-coder/nanostores-devtools",
+  "bugs": "https://github.com/psd-coder/nanostores-devtools/issues",
+  "homepage": "https://github.com/psd-coder/nanostores-devtools#readme",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "sideEffects": false,
   "files": [
     "dist",
