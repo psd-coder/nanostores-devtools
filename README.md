@@ -588,6 +588,8 @@ type BundlerPlugin = { apply(compiler: unknown): void };
 
 ## Documentation
 
+- [SPEC.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/SPEC.md) - what the
+  bridge does today, stated in one place: the API, discovery, the tree, the timeline and the values.
 - [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) -
   what the panel draws and why. The tree, the keys, the timeline, the value rules, and everything
   this package cannot do.
