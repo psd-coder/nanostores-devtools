@@ -18,7 +18,7 @@ import { describeError, warnOnce } from "../utils/warn.ts";
  * What nanostores itself puts on a store. Skipped while walking, or an atom holding a store would
  * nest that store under the atom instead of leaving it where the developer put it.
  */
-const STORE_KEYS: ReadonlySet<string> = new Set([
+export const STORE_KEYS: ReadonlySet<string> = new Set([
   "value",
   "init",
   "lc",
@@ -27,6 +27,8 @@ const STORE_KEYS: ReadonlySet<string> = new Set([
   "get",
   "set",
   "setKey",
+  "eq",
+  "eqKey",
   "subscribe",
   "notify",
   "off",

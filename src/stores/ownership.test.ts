@@ -1,8 +1,8 @@
-import { atom, type Store } from "nanostores";
+import { atom, batched, computed, deepMap, map, type Store } from "nanostores";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDevtoolsGlobal, peekDevtoolsGlobal, resetDevtoolsGlobal } from "../global.ts";
-import { ownBindings, ownField } from "./ownership.ts";
+import { ownBindings, ownField, STORE_KEYS } from "./ownership.ts";
 import {
   boundNames,
   drawnParents,
@@ -90,6 +90,21 @@ describe("ownBindings", () => {
     ownBindings(FROM, [{ name: "$outer", value: $outer, exported: false }]);
 
     expect(ownerOf($inner)).toBeUndefined();
+  });
+
+  it("knows every key the store kinds nanostores ships put on themselves", () => {
+    const $source = atom(0);
+    const kinds = [
+      atom(0),
+      map({}),
+      deepMap({}),
+      computed($source, (value) => value),
+      batched($source, (value) => value),
+    ];
+
+    for (const store of kinds) {
+      expect(Object.keys(store).filter((key) => !STORE_KEYS.has(key))).toEqual([]);
+    }
   });
 
   it("reads through the descriptor, so a getter never runs", () => {

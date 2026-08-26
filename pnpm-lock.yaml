@@ -23,7 +23,7 @@ importers:
         version: 1.5.5
       '@nanostores/router':
         specifier: 1.1.0
-        version: 1.1.0(nanostores@1.4.2)
+        version: 1.1.0(nanostores@1.5.2)
       '@rspack/core':
         specifier: ^2.1.10
         version: 2.1.10
@@ -40,8 +40,8 @@ importers:
         specifier: ^1.0.2
         version: 1.0.2
       nanostores:
-        specifier: 1.4.2
-        version: 1.4.2
+        specifier: 1.5.2
+        version: 1.5.2
       oxc-parser:
         specifier: 0.146.0
         version: 0.146.0
@@ -1673,8 +1673,8 @@ packages:
   nanospinner@1.2.2:
     resolution: {integrity: sha512-Zt/AmG6qRU3e+WnzGGLuMCEAO/dAu45stNbHY223tUxldaDAeE+FxSPsd9Q+j+paejmm0ZbrNVs5Sraqy3dRxA==}
 
-  nanostores@1.4.2:
-    resolution: {integrity: sha512-Wxv8Roefr2nqtiRG0bnaFlpYqpIVtOEeJZHaH+4nGgOK1/7n6OHOuHCb/bhqrNQgZM8fyd0s1PqhdrJc9Ib44g==}
+  nanostores@1.5.2:
+    resolution: {integrity: sha512-B0UbxzK1s0CN8Xht6r+7iT5+xV8PTaRERR1nATeplRv1Rw5YLWfVAid0hkqY3EceqpG4RjTk8GAwIxQY39Rnwg==}
     engines: {node: ^20.0.0 || >=22.0.0}
 
   neo-async@2.6.2:
@@ -2291,9 +2291,9 @@ snapshots:
     dependencies:
       '@braidai/lang': 1.1.2
 
-  '@nanostores/router@1.1.0(nanostores@1.4.2)':
+  '@nanostores/router@1.1.0(nanostores@1.5.2)':
     dependencies:
-      nanostores: 1.4.2
+      nanostores: 1.5.2
 
   '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
@@ -3217,7 +3217,7 @@ snapshots:
     dependencies:
       picocolors: 1.1.1
 
-  nanostores@1.4.2: {}
+  nanostores@1.5.2: {}
 
   neo-async@2.6.2: {}
 
