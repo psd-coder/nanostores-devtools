@@ -20,4 +20,3 @@ jobs:
       - run: pnpm build
       - run: pnpm publint
       - run: pnpm attw
-      - run: pnpm size
