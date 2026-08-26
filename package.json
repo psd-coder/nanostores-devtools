@@ -56,10 +56,10 @@
     "lint": "pnpm run --parallel /^lint:/",
     "lint:oxlint": "oxlint",
     "lint:oxfmt": "oxfmt --check . '!**/package.json'",
+    "lint:size": "size-limit",
     "format": "oxfmt --write . '!**/package.json'",
     "publint": "publint --strict",
     "attw": "pnpm pack --out node_modules/.attw.tgz --config.ignore-scripts=true && attw node_modules/.attw.tgz --profile esm-only",
-    "size": "size-limit",
     "bump": "./scripts/bump.sh",
     "prepare": "simple-git-hooks"
   },
@@ -117,7 +117,7 @@
     {
       "name": "browser entry",
       "path": "dist/index.mjs",
-      "limit": "11 kB"
+      "limit": "9645B"
     }
   ]
 }
