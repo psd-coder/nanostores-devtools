@@ -25,6 +25,7 @@ project uses in one fixed way are in [GLOSSARY.md](../GLOSSARY.md).
   - [A hot reload draws one row, not a pair](#a-hot-reload-draws-one-row-not-a-pair)
 - [What each `connectDevtools` option costs](#what-each-connectdevtools-option-costs)
 - [What each plugin option costs](#what-each-plugin-option-costs)
+- [Turning it off in a production build](#turning-it-off-in-a-production-build)
 - [What v1 does not do](#what-v1-does-not-do)
   - [No time travel](#no-time-travel)
   - [An unmounted `computed` shows an old value, or nothing](#an-unmounted-computed-shows-an-old-value-or-nothing)
@@ -738,6 +739,25 @@ does.
 A custom serializer is `{ match: (value) => boolean, convert: (value) => unknown }`. Serializers
 run in array order, the first match wins, and all of them run before every rule of ours.
 
+**A serializer is how you draw a value the panel cannot read on its own.** Every field of a
+`MouseEvent` sits behind a getter, and a getter is never read, so without a rule it draws as an
+empty object:
+
+```ts
+connectDevtools({
+  serializers: [
+    {
+      match: (value) => value instanceof MouseEvent,
+      convert: (event) => ({
+        type: event.type,
+        x: event.clientX,
+        y: event.clientY,
+      }),
+    },
+  ],
+});
+```
+
 **What `convert` returns may hold its own input.** The encoder walks that result too, and none of
 your serializers runs again on a value inside it. So a `convert` that returns `{ point: value }`
 draws your wrapper with the `Point` inside it drawn by our rules, and the walk ends there. Your
@@ -898,6 +918,40 @@ On **Vite 8** the plugin costs you nothing extra: Vite re-exports the parser it 
 ships a parser this plugin can borrow. We declare it as an optional peer, since a peer is declared
 for the package and never for one subpath, so a Vite 8 user is not handed a package they never
 load.
+
+## Turning it off in a production build
+
+The main entry ships a `production` export condition. Under it the package resolves to a module
+that exports the same three names with the same types and does nothing. Everything else gets the
+real module.
+
+| bundler         | behaviour                                                                    |
+| --------------- | ---------------------------------------------------------------------------- |
+| Vite            | automatic. `resolve.conditions` carries `development\|production` by default |
+| webpack, Rspack | automatic. `conditionNames` follows `mode`                                   |
+| esbuild         | needs `--conditions=production`                                              |
+| Rollup          | needs `exportConditions: ["production"]` on the node-resolve plugin          |
+| plain Node      | gets the real module. Importing it in Node is safe and does nothing          |
+
+The plugin and the runtime need no such condition. The runtime is reached only through code the
+plugin injects, and no production build ever sees that code: under Vite the plugin is not loaded
+outside the dev server, and under webpack and Rspack it is loaded but refuses to transform anything.
+
+The three bundlers in the top half need nothing from you. For esbuild and Rollup, set the condition
+once in your build config and the rest works the same way.
+
+**The explicit pattern stays supported** for anyone who wants control instead of automation. It
+also drops the two calls from the bundle, instead of leaving them pointing at empty functions. Use
+your own bundler's dev flag: `import.meta.env.DEV` is Vite's, and esbuild, Rollup and Node each
+spell it differently.
+
+```ts
+if (import.meta.env.DEV) {
+  const { connectDevtools } = await import("nanostores-devtools");
+
+  connectDevtools();
+}
+```
 
 ## What v1 does not do
 

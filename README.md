@@ -3,40 +3,21 @@
 <img align="right" width="92" height="92" alt="nanostores-devtools logo" title="nanostores-devtools logo" src="https://raw.githubusercontent.com/psd-coder/nanostores-devtools/main/logo.svg">
 
 Inspect [nanostores](https://github.com/nanostores/nanostores) state in the
-[Redux DevTools](https://github.com/reduxjs/redux-devtools) browser extension. Every store your
-source gives a name to becomes a key in one state tree, and every write draws a named row in the
-timeline, together with the recomputes that write caused. A store from a dependency joins the tree
-the moment you name it, in one line.
-
-A bundler plugin reads your source during development and gives each store the name you wrote for
-it, so you write no setup per store at all. The bridge is **read-only**: it reads `.value` through
-its own property descriptor, and runs none of your app's own code. It never calls `store.get()` and
-never reads a getter you wrote. The only code of yours it runs is code you handed it on purpose: a
-`serializers` rule, or a `throttle` function.
+[Redux DevTools](https://github.com/reduxjs/redux-devtools) browser extension. A bundler plugin
+reads your source during development and gives each store the name you wrote for it, so every store
+becomes a key in one state tree and every write draws a named row in the timeline. You write no
+setup per store. The bridge, which is the half of this package that runs in your browser, is
+**read-only**: it never calls `store.get()` and never reads a getter you wrote.
 
 ## Features
 
-- ✅ Every store is named after the binding, object key, array index or `Map` key you wrote. A
-  value that holds stores and has no name in your source is keyed `ref#1`, instead of getting a
-  name we invented.
-- ✅ Read-only. Never calls `store.get()`, never reads a getter you wrote, never mounts a store.
-- ✅ One timeline row per change, headed by the whole path from your binding down:
-  `$counter/set`, `$user/setKey:name`, `config.theme.$x/set`.
-- ✅ Each store's kind sits in its key: `[computed]`, `[map]`, `[deepMap]`, `[batched]`.
-- ✅ A store is drawn under whatever holds it: a class instance, an object a factory returned, an
-  array, a `Map`.
-- ✅ Vite, webpack and Rspack. One plugin, one subpath each, and none of the three runs outside a
-  development build.
-- ✅ Builds no tree and sends nothing while no panel is open, and the panel's own pause button
-  works the same way.
-- ✅ A production build gets nothing but three empty functions, on Vite, webpack and Rspack with no
-  work from you. The `production` export condition swaps the real module out, and every
-  other bundler reaches the same place with one condition set.
-- ✅ Holds a store that writes more than 10 times a second to one row a second, so a frame loop
-  cannot push the rows you came to read out of the panel.
-- ✅ Keeps a store out when you ask: write `// @nanostores-devtools:ignore` above it and the plugin
-  skips it, so it never registers, takes no key in the tree and draws no row.
-- ✅ ESM only, `sideEffects: false`, `nanostores` as its one browser peer.
+- Every store is named after the binding, object key, array index or `Map` key you wrote.
+- Read-only. Never calls `store.get()`, never reads a getter you wrote, never mounts a store.
+- One timeline row per change: `$counter/set`, `$user/setKey:name`, `config.theme.$x/set`.
+- Each store's kind sits in its key: `[computed]`, `[map]`, `[deepMap]`, `[batched]`.
+- A store is drawn under whatever holds it: a class, a factory result, an array, a `Map`.
+- Vite, webpack and Rspack. Dev builds only, and a production build gets three empty functions.
+- Costs the page nothing while no panel is open, and the panel's pause button works the same way.
 
 ```ts
 // vite.config.ts
@@ -87,12 +68,16 @@ yarn add -D nanostores-devtools
 ```
 
 **This package ships no UI.** Install the
-[Redux DevTools extension](https://github.com/reduxjs/redux-devtools) in your browser yourself. We
-never fork it, repackage it, or build our own panel. With no extension on the page this package does
-nothing, logs nothing, and attaches nothing to your stores.
+[Redux DevTools extension](https://github.com/reduxjs/redux-devtools) in your browser yourself. With
+no extension on the page this package does nothing, logs nothing, and attaches nothing to your
+stores.
 
-Requires an ESM environment and `nanostores` 1.x. The bundler plugin runs in Node during
-development only.
+Requires an ESM environment and `nanostores` 1.x. The package is ESM only and sets
+`sideEffects: false`. The bundler plugin runs in Node 20.19+ or 22.12+, during development only.
+
+**Only Vite, webpack and Rspack have a plugin.** On any other bundler nothing is discovered for
+you, and you name your stores yourself with [`trackStores`](#trackstoresgroup-stores). The bridge
+itself works the same way there.
 
 **On webpack, on Rspack and on Vite 6 and 7, add `oxc-parser` too:**
 
@@ -102,7 +87,7 @@ pnpm add -D oxc-parser
 
 That is what reads your source. Vite 8 re-exports a parser the plugin can borrow, so a Vite 8
 project needs nothing extra. Everywhere else the first file the plugin touches fails the build with
-an error naming `oxc-parser`, so you cannot get this wrong quietly.
+an error naming `oxc-parser`.
 
 ## Core Concepts
 
@@ -112,28 +97,15 @@ called, or what holds it. So the usual ways to watch one are all manual: a `cons
 changes to the console under names you pass it store by store.
 
 `nanostores-devtools` does the naming for you. A bundler plugin reads your source while your dev
-server runs, wraps every call that makes a store, and adds one call at the end of each file listing
-that file's top-level names. In the browser the wrapped calls report to a registry, the added call
-walks each of your bindings and registers whatever it finds under it, and the package draws one
-state tree and one timeline out of both. You get the whole app's state at once, a diff per change,
-and a stack trace pointing at the line that wrote it.
+server runs and wraps every call that makes a store, so the bridge knows what each store is called
+and what holds it. You get the whole app's state at once, a diff per change, and a stack
+trace pointing at the line that wrote it.
 
 One rule decides what appears: **a store is tracked where your own code holds it, never where it
 only passed through.** Held means bound to a name you wrote, sitting inside a value bound to a name
-you wrote, or handed back out of a call whose result is held. Four things follow from it, and they
-are the ones that surprise people:
-
-- **Your top-level bindings are read once, when the file finishes loading.** A store that lands in
-  one of them later, from a callback or a timer, is not in the panel. Name it with
-  [`trackStores`](#trackstoresgroup-stores) if you need it.
-- **A store made in a nested block, or inside a function, and never handed to a top-level binding
-  is not drawn.** It is that function's own working state, and the tree already draws what the
-  function returned.
-- **A store born inside an optional chain is left alone.** In `a?.b()` we wrap nothing: a wrapper
-  there would take the `undefined` the chain gives and pass it on, and your code would stop meaning
-  what you wrote.
-- **A `throttle` comment over a class field does nothing.** Nothing inside a class body names the
-  call, so the comment has no site to sit on. Use the `throttle` option for those.
+you wrote, or handed back out of a call whose result is held.
+[The bundler plugin](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#the-bundler-plugin)
+has the four cases that follow from it, and they are the ones that surprise people.
 
 It fits when:
 
@@ -146,26 +118,13 @@ It fits when:
 
 ### Step 1: Add the plugin
 
-There is one plugin and one subpath per bundler. Pick the line for yours; everything after it is
-the same. This package is ESM only, so the config file holding it has to be ESM too.
+One plugin, one subpath per bundler, the same options behind all three. This package is ESM only,
+so the config file holding it has to be ESM too.
 
-The plugin reads **script files only**: `.js`, `.ts` and the rest of that family. A store written
-inside a `.vue` or a `.svelte` file is untouched, and so is anything under `node_modules`. It
-rewrites each file it does touch with `magic-string`, which keeps your source maps intact.
+**Vite.** Add `nanostoresDevtools()` from `nanostores-devtools/vite`, as in the block at the top of
+this page. The plugin loads on the dev server alone, so one config covers both builds.
 
-**Vite.** The plugin loads on the dev server alone, so one config covers both builds.
-
-```ts
-// vite.config.ts
-import { defineConfig } from "vite";
-import { nanostoresDevtools } from "nanostores-devtools/vite";
-
-export default defineConfig({
-  plugins: [nanostoresDevtools()],
-});
-```
-
-**webpack and Rspack.** The same plugin, the same options, a different subpath.
+**webpack and Rspack.** The same plugin, from their own subpath:
 
 ```js
 // webpack.config.dev.mjs
@@ -177,22 +136,10 @@ export default {
 };
 ```
 
-```js
-// rspack.config.dev.mjs
-import { nanostoresDevtools } from "nanostores-devtools/rspack";
-
-export default {
-  mode: "development",
-  plugins: [nanostoresDevtools()],
-};
-```
-
-Give webpack and Rspack a **development config of its own**. Neither has a dev-only flag, so both
-load whatever the config lists, and a shared config would carry this plugin into your release build.
-The plugin refuses a build whose `mode` is not `"development"`, transforming nothing and printing one
-line to your terminal saying why, so a shared config costs you a warning instead of a leak. It is
-still better to keep the plugin out of that config: a dev-only plugin should not be loaded by a
-release build at all.
+Rspack is the same file with `nanostores-devtools/rspack`. Give both a **development config of its
+own**. Neither has a dev-only flag, so a shared config would carry this plugin into your release
+build. The plugin refuses a build whose `mode` is not `"development"`, transforming nothing and
+printing one line saying why, so a shared config costs you a warning instead of a leak.
 
 ### Step 2: Call `connectDevtools()`
 
@@ -203,31 +150,21 @@ import { connectDevtools } from "nanostores-devtools";
 connectDevtools({ name: "my-app" });
 ```
 
-No `import.meta.env.DEV` guard and no dynamic import: export conditions already resolve the package
-to an empty module in a production build. See
+No `import.meta.env.DEV` guard and no dynamic import: on Vite, webpack and Rspack export conditions
+already resolve the package to an empty module in a production build. On esbuild and Rollup that
+takes one line of build config, see
 [Turning it off in a production build](#turning-it-off-in-a-production-build).
 
-`connectDevtools()` never throws and never needs `await`, and a hot reload calling it again is safe.
-It hands back a [`DevtoolsHandle`](#types), so `handle.connected` is how you check whether the
-extension was there:
-
-```ts
-const handle = connectDevtools({ name: "my-app" });
-
-if (!handle.connected) {
-  console.info("No Redux DevTools extension on this page.");
-}
-```
-
-Call it as early as you like. **The panel does not have to be open first.** The extension sends a
-`START` whenever a panel begins watching, and we answer with every store there is, so you never
-reload the page to catch up on state. A late panel does lose history: the rows from before it
-opened were never sent.
+**The panel does not have to be open first.** We answer a panel that begins watching with every
+store there is, so you never reload the page to catch up on state. A late panel does lose history:
+the rows from before it opened were never sent. The extension itself is the one thing that has to be
+there when you call: it puts itself on the page before your code runs, and `handle.connected` says
+whether we found it.
 
 ### Step 3: Add the stores the plugin cannot reach
 
 The plugin never reads a file under `node_modules`, and no option changes that, so a dependency's
-stores are the usual case here. A build with no plugin is the other. List those stores by hand:
+stores are the usual case here. List those stores by hand:
 
 ```ts
 // src/stores/cart.ts
@@ -241,11 +178,9 @@ trackStores("cart", { $items, $count });
 ```
 
 The first argument is a group name, and it becomes the top-level key those stores sit under.
-`untrack("cart")` removes the group again.
-
-With the plugin on, a store you also pass to `trackStores` **leaves the file tree** and moves under
-your group, because a name you wrote by hand beats a name the plugin worked out. To keep it where
-the plugin put it, name the group after the file: `trackStores("src/stores/cart.ts", { $items })`.
+`untrack("cart")` removes the group again. A store you pass to `trackStores` with the plugin on
+[leaves the file tree](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#a-store-listed-by-hand-leaves-the-file-tree)
+and moves under your group.
 
 ## What you see in the panel
 
@@ -265,26 +200,12 @@ app/workspace.ts
   panel: { open [store]: false, width [store]: 320 }            <- what a factory returned
 ```
 
-Two things in that example need an explanation.
-
-**`(value)` holds a store's own value** whenever that value cannot sit at the store's own key. Two
-things put it there:
-
-- **The store owns other stores.** Its children then sit beside the value instead of inside it.
-- **The store carries a note**, such as `not mounted, may be stale` on a `computed` nobody is
-  listening to. This one is the extension's limit, not our choice: Redux DevTools hangs a note on
-  the object it draws, so a value that cannot carry one has to be boxed first. That covers a
-  primitive, a `null`, and anything the extension's own encoder rewrites on the way, a `Date` and a
-  `RegExp` among them. A plain object and an array go in bare, because those can carry the note
-  themselves.
-
-**`[store]` covers two cases at once: an `atom`, and a store whose kind we could not read.** The
-kind is read from the creator call at build time, so a store you listed by hand, or one a
-third-party factory built, has none to print. Nothing at runtime could tell a `map` from a
-`deepMap`, so all we could add is a guess.
+`[store]` marks an `atom`, or a store whose kind we could not read. `(value)` holds a store's own
+value when that value cannot sit at the store's own key, which happens when the store owns other
+stores or carries a note.
 
 Every row in the timeline is named after the store it is about and the kind of change. We build
-that name ourselves: nanostores has no actions, so there is nothing else to name a row after.
+that name ourselves: nanostores has no actions to name a row after.
 
 | the row                              | what happened                                         |
 | ------------------------------------ | ----------------------------------------------------- |
@@ -297,21 +218,15 @@ that name ourselves: nanostores has no actions, so there is nothing else to name
 | `$count/hotReload`                   | a file ran again and its stores were rebuilt          |
 | `config.theme.$x/set`                | a nested store was written, headed by its whole path  |
 
-A row holds one write plus every recompute that write caused, which is why a `computed` usually has
-no row of its own. A store one of your bindings holds directly is headed by that binding name; one
-that only a container holds is headed by the whole chain that reaches it, so you can paste the
-header back into your own source.
-
-[REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) has the rest: how a store finds its owner, what the key format
-means, how two stores with one name are told apart, what a value shows and what it cannot show.
+[REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) has the
+rest: how a store finds its owner, how two stores with one name are told apart, and what a value
+shows and cannot show.
 
 ## When nothing shows up
 
-**Our messages go to two different places.** The bridge writes to the browser console, and every
-line begins with `[nanostores-devtools]`. The plugin writes to the terminal running your build:
-what it finds in your source goes through the bundler's own warning channel, and the one line that
-refuses a build which is not a development build is printed straight to the terminal. Both name the
-plugin in their text. Each message is printed once, not once per save.
+Our messages go to two places. The bridge writes to the browser console, every line beginning with
+`[nanostores-devtools]`, and the plugin writes to the terminal running your build. Each message is
+printed once, not once per save.
 
 If the tree is empty, walk down this list:
 
@@ -326,37 +241,13 @@ If the tree is empty, walk down this list:
 
 ## Turning it off in a production build
 
-The main entry ships a `production` export condition. Under it the package resolves to a module
-that exports the same three names with the same types and does nothing. Everything else gets the
-real module.
-
-| bundler         | behaviour                                                                    |
-| --------------- | ---------------------------------------------------------------------------- |
-| Vite            | automatic. `resolve.conditions` carries `development\|production` by default |
-| webpack, Rspack | automatic. `conditionNames` follows `mode`                                   |
-| esbuild         | needs `--conditions=production`                                              |
-| Rollup          | needs `exportConditions: ["production"]` on the node-resolve plugin          |
-| plain Node      | gets the real module. Importing it in Node is safe and does nothing          |
-
-The plugin and the runtime need no such condition. The runtime is reached only through code the
-plugin injects, and no production build ever sees that code: under Vite the plugin is not loaded
-outside the dev server, and under webpack and Rspack it is loaded but refuses to transform anything.
-
-The three bundlers in the top half need nothing from you. For esbuild and Rollup, set the condition
-once in your build config and the rest works the same way.
-
-**The explicit pattern stays supported** for anyone who wants control instead of automation. It
-also drops the two calls from the bundle, instead of leaving them pointing at empty functions. Use
-your own bundler's dev flag: `import.meta.env.DEV` is Vite's, and esbuild, Rollup and Node each
-spell it differently.
-
-```ts
-if (import.meta.env.DEV) {
-  const { connectDevtools } = await import("nanostores-devtools");
-
-  connectDevtools();
-}
-```
+The main entry ships a `production` export condition, and under it the package resolves to a module
+that exports the same three names with the same types and does nothing. Vite, webpack and Rspack
+pick that condition up on their own. esbuild needs `--conditions=production` and Rollup needs
+`exportConditions: ["production"]`, both set once in your build config.
+[Turning it off in a production build](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#turning-it-off-in-a-production-build)
+has the full table, and the explicit `import.meta.env.DEV` pattern for anyone who wants control
+instead of automation.
 
 ## API
 
@@ -376,15 +267,17 @@ during development, so it appears in your module graph. Never import it yourself
 
 ### `connectDevtools(options?)`
 
-Opens the bridge and returns a [`DevtoolsHandle`](#types). Never throws, never needs `await`.
+Opens the bridge and returns a [`DevtoolsHandle`](#types). Never throws, never needs `await`, and
+safe to call during server-side rendering. Called a second time while connected, it warns once and
+hands back the first handle, which is what makes a hot reload safe.
 
-Called a second time **while connected**, it warns once and hands back the first handle, which is
-what makes a hot reload safe. With no extension on the page there is no connection to keep, so each
-call quietly returns a fresh handle whose `connected` is `false`.
+```ts
+const handle = connectDevtools({ name: "my-app" });
 
-**Safe to call during server-side rendering.** It reads `globalThis.__REDUX_DEVTOOLS_EXTENSION__`,
-finds nothing on the server, and hands back a disconnected handle. There is no `window` access to
-guard.
+if (!handle.connected) {
+  console.info("No Redux DevTools extension on this page.");
+}
+```
 
 | option                | default        | what it does                                                       |
 | --------------------- | -------------- | ------------------------------------------------------------------ |
@@ -400,87 +293,24 @@ guard.
 | `maxValueDepth`       | `5`            | levels drawn below a class instance                                |
 | `maxValueMembers`     | `100`          | members drawn per shape below a class instance                     |
 
-Four of these are worth reading about before you change them.
-[`maxAge`, `traceLimit` and `lifecycleEvents`](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-connectdevtools-option-costs)
-each buy panel quality with page cost, and `autoThrottle` is the one default that drops rows.
+`autoThrottle` is the one default that drops rows: a store above 10 writes a second is held to one
+row a second for the rest of the session, and we warn once, naming the store. Pass your own
+threshold, or `false` to keep every row. `throttle` takes names as the tree writes them,
+`"src/model.ts/$remaining"`, or a function over them.
 
-**`autoThrottle` is a threshold in writes a second.** Pass your own, `autoThrottle: 20`, or `false`
-to keep every row. The number is the write rate above which a store is caught, not the rate you get
-out. What you get out is one row a second, and the `// @nanostores-devtools:throttle 100` comment
-below is the only way to hold one store to a different rate. A store it catches stays throttled for
-the rest of the session, and we warn once, naming the store.
+A **serializer** draws a value the panel cannot read on its own, such as a `MouseEvent`, whose every
+field sits behind a getter. A rule is `{ match, convert }`, and the first match in the array wins.
 
-`throttle` takes the names as the tree writes them, `"home/name"`, or a rule over them:
+The plugin reads four comments next to a store, where a rename cannot lose them:
+`// @nanostores-devtools:ignore` keeps every store the statement below it makes out of the devtools,
+`// @nanostores-devtools:throttle` and `// @nanostores-devtools:no-throttle` set its row rate, and
+`// @nanostores-devtools:max-members 25` caps how much of one binding the scan walks.
 
-```ts
-connectDevtools({ throttle: ["src/model.ts/$remaining"] });
-connectDevtools({
-  throttle: (store) => store.home.startsWith("src/animation/"),
-});
-```
+`handle.disconnect()` closes the bridge and lets the next `connectDevtools()` open a fresh one. It
+is there for a page that tears its app down and builds another one.
 
-The plugin reads a comment for the same thing, next to the store, where a rename cannot lose it.
-`// @nanostores-devtools:throttle` marks the whole statement below it,
-`// @nanostores-devtools:throttle 100` sets its own rate in milliseconds, and
-`// @nanostores-devtools:no-throttle` keeps every row of a store that writes fast on purpose:
-
-```ts
-// @nanostores-devtools:no-throttle
-const $frame = atom(0);
-```
-
-**The plugin reads a third comment, and it is not about rows.** `// @nanostores-devtools:ignore`
-keeps every store the statement below it makes out of the devtools: no key in the tree, no row in
-the timeline, nothing in the panel that says the store is there. It marks the whole statement the
-way the other comments do, it wins over any of them standing over the same statement, and it changes
-nothing else in the file. A store you keep out this way is called **ignored**:
-
-```ts
-// @nanostores-devtools:ignore
-const $session = atom(readToken());
-```
-
-**The fourth one caps one binding.** `// @nanostores-devtools:max-members 25` walks the first 25
-members of the binding below it and stops, at every depth of it. What it leaves out is not drawn by
-that scan, and the panel says how many members it left out and names the comment, so you can find
-the line. When the capped value is a store, its value moves under `(value)` and `…` appears beside
-it:
-
-```ts
-// @nanostores-devtools:max-members 25
-export const rows = await loadEveryRow();
-```
-
-The colon is the one separator. A `@nanostores-devtools` comment that names none of the four is
-read as ordinary prose, and so is one with a hyphen where the colon belongs. The plugin then warns
-once, naming the file and the line, so a typo does not quietly leave a store drawn.
-[REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-connectdevtools-option-costs)
-has the full rules for all four.
-
-`handle.disconnect()` closes the bridge: it stops listening, drops the rows it has not sent,
-detaches every nanostores hook, and lets the next `connectDevtools()` open a fresh connection. You
-rarely need it. It is there for a page that tears its app down and builds another one.
-
-A **serializer** is how you draw a value the panel cannot read on its own. Every field of a
-`MouseEvent` sits behind a getter, and a getter is never read, so without a rule it draws as an
-empty object:
-
-```ts
-connectDevtools({
-  serializers: [
-    {
-      match: (value) => value instanceof MouseEvent,
-      convert: (event) => ({
-        type: event.type,
-        x: event.clientX,
-        y: event.clientY,
-      }),
-    },
-  ],
-});
-```
-
-Rules run in array order, the first match wins, and all of them run before our own rules.
+[What each `connectDevtools` option costs](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-connectdevtools-option-costs)
+has the full rules for the options, the serializers and the four comments.
 
 ### `trackStores(group, stores)`
 
@@ -500,7 +330,8 @@ Removes a group and every store in it. Draws one unregister row.
 ### `nanostoresDevtools(options?)`
 
 The bundler plugin. Exported from `/vite`, `/webpack` and `/rspack`, and the same function behind
-all three.
+all three. It reads script files only: `.js`, `.ts` and the rest of that family, and nothing under
+`node_modules`.
 
 | option           | default                   | what it does                                                  |
 | ---------------- | ------------------------- | ------------------------------------------------------------- |
@@ -510,39 +341,15 @@ all three.
 | `maxDepth`       | `10`                      | steps into a top-level binding the scan walks, 1 or more      |
 | `projectRoot`    | Vite's own workspace root | what a file outside the Vite root is measured from, Vite only |
 
-`adoptFactories` is what catches a codebase that wraps store creation. A call whose result is
-stored under a name is registered, no matter which function it names, so
+`adoptFactories` catches a codebase that wraps store creation: a call whose result is stored under
+a name is registered whatever function it names, so
 `const theme = persistentAtom("theme", "dark")` reaches the tree from a file that never imports
-`"nanostores"`. It takes two settings:
+`"nanostores"`. `storeTypes` gives that store its kind, and we ship a map of the packages from the
+Smart Stores list in the nanostores README. `maxDepth` counts a property, an index and a `Map` key
+alike. `projectRoot` is a Vite option; webpack and Rspack always climb up from `context` instead.
 
-- `true`, the default: adopt a call under any name.
-- `false`: adopt nothing, so only the calls the plugin recognises are wrapped.
-
-`storeTypes` is what gives that store its kind. We ship a map of the packages from the Smart Stores
-list in the nanostores README, so `persistentAtom` reads as an atom and `persistentMap` as a map.
-Add your own package, or correct one of ours, and your entry is laid over ours per package and per
-export:
-
-```js
-nanostoresDevtools({
-  storeTypes: {
-    "@acme/state": { createDeep: "deepMap" },
-  },
-});
-```
-
-A kind is one of `atom`, `map`, `deepMap`, `computed`, `batched` or `unknown`. An entry naming any
-other kind is refused with a warning, and so is a package whose value is not an object. A refusal
-costs the kind and nothing else: every other entry still merges, the call still reaches the tree by
-adoption, and your build still runs.
-
-`maxDepth` is how far the scan walks into a top-level binding to find the stores under it, counting
-a property, an index and a `Map` key alike. Ten steps by default, which is deeper than state is
-usually nested. `projectRoot` is a Vite option; under webpack and Rspack the wider root is always
-found by climbing up from `context`.
-
-[REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-plugin-option-costs)
-has what each one costs.
+[What each plugin option costs](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-plugin-option-costs)
+has what each one buys and what it costs.
 
 ### Types
 
@@ -559,60 +366,48 @@ type Serializer = {
 
 // the shape a `throttle` rule is handed, once per registration and never per write
 type ThrottleTarget = {
-  home: string;
-  name: string; // the name the tree draws, without the file and line a clash adds
-  type: "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
+  readonly home: string;
+  readonly name: string; // the name the tree draws, without the file and line a clash adds
+  readonly type: "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
 };
 
 type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boolean);
 
-// what `/webpack` and `/rspack` take
+// what `/webpack` and `/rspack` take. `/vite` takes the same four plus `projectRoot?: string`
 type BundlerPluginOptions = {
   fileKey?: (path: string) => string;
   adoptFactories?: boolean;
   // package name, then export name, then the kind that export makes
-  storeTypes?: Record<string, Record<string, ThrottleTarget["type"]>>;
+  storeTypes?: Readonly<Record<string, Readonly<Record<string, ThrottleTarget["type"]>>>>;
   maxDepth?: number;
 };
-
-// what `/vite` takes: the same four, plus one
-type VitePluginOptions = BundlerPluginOptions & {
-  projectRoot?: string;
-};
-
-// what `/webpack` and `/rspack` hand back. `/vite` hands back Vite's own `Plugin`
-type BundlerPlugin = { apply(compiler: unknown): void };
 ```
 
 `DevtoolsOptions` is exported too, and holds the eleven keys of the table above.
 
 ## Documentation
 
-- [SPEC.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/SPEC.md) - what the
-  bridge does today, stated in one place: the API, discovery, the tree, the timeline and the values.
 - [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) -
-  what the panel draws and why. The tree, the keys, the timeline, the value rules, and everything
-  this package cannot do.
+  what the panel draws and why, and everything this package cannot do.
+- [SPEC.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/SPEC.md) - what the
+  bridge does today, stated in one place.
 - [ARCHITECTURE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/ARCHITECTURE.md)
   - how the code works, end to end. For anyone changing it.
 - [GLOSSARY.md](https://github.com/psd-coder/nanostores-devtools/blob/main/GLOSSARY.md) - the words
-  this project uses in one fixed way: bridge, registry, home, group, tree, direct write, follower,
-  the gate, binding scan, binding path, node, owner, placement.
+  this project uses in one fixed way.
 
 ## Design Notes
 
 - **No UI of our own.** Redux DevTools already draws a state tree, a diff and a timeline, and it is
-  already installed. This package speaks its protocol and ships nothing else. We never fork it or
-  repackage it.
+  already installed. This package speaks its protocol and ships nothing else.
 - **Read-only, with no way around it.** Watching an app must not change how it behaves. So `.value`
   is read through its own property descriptor and never through `get()`, which for a `computed` can
-  mount sources that were unmounted. A getter you wrote is never read either.
-- **A name you wrote beats a name we worked out.** Every key in the tree traces to something in your
-  source: a binding, a property, an index, a `Map` key, a class name. Where none exists we write
-  `ref#1` and say so, rather than inventing a label you cannot look up.
+  mount sources that were unmounted.
+- **A name you wrote beats a name we worked out.** Where your source names nothing we write `ref#1`
+  and say so, rather than inventing a label you cannot look up.
 - **Automatic discovery has a cost, and that cost is throttling.** Finding stores for you means you
-  never chose which ones to watch, so a frame loop that writes 60 times a second lands in the panel
-  whether you wanted it or not. That is why `autoThrottle` is on by default.
+  never chose which ones to watch, so a frame loop lands in the panel whether you wanted it or not.
+  That is why `autoThrottle` is on by default.
 
 ## License
 
