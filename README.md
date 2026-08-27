@@ -375,13 +375,7 @@ type Serializer = {
 type ThrottleTarget = {
   readonly home: string;
   readonly name: string; // the name the tree draws, without the file and line a clash adds
-  readonly type:
-    | "atom"
-    | "map"
-    | "deepMap"
-    | "computed"
-    | "batched"
-    | "unknown";
+  readonly type: "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
 };
 
 type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boolean);
@@ -391,9 +385,7 @@ type BundlerPluginOptions = {
   fileKey?: (path: string) => string;
   adoptFactories?: boolean;
   // package name, then export name, then the kind that export makes
-  storeTypes?: Readonly<
-    Record<string, Readonly<Record<string, ThrottleTarget["type"]>>>
-  >;
+  storeTypes?: Readonly<Record<string, Readonly<Record<string, ThrottleTarget["type"]>>>>;
   maxDepth?: number;
 };
 ```
