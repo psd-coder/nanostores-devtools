@@ -9,6 +9,13 @@ becomes a key in one state tree and every write draws a named row in the timelin
 setup per store. The bridge, which is the half of this package that runs in your browser, is
 **read-only**: it never calls `store.get()` and never reads a getter you wrote.
 
+## How it looks
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/screenshot-dark.png">
+  <img alt="Redux DevTools showing nanostores state. The left column lists actions such as syncStatus/set and addMessages/mount. The right pane shows a tree grouped by source file, where stores/media-queries.ts holds mobileMedia, pageTheme and other stores with their values." src="./docs/assets/screenshot-light.png">
+</picture>
+
 ## Features
 
 - Every store is named after the binding, object key, array index or `Map` key you wrote.
@@ -368,7 +375,13 @@ type Serializer = {
 type ThrottleTarget = {
   readonly home: string;
   readonly name: string; // the name the tree draws, without the file and line a clash adds
-  readonly type: "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
+  readonly type:
+    | "atom"
+    | "map"
+    | "deepMap"
+    | "computed"
+    | "batched"
+    | "unknown";
 };
 
 type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boolean);
@@ -378,7 +391,9 @@ type BundlerPluginOptions = {
   fileKey?: (path: string) => string;
   adoptFactories?: boolean;
   // package name, then export name, then the kind that export makes
-  storeTypes?: Readonly<Record<string, Readonly<Record<string, ThrottleTarget["type"]>>>>;
+  storeTypes?: Readonly<
+    Record<string, Readonly<Record<string, ThrottleTarget["type"]>>>
+  >;
   maxDepth?: number;
 };
 ```
