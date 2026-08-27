@@ -1,6 +1,6 @@
 # nanostores-devtools
 
-<img align="right" width="92" height="92" alt="nanostores-devtools logo" title="nanostores-devtools logo" src="https://raw.githubusercontent.com/psd-coder/nanostores-devtools/main/logo.svg">
+<img align="right" width="92" height="92" alt="nanostores-devtools logo" title="nanostores-devtools logo" src="./logo.svg">
 
 Inspect [nanostores](https://github.com/nanostores/nanostores) state in the
 [Redux DevTools](https://github.com/reduxjs/redux-devtools) browser extension. A bundler plugin
