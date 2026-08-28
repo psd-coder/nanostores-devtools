@@ -7,6 +7,7 @@ import { peekDevtoolsGlobal, resetDevtoolsGlobal } from "../global.ts";
 import { listEntries, type StoreEntry } from "../stores/registry.ts";
 import { buildSnapshot } from "../redux/render.ts";
 import { labelled, panelNode } from "../testing/shapes.ts";
+import { ownRuntimePath, RUNTIME_MODULE } from "./runtime-module.ts";
 import { nanostoresDevtools, type VitePluginOptions, viteHotReload } from "./vite.ts";
 
 /** This file's own directory, which is where the package's absolute paths are read from. */
@@ -163,7 +164,6 @@ describe("the source the plugin is handed", () => {
       logLevel: "silent",
       root: PROJECT_ROOT,
       plugins: [watched(seen), memoryFixture(SOURCE_FILES)],
-      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
     });
 
     await server.ssrLoadModule(SOURCE);
@@ -196,7 +196,6 @@ describe("a file that imports no nanostores creator", () => {
       logLevel: "silent",
       root: PROJECT_ROOT,
       plugins: [nanostoresDevtools(), memoryFixture(FILES)],
-      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
     });
 
     await server.ssrLoadModule(APP);
@@ -271,7 +270,6 @@ describe("a file that says nothing about stores in its own text", () => {
       logLevel: "silent",
       root: PROJECT_ROOT,
       plugins: [nanostoresDevtools(options), memoryFixture(GATE_FILES)],
-      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
     });
 
     await server.ssrLoadModule(WORKSPACE);
@@ -329,7 +327,6 @@ describe("a store made outside the Vite root", () => {
       logLevel: "silent",
       root: PROJECT_ROOT,
       plugins: [nanostoresDevtools({ projectRoot: ABOVE_ROOT }), memoryFixture(OUTSIDE_FILES)],
-      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
       server: { fs: { allow: [ABOVE_ROOT] } },
     });
 
@@ -404,12 +401,7 @@ async function devServer(files: Record<string, string>, entry: string): Promise<
     logLevel: "silent",
     root: PROJECT_ROOT,
     plugins: [nanostoresDevtools(), memoryFixture(files)],
-    resolve: {
-      alias: {
-        "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts`,
-        "nanostores-devtools": `${PROJECT_ROOT}/src/index.ts`,
-      },
-    },
+    resolve: { alias: { "nanostores-devtools": `${PROJECT_ROOT}/src/index.ts` } },
   });
 
   await server.ssrLoadModule(entry);
@@ -1117,7 +1109,6 @@ describe("a store an untransformed package handed back through a promise", () =>
         }),
         memoryFixture(AWAITED_FILES),
       ],
-      resolve: { alias: { "nanostores-devtools/runtime": `${PROJECT_ROOT}/src/runtime.ts` } },
     });
 
     await server.ssrLoadModule(AWAITED_APP);
@@ -1347,5 +1338,38 @@ describe("one store handed to two same-named keys on one line", () => {
       pair: { a: { "$s [store]": 0 }, b: { "$s [store]": 0 } },
     });
     expect(listEntries().map((entry) => entry.name)).toEqual(["cached"]);
+  });
+});
+
+/** What the hook below is called as, which is less than Vite's own hook type spells out. */
+type ResolveHook = (id: string) => string | null;
+
+/**
+ * The hook is a plain function on the plugin. The cast sits here rather than at the call site,
+ * because Vite's own hook type carries a context and an options bag this hook never reads.
+ */
+function resolveHook(): ResolveHook {
+  const plugin = nanostoresDevtools();
+
+  if (typeof plugin.resolveId !== "function") {
+    throw new Error("the plugin no longer resolves anything");
+  }
+
+  return plugin.resolveId as unknown as ResolveHook;
+}
+
+/**
+ * A store file in a package that does not depend on this one cannot find the runtime by name, and
+ * an SSR run hands the same name to Node, which searches the same wrong place. So the injected
+ * import names a path of the plugin's own, and the plugin answers for it.
+ */
+describe("the runtime the injected import names", () => {
+  it("answers for its own path with the runtime beside the plugin", () => {
+    expect(resolveHook()("/@nanostores-devtools/runtime")).toBe(ownRuntimePath());
+  });
+
+  it("leaves every other import alone", () => {
+    expect(resolveHook()(RUNTIME_MODULE)).toBeNull();
+    expect(resolveHook()("nanostores")).toBeNull();
   });
 });

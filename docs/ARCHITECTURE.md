@@ -199,13 +199,20 @@ registers nothing, and files its kind in a `WeakMap` for the binding scan to rea
 test is what keeps a store made in a loop body, a helper, a getter or a class field out of the tree
 until a top-level binding really holds it.
 
-Three details are worth knowing:
+Four details are worth knowing:
 
 - The header is **one line**, and the `own` call sits on its own line at the end. Every original
   line keeps its place in the source map.
 - `clear()` runs at the top of the body on every execution. It does nothing on the first run, and it
   wipes the old stores on every later one. It sits there rather than in a hot hook, because a bundler
   runs its dispose hook only for the module that accepted the update.
+- The import in the header has to resolve from the **store file**, because that is where it now
+  sits. A store file in a workspace package that does not depend on this one cannot reach the
+  runtime, and an SSR run hands the same name to Node, which searches the same wrong place. So each
+  adapter points its bundler at the runtime beside the plugin. Under Vite the header names
+  `/@nanostores-devtools/runtime`, and the plugin resolves that path in `resolveId`, the way Vite's
+  own React plugin answers for `/@react-refresh`. webpack and Rspack keep the package name and get
+  an exact-match `resolve.alias`, unless the developer wrote one themselves.
 - A file is left exactly as written only when it imports no store creator, adopts nothing, and binds
   nothing at the top level. A file that imports `atom` but makes no store today is still
   instrumented, because an edit that took the last store out still has to clear what the run before

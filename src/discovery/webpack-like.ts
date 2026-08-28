@@ -6,9 +6,8 @@ import type { BundlerPluginOptions } from "./bundler.ts";
 import { createDiscovery, type Discovery } from "./core.ts";
 import type { ModuleKeys } from "./module-keys.ts";
 import { loadParser } from "./parser.ts";
+import { ownRuntimePath, RUNTIME_MODULE } from "./runtime-module.ts";
 import { climbToWorkspaceRoot } from "./workspace.ts";
-
-const RUNTIME_MODULE = "nanostores-devtools/runtime";
 
 function refusal(mode: string | undefined): string {
   return (
@@ -46,8 +45,46 @@ export function webpackId(resource: string): string | undefined {
   return id;
 }
 
-/** The two things a compiler is asked, spelled the same way by webpack and by Rspack. */
-type BundlerConfig = { mode?: string | undefined; context?: string | undefined };
+/** As much of `resolve.alias` as this needs: webpack and Rspack both take either shape. */
+type AliasList = { name: string; alias: string; onlyModule?: boolean }[];
+export type Resolve = { alias?: Record<string, unknown> | AliasList | undefined };
+
+/** The three things a compiler is asked, spelled the same way by webpack and by Rspack. */
+type BundlerConfig = {
+  mode?: string | undefined;
+  context?: string | undefined;
+  resolve?: Resolve | undefined;
+};
+
+/**
+ * Points webpack and Rspack at the runtime beside the plugin, so no store file has to find it.
+ *
+ * `$` marks an exact request, and `onlyModule` is the same mark in the list shape: a package whose
+ * name only starts the same way keeps its own resolution. A developer who wrote this alias
+ * themselves keeps theirs.
+ */
+export function aliasRuntime(resolve: Resolve | undefined): void {
+  const runtime = ownRuntimePath();
+
+  if (resolve === undefined || runtime === undefined) {
+    return;
+  }
+
+  if (Array.isArray(resolve.alias)) {
+    if (!resolve.alias.some((entry) => entry.name === RUNTIME_MODULE)) {
+      resolve.alias.push({ name: RUNTIME_MODULE, alias: runtime, onlyModule: true });
+    }
+
+    return;
+  }
+
+  const alias = resolve.alias ?? {};
+  const exact = `${RUNTIME_MODULE}$`;
+
+  if (!(exact in alias) && !(RUNTIME_MODULE in alias)) {
+    resolve.alias = { ...alias, [exact]: runtime };
+  }
+}
 
 function bundlerConfig(meta: UnpluginContextMeta): BundlerConfig {
   if (meta.framework === "webpack") {
@@ -109,6 +146,10 @@ function keysFor(discovery: Discovery | undefined, id: string): ModuleKeys | und
  */
 export const webpackLikeFactory: UnpluginFactory<BundlerPluginOptions, false> = (options, meta) => {
   const discovery = startDiscovery(options, meta);
+
+  if (discovery !== undefined) {
+    aliasRuntime(bundlerConfig(meta).resolve);
+  }
 
   return {
     name: "nanostores-devtools",

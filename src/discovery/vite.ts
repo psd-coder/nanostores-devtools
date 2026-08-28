@@ -4,6 +4,7 @@ import { createUnplugin, type UnpluginFactory } from "unplugin";
 
 import { createDiscovery, type Discovery, type DiscoveryOptions } from "./core.ts";
 import { loadParser } from "./parser.ts";
+import { ownRuntimePath, RUNTIME_MODULE } from "./runtime-module.ts";
 import { findWorkspaceRoot } from "./workspace.ts";
 
 export type VitePluginOptions = DiscoveryOptions & {
@@ -15,8 +16,6 @@ export type VitePluginOptions = DiscoveryOptions & {
   projectRoot?: string | undefined;
 };
 
-const RUNTIME_MODULE = "nanostores-devtools/runtime";
-
 /**
  * `prune` is the hook that fires for a module the update was not accepted on, which is the deleted
  * file case. The clear that runs on every execution needs no hook at all, so this line is all Vite
@@ -25,6 +24,13 @@ const RUNTIME_MODULE = "nanostores-devtools/runtime";
 export function viteHotReload(clear: string): string {
   return `if (import.meta.hot) import.meta.hot.prune(() => { ${clear} });`;
 }
+
+/**
+ * The path the injected import names under Vite. The plugin resolves this path itself, so Vite never
+ * searches for the runtime, and an SSR run never hands a package name to Node to search for. Vite's
+ * own React plugin does the same with `/@react-refresh`.
+ */
+const RUNTIME_PATH = "/@nanostores-devtools/runtime";
 
 /**
  * `enforce: "pre"` puts the walk on the developer's own source, before the bundler's own TypeScript
@@ -41,6 +47,7 @@ export function viteHotReload(clear: string): string {
  */
 const factory: UnpluginFactory<VitePluginOptions, false> = (options) => {
   let discovery: Discovery | undefined;
+  const runtime = ownRuntimePath();
 
   return {
     name: "nanostores-devtools",
@@ -67,6 +74,9 @@ const factory: UnpluginFactory<VitePluginOptions, false> = (options) => {
     vite: {
       apply: "serve",
 
+      /** The path above is the plugin's own, so the plugin says which file it stands for. */
+      resolveId: (id) => (id === RUNTIME_PATH ? (runtime ?? null) : null),
+
       async configResolved(config) {
         discovery = createDiscovery({
           ...options,
@@ -75,7 +85,7 @@ const factory: UnpluginFactory<VitePluginOptions, false> = (options) => {
             projectRoot: options.projectRoot ?? (await findWorkspaceRoot(config.root)),
           },
           loadParser,
-          runtimeModule: RUNTIME_MODULE,
+          runtimeModule: runtime === undefined ? RUNTIME_MODULE : RUNTIME_PATH,
           hotReload: viteHotReload,
         });
       },

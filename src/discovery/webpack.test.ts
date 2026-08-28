@@ -14,7 +14,8 @@ import * as runtime from "../runtime.ts";
 import { type FakeExtension, installFakeExtension } from "../testing/fake-extension.ts";
 import type { BundlerPlugin } from "./bundler.ts";
 import { nanostoresDevtools as rspackDevtools } from "./rspack.ts";
-import { webpackHotReload, webpackId } from "./webpack-like.ts";
+import { ownRuntimePath } from "./runtime-module.ts";
+import { aliasRuntime, type Resolve, webpackHotReload, webpackId } from "./webpack-like.ts";
 import { nanostoresDevtools as webpackDevtools } from "./webpack.ts";
 
 describe("webpackHotReload", () => {
@@ -22,6 +23,43 @@ describe("webpackHotReload", () => {
     expect(webpackHotReload("__nsdt.clear();")).toBe(
       "if (import.meta.webpackHot) import.meta.webpackHot.dispose(() => { __nsdt.clear(); });",
     );
+  });
+});
+
+/**
+ * webpack resolves the injected import from the store file, so a file in a package that does not
+ * depend on this one has nowhere to look. The alias answers for every file in the build instead.
+ */
+describe("aliasRuntime", () => {
+  const runtime = ownRuntimePath();
+
+  it("names the runtime beside the plugin, and only that exact request", () => {
+    const resolve: Resolve = { alias: { "@app": "/repo/src" } };
+
+    aliasRuntime(resolve);
+
+    expect(resolve.alias).toEqual({
+      "@app": "/repo/src",
+      "nanostores-devtools/runtime$": runtime,
+    });
+  });
+
+  it("writes into the list shape as well, which both bundlers take", () => {
+    const resolve: Resolve = { alias: [] };
+
+    aliasRuntime(resolve);
+
+    expect(resolve.alias).toEqual([
+      { name: "nanostores-devtools/runtime", alias: runtime, onlyModule: true },
+    ]);
+  });
+
+  it("leaves an alias the developer wrote themselves alone", () => {
+    const resolve: Resolve = { alias: { "nanostores-devtools/runtime": "/mine/runtime.js" } };
+
+    aliasRuntime(resolve);
+
+    expect(resolve.alias).toEqual({ "nanostores-devtools/runtime": "/mine/runtime.js" });
   });
 });
 
