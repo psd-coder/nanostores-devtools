@@ -30,6 +30,6 @@
     "isolatedDeclarations": true,
     "skipLibCheck": true
   },
-  "include": ["src"],
+  "include": ["src", "test"],
   "exclude": ["dist", "coverage"]
 }

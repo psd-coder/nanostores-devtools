@@ -1,0 +1,11 @@
+{
+  "name": "@fixture/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@fixture/theme": "workspace:*",
+    "nanostores": "*",
+    "nanostores-devtools": "*"
+  }
+}
