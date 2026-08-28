@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+### Fixed
+
+- Resolve the injected runtime import from the plugin, not from the store file. A store in a workspace package that does not itself depend on `nanostores-devtools` could not reach `nanostores-devtools/runtime`, and the import failed first in SSR and then in the browser.
+
+### Documentation
+
+- Show the panel in the README.
+
 ## 0.1.0
 
 First release. `nanostores-devtools` is a read-only bridge from nanostores to the Redux DevTools
