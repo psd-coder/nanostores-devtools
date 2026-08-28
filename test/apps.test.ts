@@ -10,7 +10,7 @@ import {
   type ViteDevServer,
 } from "vite";
 import webpack from "webpack";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { resetDevtoolsGlobal } from "../src/global.ts";
 import { listEntries } from "../src/stores/registry.ts";
@@ -118,7 +118,8 @@ describe("a Vite dev server", () => {
 
       expect(code).toContain(`"dark"`);
       expect(code).not.toContain("__nsdt");
-      expect(code).not.toContain("nanostores-devtools");
+      expect(code).not.toContain("fileScope");
+      expect(code).not.toContain("nanostores-devtools/runtime");
     },
     SLOW,
   );
@@ -126,22 +127,24 @@ describe("a Vite dev server", () => {
 
 const BUNDLE = "bundle.cjs";
 
-function config(subpath: string, plugin: BundlerPlugin) {
+type Mode = "development" | "production";
+
+function config(subpath: string, mode: Mode, plugin: BundlerPlugin) {
   return {
-    mode: "development" as const,
+    mode,
     context: apps.app,
     entry: `${apps.app}/src/entry.js`,
     target: "node" as const,
     devtool: false as const,
     optimization: { minimize: false },
-    output: { path: `${apps.root}/${subpath}`, filename: BUNDLE },
+    output: { path: `${apps.root}/${subpath}/${mode}`, filename: BUNDLE },
     plugins: [plugin],
   };
 }
 
 /** Both bundlers answer the same way: an error, a list of errors, or the bundle they wrote. */
 function settle(
-  subpath: string,
+  where: string,
   error: Error | null | undefined,
   report: { errors?: unknown[] | undefined } | undefined,
   done: (bundle: Promise<string>) => void,
@@ -154,22 +157,22 @@ function settle(
   } else if (errors.length > 0) {
     fail(new Error(errors.join("\n")));
   } else {
-    done(readFile(`${apps.root}/${subpath}/${BUNDLE}`, "utf8"));
+    done(readFile(`${apps.root}/${where}/${BUNDLE}`, "utf8"));
   }
 }
 
-function buildWithWebpack(plugin: BundlerPlugin): Promise<string> {
+function buildWithWebpack(mode: Mode, plugin: BundlerPlugin): Promise<string> {
   return new Promise((done, fail) => {
-    webpack(config("webpack", plugin), (error, stats) => {
-      settle("webpack", error, stats?.toJson({ errors: true }), done, fail);
+    webpack(config("webpack", mode, plugin), (error, stats) => {
+      settle(`webpack/${mode}`, error, stats?.toJson({ errors: true }), done, fail);
     });
   });
 }
 
-function buildWithRspack(plugin: BundlerPlugin): Promise<string> {
+function buildWithRspack(mode: Mode, plugin: BundlerPlugin): Promise<string> {
   return new Promise((done, fail) => {
-    rspack(config("rspack", plugin), (error, stats) => {
-      settle("rspack", error, stats?.toJson({ errors: true }), done, fail);
+    rspack(config("rspack", mode, plugin), (error, stats) => {
+      settle(`rspack/${mode}`, error, stats?.toJson({ errors: true }), done, fail);
     });
   });
 }
@@ -194,7 +197,7 @@ describe.each(BUNDLERS)("a $name dev build", ({ subpath, build: bundleWith }) =>
 
     const plugin = await pluginFrom<BundlerPlugin>(subpath);
 
-    runBundle(await bundleWith(plugin()));
+    runBundle(await bundleWith("development", plugin()));
   }, SLOW);
 
   afterAll(() => {
@@ -203,5 +206,53 @@ describe.each(BUNDLERS)("a $name dev build", ({ subpath, build: bundleWith }) =>
 
   it("registers the app's stores and the stores of a package beside it", () => {
     expect(names()).toEqual(["$count", "$theme", "$user"]);
+  });
+});
+
+/**
+ * Neither bundler has a dev-only flag of its own, so the plugin refuses a build that is not in
+ * development mode. Nothing it injects may reach a shipped bundle, and nothing may register when
+ * one runs.
+ */
+describe.each(BUNDLERS)("a $name production build", ({ subpath, build: bundleWith }) => {
+  let bundle: string;
+  let warnings: string[];
+
+  beforeAll(async () => {
+    resetDevtoolsGlobal();
+    warnings = [];
+
+    const plugin = await pluginFrom<BundlerPlugin>(subpath);
+    const warn = vi.spyOn(console, "warn").mockImplementation((message: string) => {
+      warnings.push(message);
+    });
+
+    try {
+      bundle = await bundleWith("production", plugin());
+    } finally {
+      warn.mockRestore();
+    }
+  }, SLOW);
+
+  afterAll(() => {
+    resetDevtoolsGlobal();
+  });
+
+  it("says out loud that it did nothing", () => {
+    expect(warnings.join("\n")).toContain("dev-only");
+    expect(warnings.join("\n")).toContain("development");
+  });
+
+  it("carries the app's own stores and nothing of the plugin's", () => {
+    expect(bundle).toContain(`"dark"`);
+    expect(bundle).not.toContain("__nsdt");
+    expect(bundle).not.toContain("fileScope");
+    expect(bundle).not.toContain("nanostores-devtools/runtime");
+  });
+
+  it("registers nothing when it runs", () => {
+    runBundle(bundle);
+
+    expect(names()).toEqual([]);
   });
 });

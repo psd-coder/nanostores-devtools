@@ -49,8 +49,12 @@ async function linkRepoModules(into: string): Promise<void> {
 }
 
 export async function installApps(): Promise<Apps> {
-  /** The real path, because macOS hands out a symlink and Vite refuses to serve a file behind one. */
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), "nanostores-devtools-apps-")));
+  /**
+   * The real path, because macOS hands out a symlink and Vite refuses to serve a file behind one.
+   * The folder is named after nothing, so a bundle holding this package's name means the plugin
+   * put it there and not the path a module was read from.
+   */
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "nsdt-apps-")));
   const app = `${root}/app`;
   const modules = `${app}/node_modules`;
   const theme = `${root}/packages/theme`;
