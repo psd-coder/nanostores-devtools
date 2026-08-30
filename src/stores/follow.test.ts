@@ -85,7 +85,7 @@ describe("a binding walked again after something under it changed", () => {
     $root.set({ $added });
     await settle();
 
-    expect(getEntry($added)?.name).toBe("$root.get().$added");
+    expect(getEntry($added)?.name).toBe("$root.value.$added");
     expect(ownerOf($added)).toBe($root);
   });
 
@@ -101,8 +101,8 @@ describe("a binding walked again after something under it changed", () => {
     await settle();
 
     expect(fake.sends.at(-1)?.action["action"]).toEqual({
-      type: "$root.get().$added/register",
-      changes: [{ label: `${HOME}/$root.get().$added`, op: "register" }],
+      type: "$root.value.$added/register",
+      changes: [{ label: `${HOME}/$root.value.$added`, op: "register" }],
     });
   });
 
@@ -120,7 +120,7 @@ describe("a binding walked again after something under it changed", () => {
     $added.set(1);
     await settle();
 
-    expect(rowNames().at(-1)).toContain("$root.get().$added");
+    expect(rowNames().at(-1)).toContain("$root.value.$added");
   });
 
   /**
@@ -178,8 +178,8 @@ describe("a binding walked again after something under it changed", () => {
     await settle();
 
     expect(fake.sends.at(-1)?.action["action"]).toEqual({
-      type: "$root.get().$gone/unregister",
-      changes: [{ label: `${HOME}/$root.get().$gone`, op: "unregister" }],
+      type: "$root.value.$gone/unregister",
+      changes: [{ label: `${HOME}/$root.value.$gone`, op: "unregister" }],
     });
   });
 
@@ -210,12 +210,12 @@ describe("a binding walked again after something under it changed", () => {
 
     own([{ name: "$list", value: $list, exported: true }]);
 
-    expect(getEntry($checked)?.name).toBe("$list.get()[1].$checked");
+    expect(getEntry($checked)?.name).toBe("$list.value[1].$checked");
 
     $list.set([second]);
     await settle();
 
-    expect(getEntry($checked)?.name).toBe("$list.get()[1].$checked");
+    expect(getEntry($checked)?.name).toBe("$list.value[1].$checked");
     expect(nodeInfoOf(second)?.name).toBe("[0]");
   });
 

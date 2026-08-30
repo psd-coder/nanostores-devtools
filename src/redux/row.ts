@@ -1,5 +1,5 @@
 import { otherPaths, rowName } from "../tree/placement.ts";
-import type { Change, Row, RowOp } from "../timeline/timeline.ts";
+import type { Change, Row, RowOp, RowSubject } from "../timeline/timeline.ts";
 
 /** One change as the panel prints it: the store spelled for a reader, and what it did. */
 type DrawnChange = {
@@ -37,10 +37,25 @@ export function renderRow(row: Row): RowMessage {
  * change past the first belongs to another store and must not name the row.
  */
 function rowType(row: Row): string {
-  const subject = row.subject.kind === "store" ? rowName(row.subject.entry) : row.subject.home;
-  const named = `${subject}/${row.op}`;
+  const named = `${subjectName(row.subject)}/${row.op}`;
 
   return row.path === undefined ? named : `${named}:${row.path}`;
+}
+
+function subjectName(subject: RowSubject): string {
+  switch (subject.kind) {
+    case "store":
+      return rowName(subject.entry);
+    case "path":
+      return subject.path;
+    case "home":
+      return subject.home;
+    default: {
+      const unreachable: never = subject;
+
+      throw new Error(`unhandled row subject: ${JSON.stringify(unreachable)}`);
+    }
+  }
 }
 
 function renderChange(change: Change, index: number): DrawnChange {

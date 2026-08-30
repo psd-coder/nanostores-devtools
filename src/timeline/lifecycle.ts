@@ -1,4 +1,5 @@
 import { nameKey, type RegistryChange, type StoreEntry } from "../stores/registry.ts";
+import { valuePathSteps } from "../stores/ownership.ts";
 import { activeSession, type Session } from "../session.ts";
 import {
   type Change,
@@ -156,10 +157,57 @@ function toGroup(moves: HomeMoves): Group {
   const changes = [...moves.ops.values()].map(({ entry, op: moved }) => ({ entry, op: moved }));
   const alone = changes.length === 1 ? changes[0]?.entry : undefined;
 
+  if (alone !== undefined) {
+    return { subject: { kind: "store", entry: alone }, op, changes };
+  }
+
+  const shared = sharedPath(changes);
+
   return {
     subject:
-      alone === undefined ? { kind: "home", home: moves.home } : { kind: "store", entry: alone },
+      shared === undefined ? { kind: "home", home: moves.home } : { kind: "path", path: shared },
     op,
     changes,
   };
+}
+
+/**
+ * The path the whole group sits under, where every store in it was found inside another store's
+ * value. The app built those stores at run time, so the module they belong to did not change and
+ * the developer is looking for the node they just added, not the file its factory lives in.
+ *
+ * `undefined` where the group mixes found stores with module-level ones, or where the found ones
+ * share no step, and then the row keeps the module name.
+ */
+function sharedPath(changes: Change[]): string | undefined {
+  let shared: string[] | undefined;
+
+  for (const { entry } of changes) {
+    const steps = valuePathSteps(entry.name);
+
+    if (steps === undefined) {
+      return undefined;
+    }
+
+    shared = shared === undefined ? steps : commonSteps(shared, steps);
+
+    if (shared.length === 0) {
+      return undefined;
+    }
+  }
+
+  const name = shared?.join("");
+
+  /** The shared part can stop short of the value step, and then it names no store the app built. */
+  return name !== undefined && valuePathSteps(name) !== undefined ? name : undefined;
+}
+
+function commonSteps(one: string[], other: string[]): string[] {
+  let same = 0;
+
+  while (same < one.length && same < other.length && one[same] === other[same]) {
+    same += 1;
+  }
+
+  return one.slice(0, same);
 }

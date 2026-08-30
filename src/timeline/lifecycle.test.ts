@@ -371,6 +371,68 @@ describe("register, unregister and hot reload rows", () => {
   });
 });
 
+describe("a row of stores found inside another store's value", () => {
+  it("names the row after the binding path the whole group shares", async () => {
+    await listen();
+    register("$root.value.$children[0].$checked", atom(false));
+    register("$root.value.$children[0].$label", atom(""));
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["$root.value.$children[0]/register"]);
+  });
+
+  it("shares whole steps, so two keys starting the same do not merge", async () => {
+    await listen();
+    register("$root.value.$children[0].$checked", atom(false));
+    register("$root.value.$children[0].$child", atom(""));
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(["$root.value.$children[0]/register"]);
+  });
+
+  it("keeps a bracketed key whole, dot inside it and all", async () => {
+    await listen();
+    register('$root.value["a.b"].$one', atom(1));
+    register('$root.value["a.b"].$two', atom(2));
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual(['$root.value["a.b"]/register']);
+  });
+
+  it("keeps the module name where the group also holds a module-level store", async () => {
+    await listen();
+    register("$root.value.$children[0].$checked", atom(false));
+    register("$total", atom(0));
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual([`${HOME}/register`]);
+  });
+
+  it("keeps the module name where the shared part stops before the value step", async () => {
+    await listen();
+    register("$root.value.$checked", atom(false));
+    register('$root["a-b"].value.$label', atom(""));
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual([`${HOME}/register`]);
+  });
+
+  it("keeps the module name where the found stores share no step", async () => {
+    await listen();
+    register("$root.value.$checked", atom(false));
+    register("$other.value.$label", atom(""));
+
+    await endOfTurn();
+
+    expect(rowNames()).toEqual([`${HOME}/register`]);
+  });
+});
+
 describe("a store drawn under an owner", () => {
   /**
    * A hot reload takes a whole module in one turn, and the owner may go first. Both left the tree,

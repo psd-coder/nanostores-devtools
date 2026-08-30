@@ -59,11 +59,11 @@ const UNNAMED = "ref";
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /**
- * The step from a store to what it holds, spelled the way the developer would type it. The path a
- * store found inside another store's value takes says the step, so the name stays something the
- * reader can look up in their own source.
+ * The step from a store to what it holds, spelled the way the walk reads it. `.value` goes through
+ * the descriptor and never computes, so for an unmounted computed the name points at the same
+ * stale value the panel already labels.
  */
-const VALUE_STEP = ".get()";
+const VALUE_STEP = ".value";
 
 /**
  * One top-level name the module binds, and what the developer asked for about it. `exported` is
@@ -341,6 +341,41 @@ function joined(path: string, key: string): string {
 }
 
 /**
+ * A name that reached a store through another store's value, split back into the steps `joined`
+ * put together, or `undefined` where the name never steps into a value. Each step keeps the dot or
+ * the brackets it was written with, so the steps join straight back into the name.
+ *
+ * A bracketed key can hold a quoted dot, so the scan reads the quotes rather than splitting on
+ * every dot in the string.
+ */
+export function valuePathSteps(name: string): string[] | undefined {
+  const steps: string[] = [];
+  let start = 0;
+  let quoted = false;
+
+  for (let at = 0; at < name.length; at += 1) {
+    const char = name[at];
+
+    if (quoted) {
+      if (char === "\\") {
+        at += 1;
+      } else if (char === '"') {
+        quoted = false;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if ((char === "." || char === "[") && at > start) {
+      steps.push(name.slice(start, at));
+      start = at;
+    }
+  }
+
+  steps.push(name.slice(start));
+
+  return steps.includes(VALUE_STEP) ? steps : undefined;
+}
+
+/**
  * The store the scan has just reached, born here where the registry has never seen it. That is a
  * store no wrapper could name: one an installed package made, one a call put on the object it
  * returned, one a `new` expression built. The name it takes is the whole chain that reached it: the
@@ -489,7 +524,7 @@ function walk(
 }
 
 /**
- * What a store holds, as members of the store itself. `$root.get().$children` is a path the
+ * What a store holds, as members of the store itself. `$root.value.$children` is a path the
  * developer can type, so a store sitting inside another store's value is reachable and it draws,
  * under the store that holds it and beside the store's own value.
  *

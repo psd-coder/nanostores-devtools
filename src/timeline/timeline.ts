@@ -6,7 +6,14 @@ import { captureStack, type StackBoundary } from "./stack.ts";
 import { clearThrottle, suppressWrite, throttlePeriod } from "./throttle.ts";
 
 /** What a row is about: one store, or one home when several of its stores moved together. */
-export type RowSubject = { kind: "store"; entry: StoreEntry } | { kind: "home"; home: string };
+/**
+ * What a row is named after: one store, the binding path a group of found stores shares, or the
+ * module the group belongs to.
+ */
+export type RowSubject =
+  | { kind: "store"; entry: StoreEntry }
+  | { kind: "path"; path: string }
+  | { kind: "home"; home: string };
 
 export type RowOp =
   | "set"

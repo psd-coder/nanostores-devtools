@@ -1306,7 +1306,7 @@ describe("ownerLinksOf", () => {
 });
 
 /**
- * `$root.get().$children` is a path the developer can type, so a store sitting inside another
+ * `$root.value.$children` is a path the developer can type, so a store sitting inside another
  * store's value is reachable and it draws, under the store that holds it.
  */
 describe("a store inside another store's value", () => {
@@ -1334,7 +1334,7 @@ describe("a store inside another store's value", () => {
 
     ownBindings(FROM, [{ name: "$root", value: $root, exported: true }]);
 
-    expect(getEntry($children)?.name).toBe("$root.get().$children");
+    expect(getEntry($children)?.name).toBe("$root.value.$children");
   });
 
   /** The path names the entry, and the key alone is what the tree draws under the owner. */
@@ -1355,7 +1355,7 @@ describe("a store inside another store's value", () => {
     ownBindings(FROM, [{ name: "$root", value: $root, exported: true }]);
 
     expect(ownerOf($checked)).toBe(node);
-    expect(getEntry($checked)?.name).toBe("$root.get().items[0].$checked");
+    expect(getEntry($checked)?.name).toBe("$root.value.items[0].$checked");
   });
 
   /** The bridge never runs the app's own code to find out something, and a mount is app code. */
