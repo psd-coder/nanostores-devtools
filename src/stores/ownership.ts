@@ -89,6 +89,21 @@ export type ModuleHome = Pick<NodeInfo, "home" | "external"> & NameSource;
 type Members = { read: true; drawn: Member[]; past: Member[] } | { read: false; reason: string };
 
 /**
+ * One store the walk reached, and where it reached it: the owner that holds it and the key it sits
+ * under. A binding's whole set of them is one value, which is what two walks can be compared by.
+ */
+type Reach = { store: Store; path: string; key: string; owner: object };
+
+/** One store a binding reaches, and the path the developer can type to reach it. */
+export type ReachedStore = { store: Store; path: string };
+
+/**
+ * What one top-level binding reached. A binding that holds a store holds itself first, at its own
+ * name, so a binding pointing straight at a store reaches one store rather than none.
+ */
+export type BindingReach = { binding: string; reached: ReachedStore[] };
+
+/**
  * One walk: the module it runs for, the top-level binding it started at, and what it has already
  * been through, which ends a cycle. The binding is the name the developer can look up, so it is
  * what a warning about anything found below it says.
@@ -99,6 +114,7 @@ type Scan = {
   seen: Set<object>;
   maxDepth: number;
   maxMembers: number | undefined;
+  found: Reach[];
 };
 
 /**
@@ -109,6 +125,10 @@ type Scan = {
  * **A store the walk reaches is registered here**, under the name that holds it, so a store no
  * wrapper could name still draws. A store the registry already knows keeps its entry: a store is
  * born once and has one entry, which is what makes two names for one store resolve to one store.
+ *
+ * **The walk hands back what it reached, and registration reads that.** A binding is walked, then
+ * everything it reached is registered in the order it was reached. The same list is returned, one
+ * per binding, so what a binding reaches is a value a caller can hold and compare.
  *
  * **Two passes, and not one.** Every binding claims its name first, and only then is any of them
  * walked. A top-level binding beats the key of an object holding the same store, so one pass would
@@ -122,9 +142,9 @@ export function ownBindings(
   module: ModuleHome,
   bindings: readonly Binding[],
   maxDepth: number = MAX_DEPTH,
-): void {
+): BindingReach[] {
   if (placesNothing(module)) {
-    return;
+    return [];
   }
 
   for (const { name, value, exported } of bindings) {
@@ -133,10 +153,14 @@ export function ownBindings(
     }
   }
 
+  const walked: BindingReach[] = [];
+
   for (const { name, value, maxMembers, isClass } of bindings) {
+    const found: Reach[] = [];
+
     if (canHold(value) || (isClass === true && typeof value === "function")) {
       walk(
-        { module, binding: name, seen: new Set(), maxDepth, maxMembers },
+        { module, binding: name, seen: new Set(), maxDepth, maxMembers, found },
         value,
         name,
         name,
@@ -144,7 +168,34 @@ export function ownBindings(
         0,
       );
     }
+
+    register(module, found);
+    walked.push({ binding: name, reached: reachedBy(name, value, found) });
   }
+
+  return walked;
+}
+
+/**
+ * Everything the walk found, registered in the order it was reached. A name is taken first and the
+ * owner link written after it, per store, so a store reached under another one is registered
+ * before anything below it.
+ */
+function register(module: ModuleHome, found: readonly Reach[]): void {
+  for (const { store, path, key, owner } of found) {
+    nameReached(module, store, path, key);
+    recordOwner(module, store, owner, key, path);
+  }
+}
+
+/**
+ * The stores one binding reaches, the binding's own store first. It hands out the store and the
+ * path, which is what names the store and what a later walk compares.
+ */
+function reachedBy(name: string, value: unknown, found: readonly Reach[]): ReachedStore[] {
+  const own: ReachedStore[] = isStore(value) ? [{ store: value, path: name }] : [];
+
+  return [...own, ...found.map(({ store, path }) => ({ store, path }))];
 }
 
 /**
@@ -387,8 +438,7 @@ function walk(
     const reached = joined(path, key);
 
     if (isStore(member)) {
-      nameReached(scan.module, member, reached, key);
-      recordOwner(scan.module, member, value, key, reached);
+      scan.found.push({ store: member, path: reached, key, owner: value });
     }
 
     if (canHold(member)) {

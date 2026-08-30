@@ -483,6 +483,60 @@ describe("ownBindings", () => {
     });
   });
 
+  describe("what the walk hands back", () => {
+    it("returns every store a binding reached, at the path that reached it", () => {
+      const $canUndo = atom(false);
+      const $draft = holder("", { $canUndo });
+
+      const walked = ownBindings(FROM, [{ name: "editor", value: { $draft }, exported: false }]);
+
+      expect(walked).toEqual([
+        {
+          binding: "editor",
+          reached: [
+            { store: $draft, path: "editor.$draft" },
+            { store: $canUndo, path: "editor.$draft.$canUndo" },
+          ],
+        },
+      ]);
+    });
+
+    it("puts the store a binding holds first, under the binding's own name", () => {
+      const $canUndo = atom(false);
+      const $draft = holder("", { $canUndo });
+
+      const walked = ownBindings(FROM, [{ name: "$draft", value: $draft, exported: false }]);
+
+      expect(walked[0]?.reached).toEqual([
+        { store: $draft, path: "$draft" },
+        { store: $canUndo, path: "$draft.$canUndo" },
+      ]);
+    });
+
+    it("returns a row for every binding, including one that reaches no store at all", () => {
+      const walked = ownBindings(FROM, [
+        { name: "settings", value: { theme: "dark" }, exported: false },
+        { name: "count", value: 2, exported: false },
+      ]);
+
+      expect(walked).toEqual([
+        { binding: "settings", reached: [] },
+        { binding: "count", reached: [] },
+      ]);
+    });
+
+    it("returns nothing for a file of somebody else's, which places nothing", () => {
+      const $canUndo = atom(false);
+
+      const walked = ownBindings(
+        { home: "vendor/withUndo.ts", external: true, moduleKey: "vendor/withUndo.ts" },
+        [{ name: "$canUndo", value: $canUndo, exported: false }],
+      );
+
+      expect(walked).toEqual([]);
+    });
+  });
+
   it("holds the store and its owner weakly, so it keeps neither of them alive", () => {
     const $canUndo = atom(false);
     const $draft = holder("", { $canUndo });
