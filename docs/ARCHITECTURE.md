@@ -65,6 +65,7 @@ flowchart TB
       registry["stores/registry.ts<br/>which stores exist, what each is called"]
       names["stores/names.ts<br/>clashes, qualifiers"]
       ownership["stores/ownership.ts<br/>what each store is drawn under"]
+      follow["stores/follow.ts<br/>when a binding is walked again"]
       tree["tree/tree.ts<br/>homes, nodes, order, ordinals"]
       timeline["timeline/*<br/>rows, hooks, lifecycle, throttle"]
       session["session.ts<br/>one view watching the page"]
@@ -273,9 +274,9 @@ There are three ways in:
 
 - **A wrapped creator call**, through `runtime.ts`, where the gate let it carry a name. It knows the
   name, the line and the type.
-- **The binding scan**, at the end of a module body. It knows the whole chain that reached the
-  store, `config.theme.$x`, and it reads the type back out of `creations` where a nameless wrapper
-  filed one.
+- **The binding scan**, at the end of a module body and again on every walk that follows a change.
+  It knows the whole chain that reached the store, `config.theme.$x` or `$root.value.$children`,
+  and it reads the type back out of `creations` where a nameless wrapper filed one.
 - **`trackStores(group, stores)`**, called by hand. It knows a group name and a name per store, and
   nothing else.
 
@@ -322,7 +323,7 @@ Two mechanisms record an owner:
 flowchart LR
   subgraph mech["Two ways to place a store"]
     direction TB
-    scan["own([...])<br/><b>scan</b><br/>walks top-level bindings<br/>up to 10 levels, and registers"]
+    scan["own([...])<br/><b>scan</b><br/>walks top-level bindings<br/>up to 10 levels, and registers<br/>again on every change it reached"]
     field["store(x, site, this)<br/><b>field</b><br/>a class field initializer"]
   end
 
@@ -339,7 +340,22 @@ walks each binding up to ten levels deep, and every member of a collection it me
 reaches with no entry yet is registered there**, under the whole chain that reached it. A class
 declaration is a binding too, so a class's own static fields are walked. It reads only
 own data properties, so an app getter never runs. An array is named by index, a `Map` by key, a `Set` by
-insertion order. Every name it produces is one the developer could type to reach that member.
+insertion order. A store's own value is one more step, written `.value` because that is what the
+walk reads: through the descriptor, never computed, so an unmounted `computed` returns the stale
+value the tree already labels. Every name it produces is one the developer could type to reach that
+member.
+
+**The scan runs again, and `src/stores/follow.ts` decides when.** `own()` keeps every binding it
+walked together with what that walk reached. `onNotify` on a reached store marks each binding that
+reaches it. A microtask at the end of the turn walks the marked bindings, one walk per binding
+however many stores under it wrote. What the new walk reaches joins the registry, and a store no
+binding reaches any more is unregistered unless a hand-written group holds it. Every owner link,
+parent link and binding record is weak. The registry entry is the one strong reference, so a store
+the walk unregisters can be collected and a store no walk ever revisits is held.
+
+Two bounds are real. A binding whose first walk reached no store is not followed, because nothing
+under it can notify. And the hooks attach at connect, so a store built between module load and
+connect is a known gap.
 
 It claims in two passes and not one: every binding that holds a store claims its name first, and
 only then is any binding walked. A top-level binding beats the key of an object holding the same
@@ -363,8 +379,8 @@ Two refusals matter, plus one cleanup rule:
 - An edge that would close a loop is refused, searching every owner and every parent. That is also
   why the tree build needs no depth bound.
 - **One owner and one key name one store.** Recording a store at an owner and a key drops any other
-  store's edge to that same owner and key. One key holds one value, and the scan read it at the end
-  of the module body, so the last scan to walk that object read the value that is there now.
+  store's edge to that same owner and key. One key holds one value, and the walk read it whole, so
+  the last walk to reach that object read the value that is there now.
 - A hot reload drops the edges and binding names the module wrote and no other module's. Every record
   carries the module key, and the module scope keeps a weak set of what it linked, because a
   `WeakMap` cannot be listed.
@@ -461,6 +477,13 @@ Registry rows work the other way round. They wait for the end of the turn and ar
 so one hot reload draws a single `hotReload` row rather than a burst of paired register and
 unregister rows.
 
+`RowSubject` has three kinds and `lifecycle.ts` picks one per group. `store` when the group holds
+one store. `path` when every store in it was found inside another store's value, named by the
+longest binding path they share. `home`, the module, for everything else. A group that mixes found
+stores with module-level ones falls back to `home`. So does one whose found stores share no step,
+and one whose shared part stops before the `.value` step, because that prefix names no store the
+app built. `entry.home` itself is untouched: a hot reload still drops exactly what a module owned.
+
 ### 8.3 Throttling
 
 A store is held to one row a second in three ways:
@@ -487,7 +510,8 @@ A row is headed by the store's whole **binding path**, `config.theme.$x/set`, be
 alone would not say which of two objects holding an `$open` moved. Where the developer holds one
 store in more than one chain, the entry keeps the first path the scan recorded and the change
 carries the rest in `also`. The row and the tree are built from the same links, not from the same
-string: the tree still draws one key per level.
+string: the tree still draws one key per level. A path that steps into what a store holds carries
+`.value` in it, `$root.value.$children/set`, which is the step the walk really read.
 
 ---
 

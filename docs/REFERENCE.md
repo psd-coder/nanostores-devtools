@@ -67,9 +67,35 @@ The plugin carries that rule out in two halves:
   store, a destructured pair, a `new` expression and a class instance's fields, and it reads the
   kind back out of what a nameless wrapper filed.
 
-**The plugin reads your top-level bindings once, when the file finishes loading.** A store that
-lands in one of them later, from a callback or a timer, is not in the panel. Register it by hand
-with [`trackStores`](#trackstores) when you need it.
+#### The reachability rule
+
+What the scan draws follows one rule:
+
+> **A store you can reach from a top-level binding of your own is drawn and watched. A store you
+> cannot reach is invisible.**
+
+Reach means a path you could type in your own source, starting at a name your module binds:
+`config.theme.$x`, `$all[0]`, `byId["a1"].$status`, and `$root.value.$children` for a store sitting
+inside another store's value. Every step is a name you wrote or a position you could count.
+
+**A closure is the one shape no path can ever name.** A store a function keeps to itself has no
+property anyone can read. No path names it, and no row is drawn for it. That is the rule working,
+not a gap in it. [`trackStores`](#trackstores) is the way back in.
+
+**The scan runs again while the panel is connected.** The first walk happens when the file finishes
+loading. After that, a change in a store the scan already reached sends the walk down every binding
+that reaches that store, once per binding per turn. So a store your app puts inside a store's value
+at run time joins the panel, and a store the app drops leaves it.
+
+Two limits say when the walk looks, not what the rule allows. A store either one leaves out is
+reachable; we simply never look again:
+
+- **A binding that reached no store is never walked again.** Nothing under it can notify us. A
+  store a timer drops into a plain object your module binds is not in the panel.
+- **Nothing is watched before the panel connects.** The hooks that notice a change attach at
+  `connectDevtools`. Stores built between module load and connect are a known gap.
+
+Register by hand with [`trackStores`](#trackstores) in either case.
 
 **A store made in a nested block, or inside a function, and never handed to a top-level binding is
 not drawn.** It is that function's own working state, and what the function returned is what your
@@ -192,6 +218,32 @@ for that half.
 
 **The binding scan left members out.** A `max-members` comment can cap a store's own members. Its
 value moves under `(value)`, and `…` says how many members were not scanned.
+
+#### A store inside another store's value
+
+`$root.value.$children` is a path you can type, so a store sitting inside another store's value is
+reachable, and it draws **under the store that holds it**, beside `(value)` like anything else that
+store holds:
+
+```
+$root [store]
+  (value)             <- the object the root holds
+  $children [store]   <- the store found inside that object
+```
+
+**A store that is another store's whole value is not nested under it.** The `(value)` slot already
+draws that store, with its own type and its own value, so a second key beside the slot would say
+the app holds two.
+
+**The key is the short key, the name is the whole path.** The row under `$root` is keyed
+`$children`, so no tree key holds a dot you did not write. The entry is named
+`$root.value.$children`, and the label prints that after the file name. Two roots that each hold a
+`$children` therefore never claim the same name.
+
+**A `max-members` cut inside a store's value is silent.** The `…` beside the store counts the
+store's own members and nothing else, and `(value)` still shows the value whole, so a member the
+cap stopped the walk at is still on the screen. What you lose is a store deeper in that value: it
+takes no key beside `(value)`.
 
 Two more keys are written with the same parentheses and mean something else: `(valueOf)` and
 `(toString)` name **which method answered** on a class instance that said how it reads itself. See
@@ -343,8 +395,8 @@ would read as `$lens [store]` and `$lens [store] #2`. Neither name is one you co
 
 **One owner and one key name one store.** Where a second store is put at the same key on the same
 object, the first loses its link there and draws flat at its own file instead. One key holds one
-value, and the scan reads it at the end of the module body, so the last scan to walk that object
-read the value that is there now.
+value, and the walk reads it whole, so the last walk to reach that object read the value that is
+there now. A walk that follows a change reads it again, which is how a replaced key moves a row.
 
 **A store you passed to `trackStores` is drawn the same way**, at the group you named, with every
 owner keeping a repeat. The group is a home you chose by hand, so it beats any owner the walk
@@ -512,6 +564,7 @@ ourselves: nanostores has no actions, so there is nothing else to name a row aft
 | `$count/hotReload`                   | a file ran again and its stores were rebuilt          |
 | `config.theme.$x/set`                | a nested store was written, headed by its whole path  |
 | `$all[0]/set`                        | a store in an array was written                       |
+| `$root.value.$children[0]/register`  | stores found inside one store's value joined the tree |
 
 A row holds one write plus every recompute that write caused, which is why a `computed` store
 usually has no row of its own. Mount, unmount, register, unregister and hot reload are the
@@ -531,10 +584,21 @@ inside it, so a register row is always a late arrival:
 - a code-split chunk loaded, and a file of yours ran for the first time;
 - a factory or a loop made another store, `$items [store] #2`;
 - a binding adopted a store that some other code built;
-- `trackStores` ran after `connectDevtools`, which is the usual shape for a dependency's stores.
+- `trackStores` ran after `connectDevtools`, which is the usual shape for a dependency's stores;
+- your app put a store inside a store you already hold, and the walk that followed the change
+  found it.
 
-An unregister row is the opposite: stores left the tree for good. `untrack("cart")` does it, and so
-does an edit that deletes the last store in a file.
+An unregister row is the opposite: stores left the tree. `untrack("cart")` does it, and so does an
+edit that deletes the last store in a file. A store becoming unreachable while the app runs does it
+too. When a walk that follows a change finds that no binding of yours reaches the store any more,
+its entry goes and the store draws nowhere. A store you registered by hand into a group is kept
+whatever the walk says, because you wrote that name for this store.
+
+**Rows already sent stay.** The timeline is a record of what happened, not a view of what is
+reachable now. A row sent while the store was reachable keeps its meaning, nothing is withdrawn,
+and no row is rewritten when the reference goes. The tree holds nothing tightly either: every owner
+link, every parent link and every binding record holds the store weakly. The entry in the registry
+is the one strong reference, and the walk that finds the store unreachable takes that entry away.
 
 Renaming changes no rows. A store that gains a name from your binding, a kind from adoption or a
 group from `trackStores` keeps its entry, so it neither joins nor leaves.
@@ -547,6 +611,23 @@ become one row, `src/stores/cart.ts/hotReload`, or `$count/hotReload` when only 
 Inside the row each store carries its own word: `hotReload` for a store that came back, `register`
 for one your edit added, `unregister` for one it dropped. So the row tells you what the edit did,
 and you never have to recognise a pair of registry rows as your own save.
+
+### What a lifecycle row is called
+
+A row that carries one store is named after that store, `$count/register`. A row that carries
+several takes one of two other names:
+
+- **The binding path the group shares**, where every store in it was found inside another store's
+  value. Adding a node under `$root.value.$children[0]` draws `$root.value.$children[0]/register`,
+  not the file the factory lives in: your app built those stores at run time, the module did not
+  change, and you are looking for the node you just added.
+- **The module the stores belong to**, `src/stores/cart.ts/register`, for every other group. That
+  covers a group that mixes stores found in a value with stores a module body registered, a group
+  whose found stores share no step, and one whose shared part stops before the `.value` step, which
+  names no store the app built.
+
+The home an entry carries does not change either way. It is what a hot reload uses to drop exactly
+what a module owned, found stores included, so only the row name moves.
 
 ## What each `connectDevtools` option costs
 
@@ -824,11 +905,17 @@ one store.** A site inside a factory makes a new store every time it runs, and a
 share one name. The registry holds strong references on purpose, so nothing leaves it on its own,
 and nothing caps how many stores one site may hold.
 
-**`maxDepth` bounds the binding scan.** The scan runs at the end of every module body, starts at
-each top-level binding the module makes, and walks into what that binding holds, counting a
-property, an index and a `Map` key alike. Ten steps by default, which is deeper than state is
-usually nested. A store past that number is not drawn under the binding, and not registered by the
-scan at all.
+**`maxDepth` bounds the binding scan.** The scan runs at the end of every module body, and again
+whenever a store it reached changes while the panel is connected. It starts at each top-level
+binding the module makes and walks into what that binding holds, counting a property, an index, a
+`Map` key and a step into a store's value alike. Ten steps by default, which is deeper than state
+is usually nested. A store past that number is not drawn under the binding, and not registered by
+the scan at all.
+
+The step into what a store holds is written `.value`, as in `$root.value.$children`, because
+`.value` is what the walk really reads: it goes through the descriptor and never computes. So an
+unmounted `computed` gives up the same stale value the panel labels, and the bridge never runs your
+code to find out what a store holds.
 
 **It takes a whole number of 1 or more, or `Infinity` to walk a binding as deep as it goes.**
 Anything else is refused with a warning that names the option and your value, and the walk keeps its
@@ -1443,8 +1530,9 @@ not change, and a gap might.
 
 **Bounded on purpose:**
 
-- **Ten steps into a binding**, where a property, an index and a key each count as one step. This
-  cut is silent, and `maxDepth` moves it.
+- **Ten steps into a binding**, where a property, an index, a key and a step into a store's value
+  each count as one step. That last one is written `.value`, because `.value` is what the walk
+  reads: through the descriptor, never computed. This cut is silent, and `maxDepth` moves it.
 
 Nothing bounds how many members of one collection become nodes. A binding holding 5000 stores draws
 5000 rows, unless a [`max-members` comment](#what-each-connectdevtools-option-costs) over that
@@ -1469,7 +1557,8 @@ reload builds a new one, and no binding has claimed that one yet.
 
 - **Reassignment.** `let $late = atom("a"); $late = atom("b")` draws the second store only,
   measured. The scan reads the binding at the end of the module body, so what it holds then is what
-  the panel shows, and the store the first line made is drawn nowhere.
+  the panel shows, and the store the first line made is drawn nowhere. A later walk re-reads what
+  that value holds, never the binding itself, so a reassignment after load moves nothing.
 - **`import * as ns from "nanostores"`** hides which export a call means, so the plugin cannot
   match the callee, and we warn once for that file. A store made this way still reaches the tree
   through adoption, with `type: "unknown"`.

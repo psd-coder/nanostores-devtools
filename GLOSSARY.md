@@ -102,10 +102,12 @@ registration** is the way back in, and it knows nothing about the comment.
 
 **Synthesized name** — the name of a timeline entry, built by the bridge from the store's
 **binding path** and the kind of change, for example `config.theme.$x/set`. A store a top-level
-binding holds itself has a path of one part, so it reads `$counter/set`. Every entry gets one: v1
-has no way for a developer to name a change by hand. The **model** picks which store the entry
-points at and what happened to it; the **view** writes the name out, the `/` and the op word
-included.
+binding holds itself has a path of one part, so it reads `$counter/set`. A lifecycle entry that
+carries several stores is named after the **binding path** they share where every one of them was
+found inside another store's value, `$root.value.$children[0]/register`, and after the module they
+belong to in every other case, the shared part that stops before the `.value` step included. Every
+entry gets one: v1 has no way for a developer to name a change by hand. The **model** picks which store the entry points at and what happened to it; the **view**
+writes the name out, the `/` and the op word included.
 
 **Explicit registration** — the developer hands the bridge a group name and an object of
 stores: `trackStores("cart", { $counter })`. The object key is the store name. Group first
@@ -190,25 +192,44 @@ Two mechanisms decide a store's **owner**: the **binding scan** and **`this` in 
 store neither of them reaches keeps no owner, and it is drawn flat at its own home where something
 registered it anyway, such as a wrapper or **explicit registration**.
 
+**Reachability rule** — what decides which stores exist for the bridge: **a store the developer
+can reach from a top-level binding of their own is drawn and watched, and a store they cannot reach
+is invisible**. Reach means a **binding path**, and nothing else counts. A store kept in a closure
+is the one shape no path can ever name, and that is the rule working rather than a gap in it. The
+rule works in both directions. A store the app puts where a path reaches it joins the registry from
+that turn. A store no path reaches any more leaves it, unless **explicit registration** gave it a
+name by hand.
+
 **Binding scan** — one call appended at the end of a module body, listing that module's top-level
 `const`, `let` and `var` names, and its class declarations. At load the bridge walks each value one
 holds, and a store found under a binding is drawn under that binding. **A store it walks to is
 registered there**, under the **binding path** that reached it, so a store no wrapper could name
 still draws. It reaches a factory result, a class instance, a class's own static fields, a
-collection's members, and an alias such as `export const $canUndo = $draft.$canUndo`, where the
-initializer is a property read and not a call.
+collection's members, an alias such as `export const $canUndo = $draft.$canUndo`, where the
+initializer is a property read and not a call, and a store inside another store's value.
+
+The scan does not run once. While a panel is connected, a change in a store the scan reached sends
+the walk down every binding that reaches that store again, once per binding per turn, and what the
+new walk finds decides what joins the registry and what leaves it. A binding whose first walk
+reached no store is never walked again, because nothing under it can notify, and nothing at all is
+watched before the panel connects: a store built between module load and connect is a known gap.
 
 **Binding path** — the whole chain the **binding scan** walked to reach a store: the top-level
 binding, then every key under it, `config.theme.$x`, `$all[0]`, `byId["a1"].$status`. A key that
 cannot stand after a dot is bracketed, so every part is something the developer could type in their
-own source. It is what an entry is named after and what heads a timeline row. The tree still draws
-one key per level, so the path and the tree key are built from the same links but are not the same
-string.
+own source. A step into what a store holds is one part too, written `.value` and never `.get()`:
+`$root.value.$children`. `.value` is what the walk really reads, through the descriptor and never
+computed, so an unmounted **computed** returns the same stale value the **marker** states. The path
+is what an entry is named after and what heads a timeline row. The tree still draws one key per
+level, so the path and the tree key are built from the same links but are not the same string.
 
 **Member** — one key and one value inside a value the **binding scan** walked. It is not a
 **binding**: a binding is a name the module's own source writes, while a member is a name the value
-carries. A `max-members` comment can leave members out of that scan. When it caps a store's own
-members, the tree places the store value under `(value)` and adds `…` beside it.
+carries. A store found inside another store's value is a member of that store, and takes a key
+beside `(value)`; a store that is the whole value is not, because `(value)` already draws it. A
+`max-members` comment can leave members out of that scan. When it caps a store's own members, the
+tree places the store value under `(value)` and adds `…` beside it. A cap inside a store's value
+adds no count of its own, and `(value)` still shows that value whole.
 
 **`this` in a class field** — a field initializer runs with `this` bound to the new instance, so
 the transform hands it over and the instance is recorded as what holds the store. A static field's
@@ -280,7 +301,7 @@ source does.
 placements as the source wrote, the home the developer chose for it and the name each owner knows it
 by. An owner's key is the property it really holds the store at. **One owner and one key name one
 store**: where a scan finds a second store at the same key on the same owner, the first loses that
-link, because one key holds one value and the scan read it at the end of the module body.
+link, because one key holds one value and the walk read it whole.
 
 **Repeat** — every placement past the one that expands. The value is expanded under its first
 placement, and every other placement shows it and stops, because drawing its children twice would
