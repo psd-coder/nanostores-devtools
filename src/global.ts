@@ -1,5 +1,6 @@
 import type { Store } from "nanostores";
 
+import type { ReachedStore } from "./stores/ownership.ts";
 import type { RegistryChange, StoreEntry, StoreType } from "./stores/registry.ts";
 import type { Session } from "./session.ts";
 
@@ -96,6 +97,12 @@ export type OwnerLink = {
    * developer holding one store in two places sees both. Nothing for a link no scan drew.
    */
   path: string | undefined;
+  /**
+   * The walk that last wrote the key. Inside one walk the first key wins, because two keys of one
+   * owner holding one store are two references the developer wrote; a later walk replaces it,
+   * because an array member that moved really does sit at another index now.
+   */
+  pass: number;
 };
 
 /**
@@ -147,6 +154,8 @@ export type NodeInfo = {
   walked: number;
   /** How many members the walk left out, past the number the binding named. */
   skipped: number;
+  /** The walk that last named it, on the same terms an owner link keeps its own. */
+  pass: number;
 };
 
 /** What each walked value stands for in the tree. Weak, so devtools keeps no instance alive. */
@@ -154,6 +163,23 @@ export type Nodes = WeakMap<object, NodeInfo>;
 
 /** How many of one value's members the walk drew, and how many its cap left out. */
 export type MemberCount = Pick<NodeInfo, "walked" | "skipped">;
+
+/**
+ * One top-level binding the walk goes back down whenever something under it changes: what a second
+ * walk of it needs, and the stores the last walk reached, which is what the next one is compared
+ * with.
+ *
+ * The stores are held weakly, so the record of having reached one keeps nothing alive that the app
+ * has let go. The walk itself holds the binding's own value, because a module holds its top-level
+ * bindings for as long as it is loaded and its reload drops this record with everything else.
+ */
+export type Followed = {
+  /** The module whose run wrote it, so its own reload is what drops it. */
+  moduleKey: string;
+  /** The binding walked again, which is the one thing a second walk of it needs. */
+  walk: () => readonly ReachedStore[];
+  reached: WeakRef<Store>[];
+};
 
 export type DevtoolsGlobal = {
   entries: Map<Store, StoreEntry>;
@@ -195,6 +221,15 @@ export type DevtoolsGlobal = {
    * own and never becomes a node, so `nodes` has nowhere to keep this.
    */
   members: WeakMap<Store, MemberCount>;
+  /** Every top-level binding a change can send the walk down again, keyed by the module. */
+  follow: Map<string, Followed[]>;
+  /** Which followed bindings reach each store, so a change walks those and no others. */
+  reaching: WeakMap<Store, Followed[]>;
+  /**
+   * Which walk is running. What one walk wrote about where a value sits is kept for the rest of
+   * that walk and replaced by the next one, so a key the app moved follows the app.
+   */
+  pass: number;
   session?: Session | undefined;
 };
 
@@ -241,6 +276,9 @@ function createGlobal(): DevtoolsGlobal {
     bound: new WeakMap(),
     nodes: new WeakMap(),
     members: new WeakMap(),
+    follow: new Map(),
+    reaching: new WeakMap(),
+    pass: 0,
   };
 }
 

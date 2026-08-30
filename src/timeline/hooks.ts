@@ -1,6 +1,7 @@
 import { onNotify, onSet, onStart, onStop } from "nanostores";
 
 import { catchAndWarn } from "../utils/catch-and-warn.ts";
+import { markReached } from "../stores/follow.ts";
 import { noteMount, noteUnmount } from "./lifecycle.ts";
 import { DERIVED, listEntries, type StoreEntry } from "../stores/registry.ts";
 import { appendFollower, flushOpenRow, openDirectRow } from "./timeline.ts";
@@ -32,6 +33,7 @@ function attach(entry: StoreEntry): void {
   }
 
   attachLifecycle(entry);
+  attachReach(entry);
 
   if (DERIVED.has(entry.type)) {
     attachFollower(entry);
@@ -57,6 +59,22 @@ function attachLifecycle(entry: StoreEntry): void {
     onStop(entry.store, () => {
       catchAndWarn(entry, () => {
         noteUnmount(entry);
+      });
+    }),
+  );
+}
+
+/**
+ * Every type, because what a store holds is what the walk reads: a write to it may have built a
+ * store nobody has seen yet or dropped one the panel is drawing. The bindings that reach this store
+ * are walked again at the end of the turn, and the walk itself decides whether anything moved.
+ */
+function attachReach(entry: StoreEntry): void {
+  keepHooks(
+    entry,
+    onNotify(entry.store, () => {
+      catchAndWarn(entry, () => {
+        markReached(entry.store);
       });
     }),
   );

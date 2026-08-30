@@ -1298,9 +1298,142 @@ describe("ownerLinksOf", () => {
     const gone: WeakRef<object> = { [Symbol.toStringTag]: "WeakRef", deref: () => undefined };
 
     getDevtoolsGlobal().owners.set($open, [
-      { owner: gone, key: "[0]", path: undefined, moduleKey: HOME },
+      { owner: gone, key: "[0]", path: undefined, pass: 1, moduleKey: HOME },
     ]);
 
     expect(ownerLinksOf($open)).toEqual([]);
+  });
+});
+
+/**
+ * `$root.get().$children` is a path the developer can type, so a store sitting inside another
+ * store's value is reachable and it draws, under the store that holds it.
+ */
+describe("a store inside another store's value", () => {
+  beforeEach(() => {
+    resetDevtoolsGlobal();
+  });
+
+  afterEach(() => {
+    resetDevtoolsGlobal();
+    vi.restoreAllMocks();
+  });
+
+  it("draws a store found in a store's value under the store that holds it", () => {
+    const $children = atom<unknown[]>([]);
+    const $root = atom<unknown>({ $children });
+
+    ownBindings(FROM, [{ name: "$root", value: $root, exported: true }]);
+
+    expect(ownerOf($children)).toBe($root);
+  });
+
+  it("names it by the whole path, with the step into the value written in it", () => {
+    const $children = atom<unknown[]>([]);
+    const $root = atom<unknown>({ $children });
+
+    ownBindings(FROM, [{ name: "$root", value: $root, exported: true }]);
+
+    expect(getEntry($children)?.name).toBe("$root.get().$children");
+  });
+
+  /** The path names the entry, and the key alone is what the tree draws under the owner. */
+  it("keys it under its owner by the last key alone, so no tree key holds a dot", () => {
+    const $children = atom<unknown[]>([]);
+    const $root = atom<unknown>({ $children });
+
+    ownBindings(FROM, [{ name: "$root", value: $root, exported: true }]);
+
+    expect(getEntry($children)?.ownerName).toBe("$children");
+  });
+
+  it("keeps walking past the first level, so a value's own members hold their stores", () => {
+    const $checked = atom(false);
+    const node = { $checked };
+    const $root = atom<unknown>({ items: [node] });
+
+    ownBindings(FROM, [{ name: "$root", value: $root, exported: true }]);
+
+    expect(ownerOf($checked)).toBe(node);
+    expect(getEntry($checked)?.name).toBe("$root.get().items[0].$checked");
+  });
+
+  /** The bridge never runs the app's own code to find out something, and a mount is app code. */
+  it("mounts nothing it walks", () => {
+    const $source = atom(1);
+    const $derived = computed($source, (value) => value + 1);
+    const $root = atom<unknown>({ $derived, nested: { $source } });
+
+    ownBindings(FROM, [{ name: "$root", value: $root, exported: true }]);
+
+    expect([$root.lc, $derived.lc, $source.lc]).toEqual([0, 0, 0]);
+  });
+
+  it("gives up nothing from a computed nothing has ever mounted", () => {
+    const $inner = atom(0);
+    const $seed = atom(1);
+    const $derived = computed($seed, () => ({ $inner }));
+
+    ownBindings(FROM, [{ name: "$derived", value: $derived, exported: true }]);
+
+    expect(getEntry($inner)).toBeUndefined();
+  });
+
+  /** The stale label is the truth about the store, and what it still holds is what the app has. */
+  it("walks the value a computed nothing mounts any more still holds", () => {
+    const $inner = atom(0);
+    const $seed = atom(1);
+    const $derived = computed($seed, () => ({ $inner }));
+
+    $derived.listen(() => {})();
+    ownBindings(FROM, [{ name: "$derived", value: $derived, exported: true }]);
+
+    expect(ownerOf($inner)).toBe($derived);
+  });
+
+  it("stops at the depth the walk was given, whichever side of the boundary the step is on", () => {
+    const $held = atom(0);
+    const $root = atom<unknown>({ $held });
+
+    ownBindings(FROM, [{ name: "$root", value: $root, exported: true }], 1);
+
+    expect(getEntry($held)).toBeUndefined();
+  });
+
+  it("caps what a store holds by the number the binding named", () => {
+    const $first = atom(1);
+    const $second = atom(2);
+    const $third = atom(3);
+    const $root = atom<unknown>({ $first, $second, $third });
+
+    ownBindings(FROM, [{ name: "$root", value: $root, exported: true, maxMembers: 2 }]);
+
+    expect(listEntries().map((entry) => entry.store)).toEqual([$root, $first, $second]);
+  });
+
+  /** Two stores holding each other is a loop, and an owner graph that loops draws without end. */
+  it("refuses the edge that would close a loop between two stores holding each other", () => {
+    const $a = atom<unknown>(null);
+    const $b = atom<unknown>({ $a });
+
+    $a.set({ $b });
+    ownBindings(FROM, [{ name: "$a", value: $a, exported: true }]);
+
+    expect(ownerOf($b)).toBe($a);
+    expect(ownerOf($a)).toBeUndefined();
+  });
+
+  it("warns once when what it found has filled the registry", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const held: Record<string, Store> = {};
+
+    for (let index = 0; index < 2000; index += 1) {
+      held[`$s${index}`] = atom(index);
+    }
+
+    ownBindings(FROM, [{ name: "$all", value: atom(held), exported: true }]);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain("stores are registered");
   });
 });

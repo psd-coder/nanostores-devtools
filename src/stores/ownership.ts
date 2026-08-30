@@ -12,11 +12,13 @@ import {
 import { makeLabel } from "./labels.ts";
 import { claimBindingFile, type NameSource } from "./names.ts";
 import { getEntry, isStore, registerStore, renameEntry, renameFound } from "./registry.ts";
+import { storeValue } from "../tree/slot.ts";
 import { describeError, warnOnce } from "../utils/warn.ts";
 
 /**
- * What nanostores itself puts on a store. Skipped while walking, or an atom holding a store would
- * nest that store under the atom instead of leaving it where the developer put it.
+ * What nanostores itself puts on a store. Skipped while walking, because none of it is state the
+ * developer wrote. `value` is skipped here and read again as its own step, so what a store holds
+ * is walked once, under a path that says how the developer would reach it.
  */
 export const STORE_KEYS: ReadonlySet<string> = new Set([
   "value",
@@ -57,6 +59,13 @@ const UNNAMED = "ref";
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /**
+ * The step from a store to what it holds, spelled the way the developer would type it. The path a
+ * store found inside another store's value takes says the step, so the name stays something the
+ * reader can look up in their own source.
+ */
+const VALUE_STEP = ".get()";
+
+/**
  * One top-level name the module binds, and what the developer asked for about it. `exported` is
  * what settles a race between two bindings holding one store.
  */
@@ -82,11 +91,14 @@ export type Member = readonly [key: string, value: unknown];
  */
 export type ModuleHome = Pick<NodeInfo, "home" | "external"> & NameSource;
 
+/** What one value holds: the members the tree draws, and the ones its cap left out. */
+type Read = { drawn: Member[]; past: Member[] };
+
 /**
- * What one value holds: the members the tree draws, and the ones its cap left out. A value read
- * holds members; a value that threw at us holds a reason and nothing else, so the two never mix.
+ * A value read holds members; a value that threw at us holds a reason and nothing else, so the two
+ * never mix.
  */
-type Members = { read: true; drawn: Member[]; past: Member[] } | { read: false; reason: string };
+type Members = ({ read: true } & Read) | { read: false; reason: string };
 
 /**
  * One store the walk reached, and where it reached it: the owner that holds it and the key it sits
@@ -115,6 +127,8 @@ type Scan = {
   maxDepth: number;
   maxMembers: number | undefined;
   found: Reach[];
+  /** Which walk this is, so what an older one wrote about where a value sits can be replaced. */
+  pass: number;
 };
 
 /**
@@ -137,6 +151,10 @@ type Scan = {
  *
  * **A class is walked too**, for its own static fields, which nothing else can reach: a static
  * field belongs to the class, and no instance of it holds the store.
+ *
+ * **It runs again whenever something under a binding changes**, so a store the app built after
+ * the module body finished is found. One walk is one pass: what it says about where a value sits
+ * replaces what an older walk said, and what it says twice keeps the first answer.
  */
 export function ownBindings(
   module: ModuleHome,
@@ -146,6 +164,8 @@ export function ownBindings(
   if (placesNothing(module)) {
     return [];
   }
+
+  const pass = nextPass();
 
   for (const { name, value, exported } of bindings) {
     if (isStore(value)) {
@@ -160,7 +180,7 @@ export function ownBindings(
 
     if (canHold(value) || (isClass === true && typeof value === "function")) {
       walk(
-        { module, binding: name, seen: new Set(), maxDepth, maxMembers, found },
+        { module, binding: name, seen: new Set(), maxDepth, maxMembers, found, pass },
         value,
         name,
         name,
@@ -169,11 +189,20 @@ export function ownBindings(
       );
     }
 
-    register(module, found);
+    register(module, found, pass);
     walked.push({ binding: name, reached: reachedBy(name, value, found) });
   }
 
   return walked;
+}
+
+/** The number that tells one walk from the next, shared so two copies cannot hand out one twice. */
+function nextPass(): number {
+  const devtools = getDevtoolsGlobal();
+
+  devtools.pass += 1;
+
+  return devtools.pass;
 }
 
 /**
@@ -181,10 +210,10 @@ export function ownBindings(
  * owner link written after it, per store, so a store reached under another one is registered
  * before anything below it.
  */
-function register(module: ModuleHome, found: readonly Reach[]): void {
+function register(module: ModuleHome, found: readonly Reach[], pass: number): void {
   for (const { store, path, key, owner } of found) {
     nameReached(module, store, path, key);
-    recordOwner(module, store, owner, key, path);
+    recordOwner(module, store, owner, pass, key, path);
   }
 }
 
@@ -227,6 +256,7 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
 
   const statics = typeof owner === "function";
   const written = statics ? classKey(owner) : undefined;
+  const pass = nextPass();
 
   makeNode(module, owner, undefined, {
     home: module.home,
@@ -237,9 +267,10 @@ export function ownField(module: ModuleHome, store: Store, owner: object): void 
     type: statics ? undefined : typeNameOf(owner),
     walked: 0,
     skipped: 0,
+    pass,
   });
 
-  recordOwner(module, store, owner);
+  recordOwner(module, store, owner, pass);
 }
 
 /**
@@ -270,12 +301,21 @@ function claimName(module: ModuleHome, store: Store, name: string, exported: boo
     moduleKey: module.moduleKey,
     exported,
   };
-  /** The same module writing the same name again is one binding, not a second one. */
-  const names = (devtools.bound.get(store) ?? []).filter((known) => !sameBinding(known, written));
+  /**
+   * The same module writing the same name again is one binding, not a second one. A walk that runs
+   * again writes the same one, so it is left where it is and the module's list of what to drop on
+   * a reload stays the length the source is.
+   */
+  const names = devtools.bound.get(store) ?? [];
+  const already = names.findIndex((known) => sameBinding(known, written));
 
-  names.push(written);
-  devtools.bound.set(store, names);
-  noteLink(module.moduleKey, store);
+  if (already === -1) {
+    names.push(written);
+    devtools.bound.set(store, names);
+    noteLink(module.moduleKey, store);
+  } else {
+    names[already] = written;
+  }
 
   const primary = primaryName(names) ?? written;
 
@@ -411,17 +451,7 @@ function walk(
     return;
   }
 
-  /**
-   * A store already holds a place of its own, so only another kind of value becomes a node. Its
-   * counts are still kept beside it, or a cap would cut a store's own members and say nothing.
-   * Written on every walk, so a reload that drops the comment clears the number it left behind.
-   */
-  if (isStore(value)) {
-    getDevtoolsGlobal().members.set(value, {
-      walked: members.drawn.length,
-      skipped: members.past.length,
-    });
-  } else {
+  if (!isStore(value)) {
     makeNode(scan.module, value, owner, {
       home: scan.module.home,
       external: scan.module.external,
@@ -431,18 +461,90 @@ function walk(
       type: typeNameOf(value),
       walked: members.drawn.length,
       skipped: members.past.length,
+      pass: scan.pass,
     });
+
+    visit(scan, members.drawn, path, value, depth);
+
+    return;
   }
 
-  for (const [key, member] of members.drawn) {
+  const held = heldBy(scan, value, name, depth);
+
+  /**
+   * A store already holds a place of its own, so only another kind of value becomes a node. Its own
+   * members are counted beside it, or a cap would cut them and say nothing. What the store holds is
+   * counted nowhere, because `(value)` draws it whole: the cap bounds how far the walk goes, and
+   * nothing the reader can see goes missing without a word.
+   *
+   * Written on every walk, so a reload that drops the comment clears the number it left behind.
+   */
+  getDevtoolsGlobal().members.set(value, {
+    walked: members.drawn.length,
+    skipped: members.past.length,
+  });
+
+  visit(scan, members.drawn, path, value, depth);
+  visit(scan, held.drawn, `${path}${VALUE_STEP}`, value, depth + 1);
+}
+
+/**
+ * What a store holds, as members of the store itself. `$root.get().$children` is a path the
+ * developer can type, so a store sitting inside another store's value is reachable and it draws,
+ * under the store that holds it and beside the store's own value.
+ *
+ * The value is read through the descriptor and never computed: the bridge does not run the app's
+ * code to find out something, so an unmounted `computed` gives up whatever it still holds and a
+ * store that never ran gives up nothing at all. The step counts against the depth cap like every
+ * other, and the members are capped like every other value's.
+ */
+function heldBy(scan: Scan, store: Store, name: string, depth: number): Read {
+  const nothing: Read = { drawn: [], past: [] };
+  const held = storeValue(store);
+
+  /**
+   * A store whose whole value is another store is left where it is. The value slot draws that store
+   * with its own type and value, and the key beside the slot would be the step itself, which is no
+   * name a collection or a property gives.
+   */
+  if (depth + 1 >= scan.maxDepth || !canHold(held) || isStore(held) || scan.seen.has(held)) {
+    return nothing;
+  }
+
+  scan.seen.add(held);
+
+  const members = membersOf(held, scan.maxMembers);
+
+  if (!members.read) {
+    warnRefused(scan, name, members.reason);
+
+    return nothing;
+  }
+
+  return members;
+}
+
+/**
+ * Every member of one value, under the owner that holds it. The owner is what the tree draws a
+ * store under, which for a member of a store's value is the store itself: the value is drawn under
+ * the store's own key and what it holds sits beside it.
+ */
+function visit(
+  scan: Scan,
+  members: readonly Member[],
+  path: string,
+  owner: object,
+  depth: number,
+): void {
+  for (const [key, member] of members) {
     const reached = joined(path, key);
 
     if (isStore(member)) {
-      scan.found.push({ store: member, path: reached, key, owner: value });
+      scan.found.push({ store: member, path: reached, key, owner });
     }
 
     if (canHold(member)) {
-      walk(scan, member, key, reached, value, depth + 1);
+      walk(scan, member, key, reached, owner, depth + 1);
     }
   }
 }
@@ -487,7 +589,7 @@ function makeNode(
 
   if (known === undefined) {
     nodes.set(value, info);
-  } else if (known.ours && !node.ours) {
+  } else if (replaces(known, node)) {
     /** Everything drawn beside the name, and never the parents, which `Drawn` leaves out. */
     Object.assign(known, node);
   }
@@ -495,6 +597,37 @@ function makeNode(
   if (parent !== undefined) {
     addParent(module, value, info, parent);
   }
+}
+
+/**
+ * Whether what this walk knows about a node replaces what the last one wrote. A name of ours never
+ * replaces one the developer wrote, and a written name replaces one of ours at once, because a
+ * class field names its instance before any binding holds it.
+ *
+ * Past that, only a position replaces a position, and only across walks. A member removed from an
+ * array moves everything after it, so the index a later walk found is where the member really sits
+ * now; a name is not a position and does not move, so the first walk to reach a value keeps its
+ * name and import order cannot rename a row.
+ */
+function replaces(known: NodeInfo, node: Drawn): boolean {
+  if (node.ours && !known.ours) {
+    return false;
+  }
+
+  if (known.ours !== node.ours) {
+    return true;
+  }
+
+  return known.pass !== node.pass && moved(known.name, node.name);
+}
+
+/**
+ * Whether one key says where a member sits and the other says the same about the same value. A
+ * collection names its members by position or by key, `[0]` and `["cart"]`, and only such a name
+ * follows the app when the app moves the member.
+ */
+function moved(from: string, to: string): boolean {
+  return from.startsWith("[") && to.startsWith("[");
 }
 
 /**
@@ -701,6 +834,7 @@ function recordOwner(
   module: ModuleHome,
   store: Store,
   owner: object,
+  pass: number,
   key?: string,
   path?: string,
 ): void {
@@ -710,11 +844,19 @@ function recordOwner(
 
   devtools.owners.set(store, links);
 
-  /** The same owner proposed again: one link, and the walk that knows a key names it. */
+  /**
+   * The same owner proposed again: one link, and the walk that knows a key names it. A later walk
+   * names it again where both keys are positions, because an array member the app removed moves
+   * everything after it and the key says which member the store is now. Inside one walk, and for
+   * every name that is not a position, the first key stands.
+   */
   if (known !== undefined) {
-    if (known.key === undefined) {
+    const shifted = known.pass !== pass && known.key !== undefined && moved(known.key, key ?? "");
+
+    if (key !== undefined && (known.key === undefined || shifted)) {
       known.key = key;
       known.path = path;
+      known.pass = pass;
       known.moduleKey = module.moduleKey;
       takeKey(devtools, owner, key, store);
       /** The link is this module's from here, so its own reload has to be able to find it. */
@@ -729,7 +871,7 @@ function recordOwner(
   }
 
   takeKey(devtools, owner, key, store);
-  links.push({ owner: new WeakRef(owner), key, path, moduleKey: module.moduleKey });
+  links.push({ owner: new WeakRef(owner), key, path, pass, moduleKey: module.moduleKey });
   noteLink(module.moduleKey, store);
 }
 
@@ -758,8 +900,13 @@ function takeKey(
   devtools.keyed.set(owner, held);
   held.set(key, new WeakRef(store));
 
+  /**
+   * Only the store this owner still holds under this key loses the link. A store that moved to
+   * another key of the same owner keeps its own: it is still a member, at the key its own link
+   * now names, and the store that took the key it left says nothing about it.
+   */
   if (taken !== undefined && taken !== store) {
-    dropOwn(devtools.owners, taken, (link) => link.owner.deref() !== owner);
+    dropOwn(devtools.owners, taken, (link) => link.owner.deref() !== owner || link.key !== key);
   }
 }
 

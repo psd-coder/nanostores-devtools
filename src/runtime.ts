@@ -7,6 +7,7 @@ import {
   scopeOf,
   type SiteState,
 } from "./global.ts";
+import { followBindings, releaseFollowed } from "./stores/follow.ts";
 import { claimSiteName, releaseSiteNames, siteParts } from "./stores/names.ts";
 import {
   type Binding,
@@ -133,9 +134,21 @@ export function fileScope(
     /**
      * The end of the module body, where every top-level binding holds its value. It registers
      * every store it can reach from one, and places it under the name that reached it.
+     *
+     * The bindings are kept, so a change under one of them sends the walk down again: the app goes
+     * on building stores after its module bodies have run, and a store it built is drawn from the
+     * turn it appears in.
      */
     own(bindings) {
-      ownBindings(module, bindings, maxDepth);
+      const walked = ownBindings(module, bindings, maxDepth);
+
+      followBindings(
+        moduleKey,
+        bindings.map((binding, index) => ({
+          reached: walked[index]?.reached ?? [],
+          walk: () => ownBindings(module, [binding], maxDepth)[0]?.reached ?? [],
+        })),
+      );
     },
 
     /**
@@ -152,6 +165,7 @@ export function fileScope(
       }
 
       releaseSiteNames(scope, module);
+      releaseFollowed(moduleKey);
       releaseLinks(scope, moduleKey);
       devtools.scopes.delete(moduleKey);
 
