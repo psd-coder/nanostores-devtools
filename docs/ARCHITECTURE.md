@@ -343,7 +343,11 @@ insertion order. Every name it produces is one the developer could type to reach
 
 It claims in two passes and not one: every binding that holds a store claims its name first, and
 only then is any binding walked. A top-level binding beats the key of an object holding the same
-store, so one pass would let the order the developer wrote their bindings in decide the name.
+store. The row header comes out the same either way, because a binding renames the entry last
+whatever the walk did before it. What the second pass protects is what the walk would otherwise
+write on the way there: the key an owner knows the store by, which is what names it under a class
+field holder, and the path the entry would carry for a moment, which can take a name another store
+already holds and drop that store from the registry.
 
 **The field mechanism** catches a store made in a class field initializer, where `this` is the new
 instance (or the class itself, for a static field). The instance has no name yet, so it becomes
