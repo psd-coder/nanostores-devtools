@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+
+- Follow a store into what it holds. A store sitting inside another store's value is now drawn under that store, and the walk runs again whenever a tracked store writes, so an app that builds stores at run time draws them and one that drops them stops drawing them.
+- Name a found-store row by the path you can look at. When every store behind a lifecycle row was found inside another store's value, the row takes the longest binding path they share, such as `$root.value.$children[0]/register`, instead of the file the factory lives in. A row that mixes found stores with module-level ones keeps the module name.
+
+### Changed
+
+- Hand back what a binding reaches from the walk, so following a binding over time can compare one list with the last one.
+
+### Documentation
+
+- Write down the reachability rule.
+- Say what the second naming pass protects.
+
 ## 0.1.1
 
 ### Fixed
