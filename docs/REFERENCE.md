@@ -8,6 +8,8 @@ the package cannot do.
 How the code itself is put together is in [ARCHITECTURE.md](./ARCHITECTURE.md). The words this
 project uses in one fixed way are in [GLOSSARY.md](../GLOSSARY.md).
 
+This document keeps every rule and edge case, for anyone changing the package. The user-facing summary is [How it works](https://nanostores-devtools.psdcoder.dev/how-it-works) on the documentation site.
+
 ## Contents
 
 - [Two ways a store gets in](#two-ways-a-store-gets-in)
@@ -1260,8 +1262,6 @@ unmounted store keeps its note next to the kind,
 One shape is left over. **A store whose value can reach that store again keeps the wrapper**, with
 the kind in front of the value and no kind in the key. The extension's encoder finds that loop by
 the path it built, and it only finds it while the wrapper's own key stands in that path.
-the kind in front of the value and no kind in the key. That loop is what the extension's encoder
-finds by the path it built, and it only finds it while the wrapper's own key stands in that path.
 
 ### What an object's own fields show
 

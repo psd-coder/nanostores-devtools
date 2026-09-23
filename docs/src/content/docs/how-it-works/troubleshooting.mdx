@@ -1,0 +1,19 @@
+---
+title: "Troubleshooting"
+description: "What to check when the panel shows nothing, or less than you expected."
+order: 12
+menu: "how-it-works"
+---
+
+Our messages go to two places. The bridge writes to the browser console, every line beginning with `[nanostores-devtools]`, and the plugin writes to the terminal running your build. Each message is printed once, not once per save.
+
+If the tree is empty or a store is missing, walk down this list:
+
+| what you see                             | what it means                                                                                                                                                                               |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the dropdown has no entry for your app   | `connectDevtools()` never ran, or ran before the extension put itself on the page. Check `handle.connected`: `false` means we found no extension at that moment                             |
+| your app is there, the tree is empty     | the plugin is not in your bundler config, or the build is not a dev build                                                                                                                   |
+| the build failed naming `oxc-parser`     | install it, per [Installation](/#installation)                                                                                                                                              |
+| the terminal says the plugin did nothing | the build's `mode` is not `"development"`                                                                                                                                                   |
+| a store you expect is missing            | register it with [`trackStores`](/api#trackstoresgroup-stores), and please [open an issue](https://github.com/psd-coder/nanostores-devtools/issues) with the code that creates and holds it |
+| a key reads `ref#1`                      | nothing in your source names that value, so the tree says so instead of inventing a name                                                                                                    |

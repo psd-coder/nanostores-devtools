@@ -12,6 +12,9 @@ coverage
 *.local
 *.tsbuildinfo
 
+# Docs site
+.astro
+
 # Agent files
 .claude
 AGENTS.override.md

@@ -13,7 +13,7 @@
   "author": "Pavel Grinchenko <psd-coder@evilmartians.com>",
   "repository": "psd-coder/nanostores-devtools",
   "bugs": "https://github.com/psd-coder/nanostores-devtools/issues",
-  "homepage": "https://github.com/psd-coder/nanostores-devtools#readme",
+  "homepage": "https://nanostores-devtools.psdcoder.dev/",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
@@ -61,7 +61,9 @@
     "publint": "publint --strict",
     "attw": "pnpm pack --out node_modules/.attw.tgz --config.ignore-scripts=true && attw node_modules/.attw.tgz --profile esm-only",
     "bump": "./scripts/bump.sh",
-    "prepare": "simple-git-hooks"
+    "prepare": "simple-git-hooks",
+    "docs:dev": "pnpm --dir docs dev",
+    "docs:build": "pnpm --dir docs build"
   },
   "simple-git-hooks": {
     "pre-commit": "./node_modules/.bin/nano-staged",

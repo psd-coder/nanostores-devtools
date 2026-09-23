@@ -1,0 +1,13 @@
+.screenshotLight,
+.screenshotDark {
+  height: auto;
+}
+
+[data-theme="dark"] .screenshotLight,
+[data-theme="light"] .screenshotDark {
+  display: none;
+}
+
+x-sticky-header a[href="/"] svg {
+  height: 40px;
+}

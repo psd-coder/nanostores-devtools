@@ -1,0 +1,50 @@
+---
+title: "What each plugin option costs"
+description: "What each bundler plugin option buys you, and what it costs when you change it."
+order: 8
+menu: "how-it-works"
+---
+
+Every option's name, type and default is on the [API page](/api#nanostoresdevtoolsoptions).
+
+## `maxDepth`
+
+**`maxDepth` bounds how far into a top-level binding the plugin looks for stores.** A property, an index, a `Map` key and a step into a store's value each count as one step. Ten steps by default, which is deeper than state is usually nested. A store past that number is not drawn under the binding.
+
+It takes a whole number of 1 or more, or `Infinity` to walk a binding as deep as it goes. Anything else is refused with a warning. This is not `maxValueDepth`: that one caps how much of one value a row carries, while this one decides which stores are found at all.
+
+## `adoptFactories`
+
+What adoption reaches, and the two settings this option takes, are in [the bundler plugin](/how-it-works/discovery#the-bundler-plugin).
+
+## `storeTypes`
+
+**`storeTypes` gives an adopted store its kind**, the word in square brackets. It maps a package name to that package's store-making exports, and each export to the kind it returns:
+
+```js
+nanostoresDevtools({
+  storeTypes: {
+    "my-stores": { createCounter: "atom", createSettings: "map" },
+  },
+});
+```
+
+We ship entries for the packages on the Smart Stores list in the nanostores README, so `persistentAtom` reads as an atom and `persistentMap` as a map. Your entries are laid over ours per package and per export, so correcting one export changes nothing else. A kind is one of `atom`, `map`, `deepMap`, `computed`, `batched` or `unknown`.
+
+**It does not find stores.** Adoption does that, so a package with no entry still reaches the tree, only without a kind. It reads the export name, not the local one, so `import { persistentAtom as stored }` still works. An entry we cannot read is dropped with one warning, and the rest still apply.
+
+## `fileKey`
+
+**`fileKey` rewrites the path shown as a store's home**, and changes nothing but what is displayed. Write a fixed rule, such as `fileKey: (path) => path.replace(/^src\/stores\//, "")`, so every page load gives the same keys.
+
+Two files mapped to one home keep both sets of stores. Where both hold a `$counter`, both keys say which file they came from: `$counter [store] (a.ts)` next to `$counter [store] (b.ts)`.
+
+## `projectRoot`
+
+**`projectRoot` is a Vite option.** A file outside the Vite root, such as a linked package in a monorepo, is shown relative to it, so a linked package reads as `packages/…`. It defaults to Vite's own workspace root. Set it yourself when that root sits so high above your app that every external home gets long. Under webpack and Rspack the same root is found by climbing up from `context` to the nearest `pnpm-workspace.yaml`, `lerna.json` or `workspaces` field.
+
+## Parsing every file
+
+**Every source file is parsed, and there is no option to stop it.** It costs about 0.02 ms per file, paid once per file per dev build. That is what finds `export const panel = createPanel()` in a file whose own text says nothing about stores.
+
+On Vite 8 the plugin borrows the parser Vite ships. Vite 6 and 7, webpack and Rspack need `oxc-parser` as a dev dependency.

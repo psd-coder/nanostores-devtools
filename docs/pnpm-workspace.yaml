@@ -1,0 +1,8 @@
+# 3 days blocks ~94% of malicious releases (median takedown is 14 hours)
+minimumReleaseAge: 4320
+# Our own package, released alongside this site
+minimumReleaseAgeExclude:
+  - astro-pigment
+allowBuilds:
+  esbuild: true
+  sharp: true

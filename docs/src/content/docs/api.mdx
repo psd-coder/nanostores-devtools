@@ -1,0 +1,116 @@
+---
+title: "API"
+description: The five entry points of nanostores-devtools, and every function, option and type they export.
+order: 2
+---
+
+Five entry points. The three plugin subpaths run in Node during development only, and each exports one function under the same name.
+
+| subpath                       | exports                                     | runs in        |
+| ----------------------------- | ------------------------------------------- | -------------- |
+| `nanostores-devtools`         | `connectDevtools`, `trackStores`, `untrack` | browser        |
+| `nanostores-devtools/vite`    | `nanostoresDevtools`                        | Node, dev only |
+| `nanostores-devtools/webpack` | `nanostoresDevtools`                        | Node, dev only |
+| `nanostores-devtools/rspack`  | `nanostoresDevtools`                        | Node, dev only |
+| `nanostores-devtools/runtime` | internal, injected by the plugin            | browser        |
+
+**`nanostores-devtools/runtime` is internal.** The plugin injects an import of it into your modules during development, so it appears in your module graph. Never import it yourself.
+
+## `connectDevtools(options?)`
+
+Opens the bridge and returns a [`DevtoolsHandle`](#types). Never throws, never needs `await`, and safe to call during server-side rendering. Called a second time while connected, it warns once and hands back the first handle, which is what makes a hot reload safe.
+
+```ts
+const handle = connectDevtools({ name: "my-app" });
+
+if (!handle.connected) {
+  console.info("No Redux DevTools extension on this page.");
+}
+```
+
+| option                | default        | what it does                                                       |
+| --------------------- | -------------- | ------------------------------------------------------------------ |
+| `name`                | `"nanostores"` | the entry in the extension's dropdown                              |
+| `serializers`         | `[]`           | your own rules for converting values, checked before ours          |
+| `platformSerializers` | `true`         | our own rules for `Headers`, `FormData` and other platform classes |
+| `trace`               | `true`         | capture a stack at each direct write                               |
+| `traceLimit`          | `10`           | how many stack frames to capture                                   |
+| `maxAge`              | `500`          | how many rows the extension keeps                                  |
+| `lifecycleEvents`     | `true`         | draw the mount, unmount, register, unregister and hot reload rows  |
+| `throttle`            | `[]`           | hold these stores to one row a second                              |
+| `autoThrottle`        | `10`           | writes a second above which a store is throttled                   |
+| `maxValueDepth`       | `5`            | levels drawn below a class instance                                |
+| `maxValueMembers`     | `100`          | members drawn per shape below a class instance                     |
+
+`autoThrottle` is the one default that drops rows: a store above 10 writes a second is held to one row a second for the rest of the session, and we warn once, naming the store. Pass your own threshold, or `false` to keep every row. `throttle` takes names as the tree writes them, `"src/model.ts/$remaining"`, or a function over them.
+
+A **serializer** draws a value the panel cannot read on its own, such as a `MouseEvent`, whose every field sits behind a getter. A rule is `{ match, convert }`, and the first match in the array wins.
+
+The plugin reads four comments next to a store, where a rename cannot lose them: `// @nanostores-devtools:ignore` keeps every store the statement below it makes out of the devtools, `// @nanostores-devtools:throttle` and `// @nanostores-devtools:no-throttle` set its row rate, and `// @nanostores-devtools:max-members 25` caps how much of one binding the scan walks.
+
+`handle.disconnect()` closes the bridge and lets the next `connectDevtools()` open a fresh one. It is there for a page that tears its app down and builds another one.
+
+[What each `connectDevtools` option costs](/how-it-works/bridge-options) has the full rules for the options, the serializers and the four comments.
+
+## `trackStores(group, stores)`
+
+Registers stores the plugin cannot reach, under a top-level key you name.
+
+- `group` - the home those stores sit under. Name it after a file to land on the node the plugin already uses for that file.
+- `stores` - an object of `name -> store`. The key is the name the tree draws.
+
+A second registration for the same `group/name` replaces the store held there, with no warning. A clash here is almost always a hot reload, and we cannot tell the two apart.
+
+## `untrack(group)`
+
+Removes a group and every store in it. Draws one unregister row.
+
+## `nanostoresDevtools(options?)`
+
+The bundler plugin. Exported from `/vite`, `/webpack` and `/rspack`, and the same function behind all three. It reads script files only: `.js`, `.ts` and the rest of that family, and nothing under `node_modules`.
+
+| option           | default                   | what it does                                                  |
+| ---------------- | ------------------------- | ------------------------------------------------------------- |
+| `fileKey`        | the home unchanged        | rewrites the path shown as a store's home                     |
+| `adoptFactories` | `true`                    | wrap named calls we do not recognise: `true` or `false`       |
+| `storeTypes`     | the packages we ship      | which kind a package's export makes                           |
+| `maxDepth`       | `10`                      | steps into a top-level binding the scan walks, 1 or more      |
+| `projectRoot`    | Vite's own workspace root | what a file outside the Vite root is measured from, Vite only |
+
+`adoptFactories` catches a codebase that wraps store creation: a call whose result is stored under a name is registered whatever function it names, so `const theme = persistentAtom("theme", "dark")` reaches the tree from a file that never imports `"nanostores"`. `storeTypes` gives that store its kind, and we ship a map of the packages from the Smart Stores list in the nanostores README. `maxDepth` counts a property, an index and a `Map` key alike. `projectRoot` is a Vite option; webpack and Rspack always climb up from `context` instead.
+
+[What each plugin option costs](/how-it-works/plugin-options) has what each one buys and what it costs.
+
+## Types
+
+```ts
+type DevtoolsHandle = {
+  readonly connected: boolean; // false when no extension was on the page
+  disconnect: () => void;
+};
+
+type Serializer = {
+  match: (value: unknown) => boolean;
+  convert: (value: unknown) => unknown;
+};
+
+// the shape a `throttle` rule is handed, once per registration and never per write
+type ThrottleTarget = {
+  readonly home: string;
+  readonly name: string; // the name the tree draws, without the file and line a clash adds
+  readonly type: "atom" | "map" | "deepMap" | "computed" | "batched" | "unknown";
+};
+
+type ThrottleOption = readonly string[] | ((store: ThrottleTarget) => boolean);
+
+// what `/webpack` and `/rspack` take. `/vite` takes the same four plus `projectRoot?: string`
+type BundlerPluginOptions = {
+  fileKey?: (path: string) => string;
+  adoptFactories?: boolean;
+  // package name, then export name, then the kind that export makes
+  storeTypes?: Readonly<Record<string, Readonly<Record<string, ThrottleTarget["type"]>>>>;
+  maxDepth?: number;
+};
+```
+
+`DevtoolsOptions` is exported too, and holds the eleven keys of the table above.

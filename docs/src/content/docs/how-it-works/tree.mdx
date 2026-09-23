@@ -1,0 +1,141 @@
+---
+title: "Where a store sits in the tree"
+description: "Where a store sits in the state tree: homes, owners, kinds, keys and name clashes."
+order: 5
+menu: "how-it-works"
+---
+
+The top level of the tree is the **home**. Under it, **a store sits below whatever built it, at any depth**.
+
+- **Home** is the file path for a store the plugin found, and the group name for a store you listed by hand. A file inside your bundler's root keeps its short path, `app/model.ts`. A file outside that root, such as a linked package, is measured from the [project root](/api#nanostoresdevtoolsoptions). A file under `node_modules` never has a home of its own.
+- **Name** is the variable name or the object key, with `$` kept exactly as you wrote it.
+
+Homes are sorted in three groups: groups you named first, then your own files, then files that belong to somebody else. Inside a home, rows are sorted by the name your source wrote, by character code, so a capital letter comes first: `Editor` sits above `byId`.
+
+## The ownership tree
+
+This is the shape our own acceptance fixture draws, shortened:
+
+```
+app/editor.ts
+  Editor: { $opened [store]: 0 }                           <- a static field, keyed by the class
+  byId: Map { ["scratch"]: Editor {…} }                    <- a Map, walked by key
+  drafts: Array { [0]: Editor {…}, [1]: Editor {…} }       <- an array, walked by index
+  editorOne: Editor { $count [store]: 0, $value [store]: "" }   <- named by its binding
+app/model.ts
+  $busy [computed]: false
+  $draft [store]: { (value): "the quick brown fox jumps ", $canRedo [computed],
+                    $canUndo [computed], $history [computed], $position [computed] }
+  $entries [computed]: ["", "the ", …]                     <- your own name for a nested store
+  counter [store]: { (value): 0, $doubled [computed] }     <- a store with no $ that owns others
+app/workspace.ts
+  panel: { open [store]: false, width [store]: 320 }       <- what a factory returned
+```
+
+### `(value)`: where a store's own value goes
+
+A store is drawn as its name, then its value. **`(value)` is where that value goes when it cannot stay at the store's own key**: the store owns other stores, which sit next to it; the store carries a `not mounted` marker, which an unmounted `computed` shows because its value may be stale; or a `max-members` comment left some of its members out, and `…` says how many.
+
+`(valueOf)` and `(toString)` look alike and mean something else: they name which method answered on a class instance. A class instance with no own fields is drawn by what its own `valueOf` or `toString` returns, so a `URL` shows its address.
+
+### A store inside another store's value
+
+`$root.value.$children` is a path you can type, so a store sitting inside another store's value is drawn **under the store that holds it**, beside `(value)`:
+
+```
+$root [store]
+  (value)             <- the object the root holds
+  $children [store]   <- the store found inside that object
+```
+
+The key is the short one, `$children`, and the timeline names the store by its whole path, `$root.value.$children`.
+
+### What becomes a node
+
+A **node** holds other things and has no value of its own:
+
+| what it is                   | its key                                | its type label         |
+| ---------------------------- | -------------------------------------- | ---------------------- |
+| a class instance             | the binding that holds it, `editorOne` | the class, `Editor`    |
+| an object a factory returned | the binding that holds it, `panel`     | none, when it is plain |
+| an array, `Map` or `Set`     | the binding, then one child per member | `Array`, `Map`, …      |
+| a class's static fields      | the class name, `Editor`               | none                   |
+
+A member is keyed by a name you could write to reach it: `[0]` for an array or a `Set`, `["scratch"]` for a `Map`. A store's kind sits on its key, which is what tells a node from a store holding an object:
+
+```
+panel: { width: 320 }            <- a node
+$panel [store]: { width: 320 }   <- a store holding an object
+```
+
+An instance that nothing in your source names is keyed `ref#1`, rather than borrowing a name you could not look up.
+
+### Every reference you wrote is drawn
+
+A store you bound to a name of your own keeps that name, drawn flat, and its owner keeps a **repeat** of it under the name the owner knows it by. For `export const $entries = $draft.$history`:
+
+```
+$entries [computed]: ["a", "b"]                                    <- the name you wrote
+$draft [store]: { (value): "b", $history [computed]: ["a", "b"] }  <- as $draft knows it
+```
+
+It is one store, drawn in both places. A repeat draws nothing under it, so the tree never claims more stores than your app holds. A node repeat shows where the node is expanded instead:
+
+```
+left: { pinned: Viewer {…} }
+right: { pinned: Viewer { (drawn under): "app/editor.ts/left" } }
+```
+
+**A timeline row is headed by the whole path from your binding down**: `$undoable/set` for a store you renamed, `fields.username/set` for a store only a container holds, `config["my-key"].$x/set` where a key cannot stand after a dot. Where two paths reach one store, the row takes the first and lists the rest under `also` in the Action tab.
+
+**The key is the property the owner holds the store at**, not the name the store was born with:
+
+```js
+export const fields = {
+  username: focus($values, "username"),
+  password: focus($values, "password"),
+};
+```
+
+```
+fields: { username [store]: "ada", password [store]: "" }
+```
+
+## The kind of store, in square brackets
+
+**Every store carries its kind in square brackets**: `$total [computed]`, `$cart [map]`, `$settings [deepMap]`, `$slow [batched]`, `$count [store]`.
+
+**`[store]` means an `atom`, or a store whose kind we could not read.** We read the kind at build time, from the creator call or from the [package map](/how-it-works/plugin-options#storetypes). A store listed by hand without the plugin, or made by a package the map does not name, has no kind to print. Both are writable stores that hold whatever was last set, so there is nothing you would do differently.
+
+A store that is being throttled says so in the same brackets, `$frame [store, throttled]`. The kind is part of the tree key only: timeline rows read `$total/set`.
+
+## How a tree key is built
+
+**A tree key always reads in the same order**: the name, the kind in square brackets, then at most one group in parentheses saying where the store was made, then a number.
+
+```
+$count [store]                                        nothing to tell apart
+$counter [store] (line 20)                            two source lines in one file
+$counter [store] (app.ts, line 20)                    two files under one home
+$history [store] (vendor/withUndo.ts)                 a home clash with no line to give
+panel [store] #2                                      a clash that nothing else told apart
+```
+
+Under an owner a store drops its number, because the owner already says which one it is. Where the number is the only thing that tells two children apart, both keep one: `$timeline [store]` next to `$timeline [store] #2`.
+
+## The same name twice
+
+**The plugin** tells two cases apart. One source line that runs again, in a factory or a loop, makes stores that are numbered: `$items [store]`, `$items [store] #2`. Two different source lines that want one name is a real clash: both keys name their line, such as `$counter [store] (line 12)`, and we warn once with both places.
+
+**`trackStores` replaces, quietly.** A second registration for `cart/$counter` drops whatever held that label before, with no warning, because a hot reload looks exactly the same. Two cases do warn: the same store under two names in one call keeps the first name, and the same store in two groups moves to the second group.
+
+## Why spreading a store is wrong
+
+`{ ...$store }` is not a store, but it looks like one, so if a binding of yours holds it, it takes a row of its own. Its methods still work on the original store, while its `.value` and its listener count are frozen at spread time. So the copy draws as `not mounted, may be stale` forever, holding whatever value the spread took:
+
+```
+$a [store]: 2
+copy [store]: { (value): 1 }   <- not mounted, may be stale
+```
+
+What you wanted is one of two other things: the value is `$store.get()`, and a separate store is `atom($store.get())`.

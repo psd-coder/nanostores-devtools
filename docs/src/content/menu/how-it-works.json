@@ -1,0 +1,17 @@
+{
+  "groups": [
+    {
+      "label": null,
+      "items": [
+        { "title": "Overview", "href": "/how-it-works" },
+        { "title": "How stores get in", "href": "/how-it-works/discovery" },
+        { "title": "The state tree", "href": "/how-it-works/tree" },
+        { "title": "The timeline", "href": "/how-it-works/timeline" },
+        { "title": "connectDevtools options", "href": "/how-it-works/bridge-options" },
+        { "title": "Plugin options", "href": "/how-it-works/plugin-options" },
+        { "title": "Production builds", "href": "/how-it-works/production" },
+        { "title": "Troubleshooting", "href": "/how-it-works/troubleshooting" }
+      ]
+    }
+  ]
+}
