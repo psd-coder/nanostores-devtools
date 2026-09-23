@@ -1,0 +1,20 @@
+{
+  "name": "nanostores-devtools-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "astro": "^7.3.3",
+    "astro-pigment": "^0.20.3",
+    "nanostores": "^1.2.0",
+    "nanotags": "^0.14.0",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

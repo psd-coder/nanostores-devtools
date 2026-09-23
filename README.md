@@ -9,6 +9,8 @@ becomes a key in one state tree and every write draws a named row in the timelin
 setup per store. The bridge, which is the half of this package that runs in your browser, is
 **read-only**: it never calls `store.get()` and never reads a getter you wrote.
 
+**[Documentation](https://nanostores-devtools.psdcoder.dev/)**: [API](https://nanostores-devtools.psdcoder.dev/api), [How it works](https://nanostores-devtools.psdcoder.dev/how-it-works), [Troubleshooting](https://nanostores-devtools.psdcoder.dev/how-it-works/troubleshooting)
+
 ## How it looks
 
 <picture>
@@ -54,7 +56,6 @@ from the dropdown.
 - [Core Concepts](#core-concepts)
 - [Usage](#usage)
 - [What you see in the panel](#what-you-see-in-the-panel)
-- [When nothing shows up](#when-nothing-shows-up)
 - [Turning it off in a production build](#turning-it-off-in-a-production-build)
 - [API](#api)
 - [Documentation](#documentation)
@@ -111,7 +112,7 @@ trace pointing at the line that wrote it.
 One rule decides what appears: **a store is tracked where your own code holds it, never where it
 only passed through.** Held means bound to a name you wrote, sitting inside a value bound to a name
 you wrote, or handed back out of a call whose result is held.
-[The bundler plugin](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#the-bundler-plugin)
+[The bundler plugin](https://nanostores-devtools.psdcoder.dev/how-it-works/discovery#the-bundler-plugin)
 has the four cases that follow from it, and they are the ones that surprise people.
 
 It fits when:
@@ -162,16 +163,9 @@ already resolve the package to an empty module in a production build. On esbuild
 takes one line of build config, see
 [Turning it off in a production build](#turning-it-off-in-a-production-build).
 
-**The panel does not have to be open first.** We answer a panel that begins watching with every
-store there is, so you never reload the page to catch up on state. A late panel does lose history:
-the rows from before it opened were never sent. The extension itself is the one thing that has to be
-there when you call: it puts itself on the page before your code runs, and `handle.connected` says
-whether we found it.
+### Step 3: Register stores by hand
 
-### Step 3: Add the stores the plugin cannot reach
-
-The plugin never reads a file under `node_modules`, and no option changes that, so a dependency's
-stores are the usual case here. List those stores by hand:
+`trackStores` registers stores without the plugin. Use it when you would rather not instrument your source automatically, or when a store you expect is not in the tree:
 
 ```ts
 // src/stores/cart.ts
@@ -188,6 +182,10 @@ The first argument is a group name, and it becomes the top-level key those store
 `untrack("cart")` removes the group again. A store you pass to `trackStores` with the plugin on
 [leaves the file tree](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#a-store-listed-by-hand-leaves-the-file-tree)
 and moves under your group.
+
+If the plugin missed a store your own code holds, please [open an issue](https://github.com/psd-coder/nanostores-devtools/issues) with the code that creates and holds it, so we can teach the plugin to find it.
+
+Nothing in the panel, or less than you expected? See [Troubleshooting](https://nanostores-devtools.psdcoder.dev/how-it-works/troubleshooting).
 
 ## What you see in the panel
 
@@ -225,26 +223,9 @@ that name ourselves: nanostores has no actions to name a row after.
 | `$count/hotReload`                   | a file ran again and its stores were rebuilt          |
 | `config.theme.$x/set`                | a nested store was written, headed by its whole path  |
 
-[REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) has the
+[How it works](https://nanostores-devtools.psdcoder.dev/how-it-works) has the
 rest: how a store finds its owner, how two stores with one name are told apart, and what a value
 shows and cannot show.
-
-## When nothing shows up
-
-Our messages go to two places. The bridge writes to the browser console, every line beginning with
-`[nanostores-devtools]`, and the plugin writes to the terminal running your build. Each message is
-printed once, not once per save.
-
-If the tree is empty, walk down this list:
-
-| what you see                                      | what it means                                                                                                                                                   |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the dropdown has no entry for your app            | `connectDevtools()` never ran, or ran before the extension put itself on the page. Check `handle.connected`: `false` means we found no extension at that moment |
-| your app is there, the tree is empty              | the plugin is not in your bundler config, or the build is not a dev build                                                                                       |
-| the build failed naming `oxc-parser`              | install it, per [Installation](#installation)                                                                                                                   |
-| the terminal says the plugin did nothing          | the build's `mode` is not `"development"`                                                                                                                       |
-| your own stores are there, a dependency's are not | expected. Name them with [`trackStores`](#trackstoresgroup-stores)                                                                                              |
-| a key reads `ref#1`                               | nothing in your source names that value, so the tree says so instead of inventing a name                                                                        |
 
 ## Turning it off in a production build
 
@@ -252,7 +233,7 @@ The main entry ships a `production` export condition, and under it the package r
 that exports the same three names with the same types and does nothing. Vite, webpack and Rspack
 pick that condition up on their own. esbuild needs `--conditions=production` and Rollup needs
 `exportConditions: ["production"]`, both set once in your build config.
-[Turning it off in a production build](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#turning-it-off-in-a-production-build)
+[Turning it off in a production build](https://nanostores-devtools.psdcoder.dev/how-it-works/production)
 has the full table, and the explicit `import.meta.env.DEV` pattern for anyone who wants control
 instead of automation.
 
@@ -316,7 +297,7 @@ The plugin reads four comments next to a store, where a rename cannot lose them:
 `handle.disconnect()` closes the bridge and lets the next `connectDevtools()` open a fresh one. It
 is there for a page that tears its app down and builds another one.
 
-[What each `connectDevtools` option costs](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-connectdevtools-option-costs)
+[What each `connectDevtools` option costs](https://nanostores-devtools.psdcoder.dev/how-it-works/bridge-options)
 has the full rules for the options, the serializers and the four comments.
 
 ### `trackStores(group, stores)`
@@ -355,7 +336,7 @@ a name is registered whatever function it names, so
 Smart Stores list in the nanostores README. `maxDepth` counts a property, an index and a `Map` key
 alike. `projectRoot` is a Vite option; webpack and Rspack always climb up from `context` instead.
 
-[What each plugin option costs](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-each-plugin-option-costs)
+[What each plugin option costs](https://nanostores-devtools.psdcoder.dev/how-it-works/plugin-options)
 has what each one buys and what it costs.
 
 ### Types
@@ -394,8 +375,8 @@ type BundlerPluginOptions = {
 
 ## Documentation
 
-- [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) -
-  what the panel draws and why, and everything this package cannot do.
+- [Documentation site](https://nanostores-devtools.psdcoder.dev) - getting started, the API, and how it works: what the panel draws and why, and everything this package cannot do.
+- [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md) - every rule and edge case behind what the panel draws. For anyone changing the package.
 - [SPEC.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/SPEC.md) - what the
   bridge does today, stated in one place.
 - [ARCHITECTURE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/ARCHITECTURE.md)

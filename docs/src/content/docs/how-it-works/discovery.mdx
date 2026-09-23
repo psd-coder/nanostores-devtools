@@ -1,0 +1,62 @@
+---
+title: "Two ways a store gets in"
+description: "The bundler plugin and trackStores: which stores reach the panel, and the reachability rule behind it."
+order: 4
+menu: "how-it-works"
+---
+
+## The bundler plugin
+
+The plugin reads your source while your dev build runs, and makes every store register itself under a name you wrote. It is the same plugin under Vite, webpack and Rspack, and one rule decides everything it does:
+
+> **A store is tracked where your own code holds it, never where it only passed through.**
+
+Held means: bound to a name you wrote, sitting inside a value bound to a name you wrote, or handed back out of a call whose result is held. An argument to another call is not held. A step inside a function body is not held.
+
+### The reachability rule
+
+> **A store you can reach from a top-level binding of your own is drawn and watched. A store you cannot reach is invisible.**
+
+Reach means a path you could type in your own source, starting at a name your module binds: `config.theme.$x`, `$all[0]`, `byId["a1"].$status`, and `$root.value.$children` for a store sitting inside another store's value.
+
+**A store handed straight to another call is nobody's:**
+
+```js
+const $pointerEnd = merged([eventAtom(root, "up"), eventAtom(root, "cancel")]);
+```
+
+`$pointerEnd` is the store `merged` returned, and it is drawn. The two `eventAtom` calls are handed away, so nothing in your source can point at either one and neither is drawn. The same goes for a store a function keeps in a closure: no path names it.
+
+An array or an object a binding holds is different, because an index or a key on it is something you can type:
+
+```js
+const $totals = [atom(0), atom(1)]; // $totals[0], $totals[1]
+const config = { $x: atom(0) }; // config.$x
+```
+
+`foo({ $x: atom(0) })`, on the other hand, hands the whole object away and names nothing.
+
+**The panel follows your app while it is connected.** A store your app puts inside a store's value at run time joins the panel, and a store it drops leaves it. Two cases are not followed: a store dropped later into a binding that held no store when its file loaded, and stores built before `connectDevtools` ran. Register those with [`trackStores`](#trackstores).
+
+A codebase that does not use the `$` prefix gets all of this too: the name a call stands under is what counts, and the prefix is no part of it.
+
+**`adoptFactories`** decides which calls the plugin wraps. With `true`, the default, any call your module body holds under a name is wrapped, so `const theme = persistentAtom("theme", "dark")` reaches the tree from a file that never imports `"nanostores"`. With `false`, only calls to a function imported from `"nanostores"` are.
+
+A few shapes the plugin cannot follow are listed in [what the plugin misses](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md#what-the-plugin-misses).
+
+## `trackStores`
+
+Stores go in by hand with `trackStores`. Use it when you would rather not instrument your source automatically, or for a store the plugin cannot reach.
+
+```ts
+// src/stores/cart.ts
+import { atom, computed } from "nanostores";
+import { trackStores } from "nanostores-devtools";
+
+export const $items = atom<string[]>([]);
+export const $count = computed($items, (items) => items.length);
+
+trackStores("cart", { $items, $count });
+```
+
+`untrack("cart")` removes the group again.

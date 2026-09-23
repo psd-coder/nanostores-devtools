@@ -1,0 +1,38 @@
+---
+title: "How it works"
+description: "What nanostores-devtools draws and why: how a store gets its name, where it lands in the tree, what a timeline row means, what a value shows, and what the package cannot do."
+order: 3
+menu: "how-it-works"
+---
+
+What `nanostores-devtools` draws, and why it draws it that way. [Getting started](/) covers install and setup, and the [API](/api) page has every option's name and default. This section explains how a store gets its name, where it lands in the tree, what a timeline row means, what a value shows, and what the package cannot do.
+
+Every rule and edge case behind these pages, for anyone changing the package, is in [REFERENCE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/REFERENCE.md). How the code itself is put together is in [ARCHITECTURE.md](https://github.com/psd-coder/nanostores-devtools/blob/main/docs/ARCHITECTURE.md).
+
+## [How stores get in](/how-it-works/discovery)
+
+The bundler plugin and `trackStores`, and the reachability rule that decides which stores the plugin draws.
+
+## [The state tree](/how-it-works/tree)
+
+Homes, owners, `(value)`, the kind in square brackets, how a tree key is built, and what happens when two stores share a name.
+
+## [The timeline](/how-it-works/timeline)
+
+Every row name, when stores join and leave, and why a hot reload draws one row instead of a pair.
+
+## [`connectDevtools` options](/how-it-works/bridge-options)
+
+What each bridge option buys you and what it costs, plus the four comments the plugin reads and the serializers.
+
+## [Plugin options](/how-it-works/plugin-options)
+
+`maxDepth`, `storeTypes`, `fileKey` and `projectRoot`, and what parsing every file costs.
+
+## [Production builds](/how-it-works/production)
+
+The `production` export condition, bundler by bundler, and the explicit pattern for anyone who wants control.
+
+## [Troubleshooting](/how-it-works/troubleshooting)
+
+What to check when the panel shows nothing, or less than you expected.

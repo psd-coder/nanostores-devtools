@@ -1,0 +1,152 @@
+---
+title: "What each connectDevtools option costs"
+description: "What each connectDevtools option buys you, and what it costs when you change it."
+order: 7
+menu: "how-it-works"
+---
+
+Every option's name, type and default is on the [API page](/api#connectdevtoolsoptions). This page says what the table cannot: what each option buys you, and what it costs when you change it.
+
+## `name`
+
+`name` is fixed at the first connect and cannot change later. It defaults to a fixed word rather than `document.title`, which changes per page and per route.
+
+## `maxAge`
+
+**`maxAge` defaults to 500, not to the extension's own 50.** Every row holds a full copy of the state tree, and 50 rows is far too short for a debugging session. The memory it takes grows in a straight line: 500 rows with 1000 stores measured at about 50 MB.
+
+## `traceLimit`
+
+**`traceLimit` defaults to 10 and should not be lowered without thought.** The first frames of every captured stack belong to us and to nanostores, so a limit of 5 leaves you about one frame of your own code. Each frame costs a little on every write. The limit applies in Chrome; Firefox always gives a full stack.
+
+## `lifecycleEvents`
+
+**`lifecycleEvents: false` costs correctness, not only a quieter timeline.** The extension only sees the tree when we send a row, so with the option off a mount, an unmount or a late registration changes nothing in the panel until the next write. Turn it off when a route change that mounts many stores at once is too slow, and know what you pay for it.
+
+## `autoThrottle`
+
+**`autoThrottle` is on, and it is the one default that drops rows.** A store that writes more than 10 times a second is held to **one row a second**, and we warn once, naming the store. A frame loop would otherwise send about 60 full trees a second, fill `maxAge` in eight seconds and push every row you came to read out of the panel.
+
+**The tree is never behind. Only the steps between rows are lost.** Every row carries the whole tree, so a throttled store always shows its current value. Its key says so, `$frame [store, throttled]`, and it stays throttled for the rest of the session. A reload starts every store clean again.
+
+Pass your own threshold, `autoThrottle: 20`, or `false` to keep every row. To hold one store to another rate, or to keep every row of one store, use [the comments](#comments-the-plugin-reads).
+
+## `throttle`
+
+**`throttle` marks a store as throttled on purpose, and turns the warning off.** It takes the names as the tree writes them, `"home/name"`, or a rule over them:
+
+```ts
+connectDevtools({ throttle: ["src/model.ts/$remaining"] });
+connectDevtools({
+  throttle: (store) => store.home.startsWith("src/animation/"),
+});
+```
+
+A rule receives `{ home, name, type }` and runs when a store registers or is renamed, never per write. The name is the one you read in the tree, without the file and line that a clash adds to it.
+
+**A follower rides in the row its source opened**, so throttling one store quiets the whole chain behind it, and no computed store needs a mark of its own. Lifecycle rows are never throttled; `lifecycleEvents: false` is the lever for those.
+
+## `serializers`
+
+A custom serializer is `{ match: (value) => boolean, convert: (value) => unknown }`. Serializers run in array order, the first match wins, and all of them run before every rule of ours.
+
+**A serializer is how you draw a value the panel cannot read on its own.** Every field of a `MouseEvent` sits behind a getter, and a getter is never read, so without a rule it draws as an empty object:
+
+```ts
+connectDevtools({
+  serializers: [
+    {
+      match: (value) => value instanceof MouseEvent,
+      convert: (event) => ({
+        type: event.type,
+        x: event.clientX,
+        y: event.clientY,
+      }),
+    },
+  ],
+});
+```
+
+**Return plain data.** No serializer runs again on what `convert` returned, ours included, so write out anything inside it that needs converting too: `{ headers: Object.fromEntries(response.headers) }`, not `{ headers: response.headers }`, which draws `<Headers> {}`. A getter on your result does run.
+
+## `platformSerializers`
+
+**We ship rules of our own, and they run after yours.** These platform classes say nothing useful without one, so the bridge draws them itself:
+
+| class                                   | what it draws                 |
+| --------------------------------------- | ----------------------------- |
+| `Headers`                               | one key per header name       |
+| `FormData`                              | one key per entry             |
+| `URLSearchParams`                       | one key per entry             |
+| `ArrayBuffer`, `SharedArrayBuffer`      | `byteLength`                  |
+| `DataView`                              | `byteLength` and `byteOffset` |
+| a boxed `String`, `Number` or `Boolean` | the primitive under `(value)` |
+
+A rule of yours for one of these classes wins. Pass `platformSerializers: false` to leave the whole list out, and those values then draw the way every other class instance does.
+
+## `maxValueDepth` and `maxValueMembers`
+
+**`maxValueDepth` and `maxValueMembers` cap only what a class instance holds.** Everything you shaped yourself goes out whole, however large. Raise either number, or pass `Infinity` for no cap. Your own serializer runs before the caps, and a store below the caps keeps its whole value.
+
+## Comments the plugin reads
+
+The plugin reads four comments next to a store, where a rename cannot lose them. Each one covers the whole statement below it, so a call that makes several stores is covered in full.
+
+### `@nanostores-devtools:throttle`
+
+Marks a store as throttled, the way the `throttle` option does:
+
+```ts
+// @nanostores-devtools:throttle
+const $remaining = countdownAtom($delay, { interval: TICK });
+```
+
+**The comment also takes a rate of its own**, in milliseconds:
+
+```ts
+// @nanostores-devtools:throttle 100
+const $frame = atom(0);
+```
+
+That store draws one row per 100ms, and every other throttled store keeps the default second. Anything that is not a positive number of milliseconds still marks the store, at the default rate.
+
+### `@nanostores-devtools:no-throttle`
+
+Keeps every row of one store:
+
+```ts
+// @nanostores-devtools:no-throttle
+const $frame = atom(0);
+```
+
+That store writes fast on purpose, so `autoThrottle` never takes it over and never warns about it. A store you throttled on purpose, with the option or the other comment, stays throttled.
+
+### `@nanostores-devtools:ignore`
+
+Keeps a store out of the devtools completely:
+
+```ts
+// @nanostores-devtools:ignore
+const $session = atom(readToken());
+```
+
+That store never registers: no key in the tree, no row in the timeline. Every other store in the file is instrumented as usual. **Ignoring beats throttling** when a statement carries both comments. To draw an ignored store in one build, pass it to `trackStores`; delete the comment to bring it back for good.
+
+A comment cannot reach a store that a dependency makes, because the plugin never reads a file under `node_modules`. Such a store is in the tree only if you named it in `trackStores`.
+
+### `@nanostores-devtools:max-members`
+
+Caps how much of one binding the scan walks:
+
+```ts
+// @nanostores-devtools:max-members 25
+export const rows = await loadEveryRow();
+```
+
+The scan takes the first 25 members of that binding, at every depth, and stops. A store past the number is not drawn under the binding. The panel says what it left out under one key, `…`:
+
+```
+4975 more members left out by `@nanostores-devtools:max-members 25`
+```
+
+It takes a whole number of 1 or more. Anything else caps nothing, and your bundler prints the file and the line. `ignore` beats it over one statement.
